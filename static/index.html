@@ -233,12 +233,12 @@
     color: var(--md-sys-color-on-surface);
   }
   .app-bar__headline { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: var(--md-sys-spacing-3); }
-  /* Echoes the wordmark: heavy uppercase, tightly tracked. The logo's roughened
-     edges are outlines in the SVG rather than a typeface, so this is as close as
-     text can get with the bundled Roboto. */
+  /* Echoes the wordmark: uppercase, a little tracking to keep the caps open. The
+     logo's roughened edges are outlines in the SVG rather than a typeface, so
+     this is as close as text can get with the bundled Roboto. */
   .app-bar__title {
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    font-weight: 900; text-transform: uppercase; letter-spacing: -0.01em;
+    font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em;
   }
   .app-bar__supporting { color: var(--md-sys-color-on-surface-variant); white-space: nowrap; }
   .app-bar__actions { display: flex; align-items: center; gap: var(--md-sys-spacing-2); flex: none; }

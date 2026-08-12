@@ -3,7 +3,7 @@
   <a href="https://github.com/coencoensmeets/claude-watchtower">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="static/claude-watchtower-transparent-dark.svg">
-      <img src="static/claude-watchtower-transparent.svg" alt="Logo" height="110">
+      <img src="static/claude-watchtower-transparent.svg" alt="Logo" height="170">
     </picture>
   </a>
 
@@ -102,7 +102,9 @@ The window is split the way Material 3's list-detail layout prescribes.
 
 ### Left: the index
 
-Every session, one row each, sorted so anything waiting on you is at the top. Each row carries a round avatar whose *fill* is the session's state colour and whose *icon* is where the session lives — `</>` for VS Code, a terminal glyph for GNOME Terminal, Konsole, kitty, Alacritty, WezTerm, Ghostty or xterm, split panes for tmux or screen, a globe for a session over SSH. A lamp on the corner of the avatar repeats the state and animates: a slow pulse while working, a blink while waiting. Under the name you get the state and the folder, and on the right how long it has been in that state.
+Every session, one row each, sorted so anything waiting on you is at the top. Each row carries a round avatar whose *fill* is the session's state colour and whose *icon* is where the session lives — `</>` for VS Code, a terminal glyph for GNOME Terminal, Konsole, kitty, Alacritty, WezTerm, Ghostty or xterm, split panes for tmux or screen, a globe for a session over SSH. A lamp on the corner of the avatar repeats the state and animates: a slow pulse while working, a blink while waiting. Under the name you get what the session is working on, then the state and the folder, and on the right how long it has been in that state.
+
+The middle line is Claude's own one-line description of the conversation, which it writes a few turns in and rewrites as the subject moves. It is what tells four Claudes in one repository apart — the name says what a session is called, the description says what it is doing — and the detail pane shows the same line under the name. A session too young to have been described yet keeps a two-line row.
 
 The filter chips at the top of the index count each state and narrow the list to one of them. Click the same chip again, or **all**, to go back.
 
