@@ -1,0 +1,2040 @@
+#!/usr/bin/env python3
+"""claude-watchtower — a live panel for every Claude Code session on this machine.
+
+Reads ~/.claude/sessions/*.json, which Claude Code keeps current with one file
+per running session (pid, name, cwd, status). Status is one of:
+
+    busy     working right now
+    waiting  blocked on you — a question or a permission prompt
+    shell    running a foreground shell command
+    idle     finished, waiting for your next prompt
+
+A busy or shell reading is only believed while the session keeps refreshing it;
+see effective_status.
+
+Serves a small web UI and can raise the terminal or editor window that owns a
+session, using xdotool on X11.
+
+Standard library only. No install step.
+"""
+
+from __future__ import annotations
+
+import argparse
+import ipaddress
+import json
+import os
+import re
+import shutil
+import signal
+import socket
+import subprocess
+import threading
+import time
+import uuid
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import parse_qs, urlparse
+
+HOME = Path.home()
+# Override to point at a fixture directory when trying out the panel's states.
+# CLAUDE_BUSY_UI_SESSION_DIR is the pre-rename name, still honoured.
+SESSION_DIR = Path(
+    os.environ.get("CLAUDE_WATCHTOWER_SESSION_DIR")
+    or os.environ.get("CLAUDE_BUSY_UI_SESSION_DIR")
+    or HOME / ".claude" / "sessions"
+)
+PROJECT_DIR = HOME / ".claude" / "projects"
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+PAIR_FILE = HOME / ".config" / "claude-watchtower" / "pairs.json"
+# Names you have given sessions yourself, keyed by session id.
+NAME_FILE = HOME / ".config" / "claude-watchtower" / "names.json"
+MAX_NAME = 80
+# Session ids are never reused, so the file would grow forever without a cap.
+MAX_NAMES = 500
+# Sessions you asked the panel to keep after their process is gone.
+STICKY_FILE = HOME / ".config" / "claude-watchtower" / "sticky.json"
+MAX_STICKY = 100
+
+# How long a state trace remembers, and how often we sample.
+HISTORY_SECONDS = 30 * 60
+SAMPLE_INTERVAL = 1.0
+
+KNOWN_STATUSES = ("waiting", "busy", "shell", "idle")
+
+# States that mean work is happening right now. Claude Code writes the status
+# only when it changes, so an old reading is not proof of anything on its own —
+# see effective_status.
+ACTIVE_STATUSES = ("busy", "shell")
+# Short on purpose. The age check is not what keeps a working session on screen —
+# the liveness signals below do that — so this only has to be long enough not to
+# flap between two of them.
+STATUS_TTL = 15.0
+# A transcript that grew this recently counts as a session still at work. Kept
+# tight: the last thing a finished turn does is write to the transcript, so a
+# long window would hold every session at "working" well past the end of its turn.
+TRANSCRIPT_WINDOW = 10.0
+# A working session burns a good fraction of a core; an idle one ticks along at
+# well under a hundredth of one, so the gap between them is wide.
+WORKING_CPU = 0.02
+CPU_WINDOW = 5.0
+
+
+def cpu_seconds(pid: int) -> float | None:
+    """CPU this process has burned so far — utime plus stime, in seconds."""
+    fields = read_stat(pid)
+    if not fields or len(fields) < 15:
+        return None
+    try:
+        return (int(fields[13]) + int(fields[14])) / CLK_TCK
+    except ValueError:
+        return None
+
+
+def status_age(data: dict, now: float) -> float | None:
+    written = data.get("statusUpdatedAt") or data.get("updatedAt")
+    written = written / 1000 if isinstance(written, (int, float)) else data.get("fileMtime")
+    return now - written if isinstance(written, (int, float)) else None
+
+
+def effective_status(data: dict, now: float, live: bool) -> str:
+    """The session's status, dropped to idle once nothing backs it up.
+
+    Claude Code writes `busy` or `shell` and then goes quiet: it records a status
+    when the status changes, not on a timer. So an eight-minute-old `busy` may
+    mean eight minutes of hard thinking, or it may mean the session wrote one
+    line at startup — while sourcing its shell snapshot — and has sat at the
+    prompt ever since. Age alone cannot tell those apart, and guessing from age
+    alone reports every long turn as ready.
+
+    `live` carries the second opinion: is the process burning CPU, is its
+    transcript still growing. Only when the reading is old *and* nothing else
+    says the session is working does the panel stop believing it.
+
+    Only the active states expire. `waiting` means blocked on you and stays put
+    for as long as you take, which is not the same as going stale.
+    """
+    status = data.get("status") or "idle"
+    if status not in ACTIVE_STATUSES or live:
+        return status
+    age = status_age(data, now)
+    return "idle" if age is not None and age > STATUS_TTL else status
+
+
+# ----------------------------------------------------------------- proc helpers
+
+
+def clock_ticks() -> float:
+    try:
+        return os.sysconf("SC_CLK_TCK") or 100.0
+    except (ValueError, OSError):
+        return 100.0
+
+
+CLK_TCK = clock_ticks()
+
+
+def read_stat(pid: int) -> list[str] | None:
+    """Fields of /proc/<pid>/stat, with the comm field's spaces neutralised."""
+    try:
+        raw = (Path("/proc") / str(pid) / "stat").read_text()
+    except (OSError, ValueError):
+        return None
+    close = raw.rfind(")")
+    if close == -1:
+        return None
+    # Field 1 is pid, field 2 is comm (parenthesised); the rest are space-split.
+    return [raw[: raw.find("(")].strip(), raw[raw.find("(") + 1 : close]] + raw[
+        close + 2 :
+    ].split()
+
+
+def proc_starttime(pid: int) -> str | None:
+    """Field 22 of /proc/<pid>/stat — identifies a pid across reuse."""
+    fields = read_stat(pid)
+    if not fields or len(fields) < 22:
+        return None
+    return fields[21]
+
+
+def parent_of(pid: int) -> int | None:
+    fields = read_stat(pid)
+    if not fields or len(fields) < 4:
+        return None
+    try:
+        return int(fields[3])
+    except ValueError:
+        return None
+
+
+def ancestors(pid: int, limit: int = 12) -> list[int]:
+    """The pid's ancestor chain, nearest first, stopping before init."""
+    chain: list[int] = []
+    current = parent_of(pid)
+    while current and current > 1 and len(chain) < limit:
+        chain.append(current)
+        current = parent_of(current)
+    return chain
+
+
+def proc_name(pid: int) -> str:
+    fields = read_stat(pid)
+    return fields[1] if fields and len(fields) > 1 else ""
+
+
+def session_tty(pid: int) -> str | None:
+    """The pty a session is attached to, as a device path, or None.
+
+    Field 7 of /proc/<pid>/stat is the controlling terminal's device number:
+    major 136 is a pty, and the minor is its /dev/pts entry. This is what tells
+    two tabs of one terminal apart — they share a process, and therefore a
+    window pid, but never a pty. Reading fd 0 is the fallback for a session
+    that has moved its own standard input somewhere else.
+    """
+    fields = read_stat(pid)
+    if fields and len(fields) >= 7:
+        try:
+            device = int(fields[6])
+        except ValueError:
+            device = 0
+        if device > 0 and (device >> 8) & 0xFFF == 136:
+            path = f"/dev/pts/{(device & 0xFF) | ((device >> 20) << 8)}"
+            if os.path.exists(path):
+                return path
+    for fd in (0, 1, 2):
+        try:
+            link = os.readlink(f"/proc/{pid}/fd/{fd}")
+        except OSError:
+            continue
+        if link.startswith("/dev/pts/"):
+            return link
+    return None
+
+
+def end_process(pid: int, recorded_start: str | None, force: bool) -> tuple[bool, str]:
+    """Signal a session's process, refusing if that pid is no longer the session.
+
+    Pids get reused, so the starttime recorded in the session file is checked
+    again right before signalling — otherwise a stale panel could kill whatever
+    inherited the number.
+    """
+    if not isinstance(pid, int) or pid <= 1:
+        return False, "That session has no process to end"
+    actual = proc_starttime(pid)
+    if actual is None:
+        return False, "That process has already gone"
+    if recorded_start not in (None, "", actual):
+        return False, "That pid belongs to a different process now"
+    try:
+        os.kill(pid, signal.SIGKILL if force else signal.SIGTERM)
+    except ProcessLookupError:
+        return False, "That process has already gone"
+    except PermissionError:
+        return False, "Not allowed to end that process"
+    except OSError as exc:
+        return False, str(exc)
+    return True, "Session force quit" if force else "Ending the session…"
+
+
+# --------------------------------------------------------------- sending input
+
+
+# Claude Code listens on a per-session unix socket — the path is in the session
+# file, the directory is mode 0700, and the socket itself 0600, so only this user
+# can reach it. Two newline-delimited JSON lines inject a turn: an optional auth
+# line, then the message. The protocol is internal, hence PEER_PROTOCOL below.
+PEER_PROTOCOL = 1
+# Sending is settled once, in main, from the address we bind. Off unless loopback:
+# anyone who can POST /api/say can instruct an agent that has tools and a
+# checkout, which is a different order of risk from raising a window.
+SAY_ENABLED = False
+
+
+def is_loopback(host: str) -> bool:
+    if host in ("localhost", ""):
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+# A reply, if one comes, arrives within a moment. Nothing is lost by not waiting:
+# the message is already written.
+SAY_TIMEOUT = 2.0
+
+
+def peer_token(pid: int) -> str | None:
+    """The session's inbox token, if it published one.
+
+    Newer sessions write <pid>.<hash>.key beside the session file; older ones
+    don't, and their socket accepts an unauthenticated message instead. Both are
+    normal, so a missing key is not an error.
+    """
+    for path in sorted(SESSION_DIR.glob(f"{pid}.*.key")):
+        try:
+            raw = path.read_text().strip()
+        except OSError:
+            continue
+        if not raw:
+            continue
+        if raw.startswith("{"):
+            try:
+                obj = json.loads(raw)
+            except ValueError:
+                continue
+            for field in ("peerToken", "token", "key"):
+                value = obj.get(field)
+                if isinstance(value, str) and value:
+                    return value
+            continue
+        return raw
+    return None
+
+
+def say_to_session(data: dict, text: str) -> tuple[bool, str]:
+    """Inject a user turn into a live session over its messaging socket.
+
+    The pid's starttime is re-checked first, exactly as end_process does — the
+    socket is named after the pid, so a stale panel must not be able to talk to
+    whatever inherited the number.
+    """
+    text = text.strip()
+    if not text:
+        return False, "Nothing to send"
+
+    pid = data.get("pid")
+    if not isinstance(pid, int) or pid <= 1:
+        return False, "That session has no process to send to"
+    actual = proc_starttime(pid)
+    if actual is None:
+        return False, "That process has already gone"
+    if data.get("procStart") not in (None, "", actual):
+        return False, "That pid belongs to a different process now"
+
+    protocol = data.get("peerProtocol")
+    if protocol != PEER_PROTOCOL:
+        # Rather than guess at a protocol we have not seen, say so and stay read-only.
+        return False, f"This session speaks messaging protocol {protocol!r}, which this panel does not know"
+
+    sock_path = data.get("messagingSocketPath")
+    if not sock_path:
+        return False, "This session is not listening for messages"
+    if not Path(sock_path).exists():
+        return False, "This session's message socket has gone"
+
+    lines: list[dict] = []
+    token = peer_token(pid)
+    if token:
+        lines.append({"type": "auth", "token": token})
+    lines.append({"type": "user", "message": {"role": "user", "content": text}})
+    payload = "".join(json.dumps(line) + "\n" for line in lines).encode()
+
+    conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    conn.settimeout(SAY_TIMEOUT)
+    try:
+        conn.connect(sock_path)
+        conn.sendall(payload)
+    except (OSError, socket.timeout) as exc:
+        conn.close()
+        return False, f"Could not reach that session: {exc}"
+
+    # Anything sent back is either an auth refusal or a receipt saying the
+    # message was held for approval rather than delivered. Silence is the normal
+    # case and means it went straight in.
+    held = None
+    try:
+        conn.shutdown(socket.SHUT_WR)
+        buf = conn.recv(4096)
+        for raw in buf.decode("utf-8", "replace").splitlines():
+            if not raw.strip():
+                continue
+            try:
+                note = json.loads(raw)
+            except ValueError:
+                continue
+            if note.get("status") in ("held", "denied", "expired"):
+                held = note
+    except (OSError, socket.timeout):
+        pass
+    finally:
+        conn.close()
+
+    if held:
+        status = held.get("status")
+        if status == "denied":
+            return False, "That session declined the message"
+        if status == "expired":
+            return False, "The message expired before it was let through"
+        return True, "Sent — waiting to be allowed through at the terminal"
+    return True, "Sent"
+
+
+# -------------------------------------------------------------------- git repo
+
+
+def git_root(cwd: str) -> str | None:
+    """The repository root above cwd, found by looking for .git — no subprocess.
+
+    Returns the working tree root, which is what every git command below runs
+    against: a session sitting three directories down would otherwise stage and
+    diff relative to the wrong place.
+    """
+    if not cwd:
+        return None
+    path = Path(cwd)
+    for candidate in [path, *path.parents]:
+        git = candidate / ".git"
+        # A file rather than a directory means a worktree or a submodule; either
+        # way the tree root is still the directory holding it.
+        if git.is_dir() or git.is_file():
+            return str(candidate)
+    return None
+
+
+def git_branch(cwd: str) -> str | None:
+    """Current branch by reading .git/HEAD — no subprocess, no repo lock.
+
+    Kept file-based because every session in the list calls it once a poll;
+    shelling out that often would be a subprocess per session per 15 seconds for
+    a string that is sitting right there in a file.
+    """
+    path = Path(cwd)
+    for candidate in [path, *path.parents]:
+        git = candidate / ".git"
+        head = None
+        if git.is_dir():
+            head = git / "HEAD"
+        elif git.is_file():
+            try:
+                link = git.read_text().strip()
+            except OSError:
+                return None
+            if link.startswith("gitdir:"):
+                head = Path(link[7:].strip()) / "HEAD"
+        if head and head.exists():
+            try:
+                text = head.read_text().strip()
+            except OSError:
+                return None
+            if text.startswith("ref: refs/heads/"):
+                return text[16:]
+            return text[:7] if text else None
+    return None
+
+
+# --------------------------------------------------------------- git commands
+
+
+# Only these reach the git binary. The panel builds every argument itself — the
+# allowlist is here so that a later write path has to add itself deliberately
+# rather than inheriting the ability to run anything.
+GIT_READ_COMMANDS = frozenset({"status", "log", "rev-parse", "stash", "diff"})
+
+
+def git_run(root: str, args: list[str], timeout: float = 6.0) -> tuple[bool, str]:
+    """Run one read-only git command in root and return (ok, stdout).
+
+    --no-optional-locks so that reading a repository never blocks the session
+    working in it, and never leaves an index.lock behind if we are killed
+    mid-read. No shell: arguments are passed as a list, always.
+    """
+    if not args or args[0] not in GIT_READ_COMMANDS:
+        return False, ""
+    if not shutil.which("git"):
+        return False, ""
+    try:
+        result = subprocess.run(
+            ["git", "--no-optional-locks", "-C", root, *args],
+            capture_output=True, text=True, timeout=timeout,
+            # A repository is not a place to inherit the panel's environment
+            # wholesale; a pager or an editor would hang the request.
+            env={**os.environ, "GIT_PAGER": "cat", "GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0"},
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False, ""
+    if result.returncode != 0:
+        return False, ""
+    return True, result.stdout
+
+
+def parse_status(text: str) -> list[dict]:
+    """Parse `status --porcelain=v2 -z` into one entry per path.
+
+    Structured rather than pre-rendered: staging a single file later needs each
+    entry's own identity, which a formatted list cannot give back.
+    """
+    entries: list[dict] = []
+    fields = text.split("\0")
+    index = 0
+    while index < len(fields):
+        line = fields[index]
+        index += 1
+        if not line:
+            continue
+        kind = line[0]
+        if kind in ("1", "2"):
+            # A rename or copy record carries one extra field — the similarity
+            # score — before the path, so the two shapes are split differently.
+            width = 8 if kind == "1" else 9
+            parts = line.split(" ", width)
+            if len(parts) < width + 1:
+                continue
+            xy, path = parts[1], parts[width]
+            orig = None
+            if kind == "2" and index < len(fields):
+                # Under -z the source path follows as its own field.
+                orig = fields[index]
+                index += 1
+            entries.append({
+                "path": path,
+                "origPath": orig,
+                "staged": xy[0] if xy[0] != "." else None,
+                "unstaged": xy[1] if xy[1] != "." else None,
+                "untracked": False,
+                "conflicted": False,
+            })
+        elif kind == "u":
+            parts = line.split(" ", 10)
+            if len(parts) < 11:
+                continue
+            entries.append({
+                "path": parts[10], "origPath": None,
+                "staged": None, "unstaged": None,
+                "untracked": False, "conflicted": True,
+            })
+        elif kind == "?":
+            entries.append({
+                "path": line[2:], "origPath": None,
+                "staged": None, "unstaged": None,
+                "untracked": True, "conflicted": False,
+            })
+    entries.sort(key=lambda e: e["path"])
+    return entries
+
+
+# One record per commit, unit-separated so a subject containing anything at all
+# still parses. %x1f is the ASCII unit separator, %x1e the record separator.
+LOG_FORMAT = "%H%x1f%h%x1f%P%x1f%an%x1f%at%x1f%D%x1f%s%x1e"
+
+
+def parse_log(text: str) -> list[dict]:
+    """Parse the log format above into commits carrying their parents.
+
+    Parents come along because the lane-drawing a graph needs is a client-side
+    job over the real ancestry, not something to scrape out of --graph's ASCII.
+    """
+    commits = []
+    for record in text.split("\x1e"):
+        record = record.strip("\n")
+        if not record:
+            continue
+        parts = record.split("\x1f")
+        if len(parts) < 7:
+            continue
+        sha, short, parents, author, when, refs, subject = parts[:7]
+        try:
+            timestamp = int(when)
+        except ValueError:
+            timestamp = 0
+        commits.append({
+            "sha": sha,
+            "short": short,
+            "parents": parents.split() if parents else [],
+            "author": author,
+            "at": timestamp,
+            "refs": [r.strip() for r in refs.split(",") if r.strip()],
+            "subject": subject,
+        })
+    return commits
+
+
+def read_git(root: str, log_limit: int = 60) -> dict:
+    """Everything the Git tab reads, in one pass over the repository."""
+    out: dict = {
+        "ok": True, "repoRoot": root, "head": None, "branch": None,
+        "upstream": None, "ahead": 0, "behind": 0, "detached": False,
+        "files": [], "commits": [], "stashes": 0, "gitAvailable": True,
+    }
+    if not shutil.which("git"):
+        return {**out, "ok": False, "gitAvailable": False,
+                "message": "git is not installed, so this tab can only show the branch"}
+
+    ok, status = git_run(root, ["status", "--porcelain=v2", "--branch", "--untracked-files=all", "-z"])
+    if not ok:
+        return {**out, "ok": False, "message": "Could not read this repository"}
+
+    # The --branch headers come through as ordinary NUL-separated fields.
+    for field in status.split("\0"):
+        if not field.startswith("# branch."):
+            continue
+        key, _, value = field[9:].partition(" ")
+        if key == "oid":
+            out["head"] = None if value == "(initial)" else value
+        elif key == "head":
+            out["detached"] = value == "(detached)"
+            out["branch"] = None if value == "(detached)" else value
+        elif key == "upstream":
+            out["upstream"] = value
+        elif key == "ab":
+            for token in value.split():
+                try:
+                    count = int(token[1:])
+                except ValueError:
+                    continue
+                if token.startswith("+"):
+                    out["ahead"] = count
+                elif token.startswith("-"):
+                    out["behind"] = count
+
+    out["files"] = parse_status(status)
+
+    # --exclude=refs/stash keeps a stash's two internal commits out of what is
+    # meant to be history; HEAD is named explicitly so a detached one still
+    # appears, since --all only walks refs.
+    ok, log = git_run(root, ["log", f"--max-count={log_limit}", "--date-order",
+                             "--exclude=refs/stash", "--all", "HEAD",
+                             f"--pretty=format:{LOG_FORMAT}"])
+    # A repository with no commits yet fails here, and that is not an error.
+    out["commits"] = parse_log(log) if ok else []
+
+    ok, stash = git_run(root, ["stash", "list"])
+    out["stashes"] = len([line for line in stash.splitlines() if line]) if ok else 0
+    return out
+
+
+# --------------------------------------------------------------- last activity
+
+
+def tail_bytes(path: Path, size: int = 96_000) -> str:
+    try:
+        with path.open("rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            start = max(0, handle.tell() - size)
+            handle.seek(start)
+            return handle.read().decode("utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
+def summarise_block(block: dict) -> str | None:
+    kind = block.get("type")
+    if kind == "text":
+        text = (block.get("text") or "").strip()
+        return " ".join(text.split())[:160] or None
+    if kind == "tool_use":
+        name = block.get("name") or "tool"
+        args = block.get("input") or {}
+        detail = ""
+        if isinstance(args, dict):
+            for key in ("description", "command", "file_path", "pattern", "path", "prompt"):
+                value = args.get(key)
+                if isinstance(value, str) and value.strip():
+                    detail = " ".join(value.split())[:110]
+                    break
+        return f"{name}: {detail}" if detail else str(name)
+    if kind == "thinking":
+        return "thinking"
+    return None
+
+
+def transcript_paths(session_id: str, cwd: str) -> list[Path]:
+    """Where Claude Code keeps this session's transcript."""
+    slug = "-" + re.sub(r"[^A-Za-z0-9]+", "-", cwd.lstrip("/"))
+    direct = PROJECT_DIR / slug / f"{session_id}.jsonl"
+    if direct.exists():
+        return [direct]
+    try:
+        return list(PROJECT_DIR.glob(f"*/{session_id}.jsonl"))
+    except OSError:
+        return []
+
+
+def last_activity(session_id: str, cwd: str) -> dict | None:
+    """Best-effort read of the newest interesting line in the transcript."""
+    for path in transcript_paths(session_id, cwd):
+        if not path.exists():
+            continue
+        lines = tail_bytes(path).splitlines()
+        for line in reversed(lines):
+            line = line.strip()
+            if not line.startswith("{"):
+                continue
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            role = entry.get("type")
+            if role not in ("assistant", "user"):
+                continue
+            message = entry.get("message")
+            content = message.get("content") if isinstance(message, dict) else None
+            summary = None
+            if isinstance(content, str):
+                summary = " ".join(content.split())[:160] or None
+            elif isinstance(content, list):
+                for block in reversed(content):
+                    if isinstance(block, dict):
+                        summary = summarise_block(block)
+                        if summary:
+                            break
+            if summary:
+                return {"role": role, "text": summary, "mtime": path.stat().st_mtime}
+    return None
+
+
+# ------------------------------------------------------------- permission mode
+
+
+# Every mode a reading can come back as. `dontAsk` is not one Shift+Tab reaches;
+# the rest are its ring, in the order it walks them.
+PERMISSION_MODES = ("default", "acceptEdits", "plan", "bypassPermissions", "auto", "dontAsk")
+
+
+def read_permission_mode(session_id: str, cwd: str) -> str | None:
+    """The permission mode this session last wrote down.
+
+    Claude Code does not record the mode when it changes. The mode rides along in
+    the block of session metadata the transcript writer re-appends now and then —
+    on a resume, at exit, once the transcript has grown past a threshold — so a
+    session that is working says where it is within seconds, and one sitting at
+    its prompt holds whatever it last said, however long ago that was.
+
+    Which is why this is a reading and not a setting. Nothing else on disk says
+    more: the session file does not carry the mode, and the setter inside Claude
+    Code only stages the value in memory. Anything that acted on this number —
+    counting Shift+Tab presses from it, say — would be starting from a figure
+    that is right until someone touches the keyboard and has no way to notice
+    that they did.
+    """
+    for path in transcript_paths(session_id, cwd):
+        for line in reversed(tail_bytes(path).splitlines()):
+            if '"permission-mode"' not in line:
+                continue
+            try:
+                entry = json.loads(line.strip())
+            except ValueError:
+                continue
+            if entry.get("type") != "permission-mode":
+                continue
+            mode = entry.get("permissionMode")
+            if isinstance(mode, str) and mode in PERMISSION_MODES:
+                return mode
+    return None
+
+
+TOOL_DETAIL_KEYS = ("description", "command", "file_path", "pattern", "path", "prompt", "url", "query")
+
+# Entry types that are plumbing rather than conversation.
+SKIP_ENTRY_TYPES = {
+    "attachment", "file-history-snapshot", "queue-operation", "last-prompt",
+    "ai-title", "mode", "permission-mode", "system", "summary",
+}
+
+
+def tool_detail(args: object) -> str:
+    if not isinstance(args, dict):
+        return ""
+    for key in TOOL_DETAIL_KEYS:
+        value = args.get(key)
+        if isinstance(value, str) and value.strip():
+            return " ".join(value.split())[:200]
+    return ""
+
+
+# A message that arrives over a session's socket — from this panel's composer or
+# from another session — is wrapped in an envelope before it reaches the model.
+CROSS_SESSION = re.compile(
+    r"^<cross-session-message(?P<attrs>[^>]*)>\n(?P<body>.*)\n</cross-session-message>$",
+    re.DOTALL,
+)
+FROM_NAME = re.compile(r'from-name="([^"]*)"')
+
+
+def unwrap_sent(text: str) -> dict | None:
+    """The message inside a socket envelope, and who put it there.
+
+    Claude Code never writes such a message down as a plain turn: it records the
+    envelope on the queue and hands the body to the model as an attachment. Left
+    alone, everything typed into this panel's composer would therefore be missing
+    from the conversation it was typed into — which is precisely the half of the
+    conversation the panel is responsible for.
+    """
+    found = CROSS_SESSION.match(text.strip())
+    if not found:
+        return None
+    who = FROM_NAME.search(found.group("attrs") or "")
+    return {"text": found.group("body").strip(), "from": (who.group(1) if who else "") or None}
+
+
+def reverse_lines(path: Path, cap: int = 3_000_000, block: int = 262_144):
+    """The file's lines, newest first, reading back only as far as it is asked to.
+
+    A transcript is mostly tool results, and a working session writes megabytes of
+    them between two things you actually said. A fixed tail therefore drops your
+    own messages first — on a 5 MB transcript the last 400 KB held ten of Claude's
+    turns and none of mine. Walking backwards spends its reading where the
+    conversation is instead.
+    """
+    try:
+        with path.open("rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            pos = handle.tell()
+            floor = max(0, pos - cap)
+            held = b""
+            while pos > floor:
+                start = max(floor, pos - block)
+                handle.seek(start)
+                chunk = handle.read(pos - start) + held
+                pos = start
+                parts = chunk.split(b"\n")
+                # The first piece is only half a line until the chunk before it
+                # arrives, so it waits.
+                held = parts.pop(0)
+                for raw in reversed(parts):
+                    if raw.strip():
+                        yield raw.decode("utf-8", "replace")
+            if held.strip():
+                yield held.decode("utf-8", "replace")
+    except OSError:
+        return
+
+
+# How far past a full page of messages to keep looking for the session's title
+# before giving up on it: it rides in a metadata block, which recurs often.
+TITLE_PATIENCE = 4000
+
+
+def read_transcript(session_id: str, cwd: str, limit: int = 60) -> dict:
+    """The recent conversation: what you said, what Claude said, what it ran.
+
+    Tool results are left out — they are the mechanics of a turn, not the
+    conversation — but each tool call is kept so the run reads honestly. Read
+    newest-first and stopped as soon as there is a page of it, so a long session
+    costs no more than a short one.
+    """
+    for path in transcript_paths(session_id, cwd):
+        if not path.exists():
+            continue
+        title = None
+        entries: list[dict] = []
+        sent: set[str] = set()
+        more = False
+        seen = 0
+        for line in reverse_lines(path):
+            line = line.strip()
+            if not line.startswith("{"):
+                continue
+            seen += 1
+            # A page of conversation is enough; the title is worth a little more
+            # reading, since it rides in a block of its own.
+            if len(entries) >= limit and (title is not None or seen > TITLE_PATIENCE):
+                more = True
+                break
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            kind = entry.get("type")
+            if kind == "ai-title" and entry.get("aiTitle"):
+                if title is None:
+                    title = str(entry["aiTitle"])[:120]
+                continue
+            # Where a message sent over the socket is written down: on the queue,
+            # once going on and once coming off. The one going on is the message.
+            if kind == "queue-operation":
+                if entry.get("operation") != "enqueue":
+                    continue
+                came = unwrap_sent(str(entry.get("content") or ""))
+                if came and came["text"] and came["text"] not in sent:
+                    sent.add(came["text"])
+                    entries.append({
+                        "role": "user", "at": entry.get("timestamp"),
+                        "text": came["text"][:4000], "tools": [], "from": came["from"] or "",
+                    })
+                continue
+            if kind in SKIP_ENTRY_TYPES or kind not in ("user", "assistant"):
+                continue
+            if entry.get("isMeta") or entry.get("isSidechain"):
+                continue
+            message = entry.get("message")
+            if not isinstance(message, dict):
+                continue
+            content = message.get("content")
+            at = entry.get("timestamp")
+
+            if isinstance(content, str):
+                text = content.strip()
+                # A message delivered rather than queued arrives with its
+                # envelope on; the same message must not be shown twice.
+                came = unwrap_sent(text) if text.startswith("<cross-session-message") else None
+                if came:
+                    if came["text"] and came["text"] not in sent:
+                        sent.add(came["text"])
+                        entries.append({"role": "user", "at": at, "text": came["text"][:4000],
+                                        "tools": [], "from": came["from"] or ""})
+                elif text and not text.startswith("<"):
+                    entries.append({"role": kind, "at": at, "text": text[:4000], "tools": []})
+                continue
+            if not isinstance(content, list):
+                continue
+
+            texts, tools, only_results = [], [], True
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                block_kind = block.get("type")
+                if block_kind == "text":
+                    only_results = False
+                    text = (block.get("text") or "").strip()
+                    if text:
+                        texts.append(text)
+                elif block_kind == "tool_use":
+                    only_results = False
+                    tools.append({"name": block.get("name") or "tool", "detail": tool_detail(block.get("input"))})
+                elif block_kind == "thinking":
+                    only_results = False
+            if only_results:
+                continue  # a pure tool_result turn
+            if texts or tools:
+                entries.append({
+                    "role": kind, "at": at,
+                    "text": "\n\n".join(texts)[:4000],
+                    "tools": tools[:12],
+                })
+
+        # Read newest-first, so put it back the way it was said.
+        entries.reverse()
+        return {
+            "sessionId": session_id,
+            "title": title,
+            "messages": entries[-max(1, min(limit, 200)):],
+            "truncated": more or len(entries) > limit,
+            "path": str(path),
+        }
+    return {"sessionId": session_id, "title": None, "messages": [], "truncated": False, "path": None}
+
+
+# ------------------------------------------------------------------- X11 windows
+
+
+def decode_xprop(text: str) -> str:
+    """xprop escapes non-ASCII bytes, so unescape then read them back as UTF-8.
+
+    Only when it actually escaped something: a title that already arrived as
+    proper text must be left alone, since the round-trip cannot represent
+    characters outside latin-1 and would replace them with '?'.
+    """
+    if "\\" not in text:
+        return text
+    try:
+        return text.encode("latin-1", "backslashreplace").decode("unicode_escape").encode(
+            "latin-1", "replace"
+        ).decode("utf-8", "replace")
+    except (UnicodeDecodeError, UnicodeEncodeError):
+        return text
+
+
+# Window classes and process names that plausibly host a Claude Code session.
+# A title alone is only allowed to identify a window if it is one of these:
+# plenty of browsers and file managers put a project folder in their title too.
+HOST_HINTS = (
+    "terminal", "xterm", "urxvt", "rxvt", "konsole", "kitty", "ghostty",
+    "wezterm", "alacritty", "tilix", "guake", "terminator", "foot", "st-256color",
+    "code", "code-oss", "vscodium", "cursor", "windsurf", "jetbrains", "tmux",
+)
+
+
+def looks_like_host(wclass: str, pid: int | None) -> bool:
+    """Whether this window belongs to something a session could be running in."""
+    marks = f"{wclass} {proc_name(pid) if pid else ''}".lower()
+    return any(hint in marks for hint in HOST_HINTS)
+
+
+class WindowIndex:
+    """Visible top-level windows with their pid and title, briefly cached."""
+
+    def __init__(self, ttl: float = 4.0) -> None:
+        self.ttl = ttl
+        self._at = 0.0
+        self._windows: list[dict] = []
+        self._lock = threading.Lock()
+
+    def available(self) -> bool:
+        return bool(shutil.which("xdotool") and shutil.which("xprop") and os.environ.get("DISPLAY"))
+
+    def windows(self, force: bool = False) -> list[dict]:
+        with self._lock:
+            if not force and time.time() - self._at < self.ttl:
+                return self._windows
+            self._windows = self._scan()
+            self._at = time.time()
+            return self._windows
+
+    def _scan(self) -> list[dict]:
+        if not self.available():
+            return []
+        try:
+            root = subprocess.run(
+                ["xprop", "-root", "_NET_CLIENT_LIST"],
+                capture_output=True, text=True, timeout=4,
+            ).stdout
+        except (OSError, subprocess.SubprocessError):
+            return []
+        ids = re.findall(r"0x[0-9a-fA-F]+", root)
+        found: list[dict] = []
+        for window_id in ids:
+            try:
+                props = subprocess.run(
+                    ["xprop", "-id", window_id, "_NET_WM_PID", "WM_CLASS", "_NET_WM_NAME", "WM_NAME"],
+                    capture_output=True, text=True, timeout=4,
+                ).stdout
+            except (OSError, subprocess.SubprocessError):
+                continue
+            pid_match = re.search(r"_NET_WM_PID\(\w+\) = (\d+)", props)
+            title_match = re.search(r'_NET_WM_NAME\(\w+\) = "(.*)"', props) or re.search(
+                r'WM_NAME\(\w+\) = "(.*)"', props
+            )
+            class_match = re.search(r'WM_CLASS\(\w+\) = "(?:[^"]*)", "([^"]*)"', props)
+            title = decode_xprop(title_match.group(1) if title_match else "")
+            # xterm and a few others never set _NET_WM_PID. Such a window can
+            # still be identified by its title, so it is kept rather than
+            # dropped; only one with nothing at all to go on is useless.
+            if not pid_match and not title:
+                continue
+            pid = int(pid_match.group(1)) if pid_match else None
+            wclass = class_match.group(1) if class_match else ""
+            found.append({
+                "id": window_id,
+                "pid": pid,
+                "title": title,
+                "wclass": wclass,
+                "host": looks_like_host(wclass, pid),
+            })
+        return found
+
+    def match(self, session: dict) -> dict | None:
+        """Find the window most likely to own this session.
+
+        A window's _NET_WM_PID is the terminal or editor process, so we look for
+        a window whose pid sits on the session's ancestor chain, and read the
+        title for corroboration.
+
+        The pid is not always the discriminator it looks like. GNOME Terminal,
+        and every other terminal with a server process, reports the *same* pid
+        for every one of its windows: each one then sits on the chain and scores
+        alike. The old code took the first of them, which is a coin flip wearing
+        the word "likely". When the leaders tie, this says `ambiguous` and hands
+        the choice on — to the probe, or to you.
+        """
+        windows = self.windows()
+        if not windows:
+            return None
+        chain = session.get("ancestors") or []
+        cwd = session.get("cwd") or ""
+        folder = os.path.basename(cwd).lower()
+        home = str(Path.home())
+        # Terminals write the folder into the title contracted, as ~/work/thing.
+        short_cwd = ("~" + cwd[len(home):]) if home and cwd.startswith(home) else cwd
+        # The session's own name, not one you typed here — the window title
+        # knows nothing about your renaming.
+        name = (session.get("defaultName") or session.get("name") or "").lower()
+
+        scored: list[tuple[int, dict]] = []
+        for window in windows:
+            score = 0
+            if window["pid"] and window["pid"] in chain:
+                # A nearer ancestor is a tighter relationship.
+                score += 100 - chain.index(window["pid"])
+            title = window["title"].lower()
+            if cwd and (cwd.lower() in title or short_cwd.lower() in title):
+                score += 50
+            elif folder and folder in title:
+                score += 40
+            if name and name in title:
+                score += 25
+            # A title on its own is weak evidence, so it only counts for a
+            # window that could host a session at all — not for the browser
+            # tab that happens to be showing the same folder name.
+            if score and (score >= 90 or window["host"]):
+                scored.append((score, window))
+
+        if not scored:
+            return None
+        best = max(score for score, _ in scored)
+        if best < 40:
+            return None
+        leaders = [window for score, window in scored if score == best]
+        if len(leaders) > 1:
+            return {
+                **leaders[0],
+                "confidence": "ambiguous",
+                "candidates": [
+                    {"id": w["id"], "title": w["title"], "wclass": w["wclass"]} for w in leaders
+                ],
+                # Only a probe can separate tabs of one terminal; a pid cannot.
+                "canIdentify": bool(session.get("tty")),
+            }
+        return {**leaders[0], "confidence": "high" if best >= 130 else "likely"}
+
+
+WINDOWS = WindowIndex()
+
+
+def load_pairs() -> dict[str, dict]:
+    """Remembered window pairings, as {sessionId: {"id", "how"}}.
+
+    `how` is "picked" when you clicked the window and "identified" when the
+    probe found it, because the panel should not tell you that you chose a
+    window you never clicked. A file from before this distinction holds bare
+    window ids, and those read as picked.
+    """
+    try:
+        data = json.loads(PAIR_FILE.read_text())
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    pairs: dict[str, dict] = {}
+    for key, value in data.items():
+        if isinstance(value, dict) and value.get("id"):
+            pairs[str(key)] = {"id": str(value["id"]),
+                               "how": "identified" if value.get("how") == "identified" else "picked"}
+        elif isinstance(value, str):
+            pairs[str(key)] = {"id": value, "how": "picked"}
+    return pairs
+
+
+def save_pairs(pairs: dict[str, dict]) -> None:
+    PAIR_FILE.parent.mkdir(parents=True, exist_ok=True)
+    PAIR_FILE.write_text(json.dumps(pairs, indent=2))
+
+
+def load_names() -> dict[str, str]:
+    try:
+        data = json.loads(NAME_FILE.read_text())
+        return {str(k): str(v) for k, v in data.items()} if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_names(names: dict[str, str]) -> None:
+    if len(names) > MAX_NAMES:  # oldest first — dicts keep insertion order
+        names = dict(list(names.items())[-MAX_NAMES:])
+    NAME_FILE.parent.mkdir(parents=True, exist_ok=True)
+    NAME_FILE.write_text(json.dumps(names, indent=2))
+
+
+def clean_name(text: object) -> str:
+    """One line, no control characters, short enough to sit in a header."""
+    value = re.sub(r"\s+", " ", str(text or "")).strip()
+    return value[:MAX_NAME]
+
+
+# ------------------------------------------------------------- sticky sessions
+# A session file disappears when its process does, and with it the row. A sticky
+# session keeps its row: the panel remembers enough about it — id, name, folder —
+# to go on showing the conversation, and can start Claude Code back up on that
+# same transcript with `claude --resume`.
+
+
+def load_sticky() -> dict[str, dict]:
+    try:
+        data = json.loads(STICKY_FILE.read_text())
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {str(k): v for k, v in data.items() if isinstance(v, dict)}
+
+
+def save_sticky(sticky: dict[str, dict]) -> None:
+    if len(sticky) > MAX_STICKY:
+        sticky = dict(list(sticky.items())[-MAX_STICKY:])
+    STICKY_FILE.parent.mkdir(parents=True, exist_ok=True)
+    STICKY_FILE.write_text(json.dumps(sticky, indent=2))
+
+
+# Terminals that can be told to run one command, in the order we try them. The
+# value is how that terminal takes it: everything after the flag is the command.
+TERMINALS = [
+    ("ghostty", ["-e"]), ("wezterm", ["start", "--"]), ("kitty", ["--"]),
+    ("alacritty", ["-e"]), ("konsole", ["-e"]), ("gnome-terminal", ["--"]),
+    ("xfce4-terminal", ["-x"]), ("x-terminal-emulator", ["-e"]), ("xterm", ["-e"]),
+]
+
+
+def terminal_argv(command: list[str], cwd: str) -> list[str] | None:
+    """A terminal invocation that runs `command`, or None if none is installed.
+
+    CLAUDE_WATCHTOWER_TERMINAL overrides the search: give it the terminal and
+    any flags, and the command is appended —
+    `CLAUDE_WATCHTOWER_TERMINAL="kitty --"`. CLAUDE_BUSY_UI_TERMINAL is the
+    pre-rename name, still honoured.
+    """
+    override = os.environ.get("CLAUDE_WATCHTOWER_TERMINAL") or os.environ.get(
+        "CLAUDE_BUSY_UI_TERMINAL"
+    )
+    if override:
+        parts = override.split()
+        if parts and shutil.which(parts[0]):
+            return parts + command
+        return None
+    for name, flags in TERMINALS:
+        if shutil.which(name):
+            # gnome-terminal needs its own flag for the folder; the rest inherit ours.
+            lead = [name, f"--working-directory={cwd}"] if name == "gnome-terminal" and cwd else [name]
+            return lead + flags + command
+    return None
+
+
+def start_session(entry: dict) -> tuple[bool, str]:
+    """Open a terminal running `claude --resume <id>` in the session's folder."""
+    session_id = str(entry.get("sessionId") or "")
+    cwd = entry.get("cwd") or str(HOME)
+    if not session_id:
+        return False, "That session has no id to resume"
+    if not Path(cwd).is_dir():
+        return False, f"Its folder is gone: {cwd}"
+    claude = shutil.which("claude")
+    if not claude:
+        return False, "Cannot find the claude command on PATH"
+    argv = terminal_argv([claude, "--resume", session_id], cwd)
+    if not argv:
+        return False, "No terminal found to start it in — set CLAUDE_WATCHTOWER_TERMINAL"
+    try:
+        subprocess.Popen(
+            argv, cwd=cwd, stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+        )
+    except OSError as exc:
+        return False, f"Could not start it: {exc}"
+    return True, "Starting it up…"
+
+
+def new_session(cwd: str) -> tuple[bool, str]:
+    """Open a terminal running a fresh `claude` in an existing session's folder."""
+    if not cwd or not Path(cwd).is_dir():
+        return False, f"That folder is gone: {cwd}" if cwd else "That session has no folder"
+    claude = shutil.which("claude")
+    if not claude:
+        return False, "Cannot find the claude command on PATH"
+    argv = terminal_argv([claude], cwd)
+    if not argv:
+        return False, "No terminal found to start it in — set CLAUDE_WATCHTOWER_TERMINAL"
+    try:
+        subprocess.Popen(
+            argv, cwd=cwd, stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+        )
+    except OSError as exc:
+        return False, f"Could not start it: {exc}"
+    return True, "Opening a new session there…"
+
+
+def wait_and_say(session_id: str, text: str, seconds: float = 90.0) -> None:
+    """Deliver a message once the session it was meant for is listening again.
+
+    Typing into a stopped session starts it up, and startup is not instant — the
+    process has to come up and open its socket. This waits for that in the
+    background so the click returns at once.
+    """
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        time.sleep(1.0)
+        data = STORE.raw(session_id)
+        if not data or not data.get("messagingSocketPath"):
+            continue
+        if not Path(data["messagingSocketPath"]).exists():
+            continue
+        ok, _ = say_to_session(data, text)
+        if ok:
+            return
+
+
+def window_exists(window_id: str) -> bool:
+    return any(w["id"].lower() == window_id.lower() for w in WINDOWS.windows())
+
+
+def window_title(window_id: str) -> str:
+    for window in WINDOWS.windows():
+        if window["id"].lower() == window_id.lower():
+            return window["title"]
+    return ""
+
+
+def activate(window_id: str) -> tuple[bool, str]:
+    if not shutil.which("xdotool"):
+        return False, "xdotool is not installed"
+    try:
+        result = subprocess.run(
+            ["xdotool", "windowactivate", "--sync", window_id],
+            capture_output=True, text=True, timeout=6,
+        )
+    except subprocess.TimeoutExpired:
+        return False, "xdotool timed out"
+    except OSError as exc:
+        return False, str(exc)
+    if result.returncode != 0:
+        subprocess.run(["xdotool", "windowraise", window_id], capture_output=True, timeout=6)
+        return False, (result.stderr or "could not activate the window").strip()
+    return True, "focused"
+
+
+# How long to wait for a terminal to have retitled its window, and how often to
+# look. A local terminal repaints in a frame or two; the ceiling is for a laden
+# machine, and reaching it means the answer is no.
+PROBE_TIMEOUT = 1.6
+PROBE_STEP = 0.12
+
+
+def probe_window(tty: str) -> tuple[str | None, str]:
+    """Identify the window a pty is displayed in, by briefly retitling it.
+
+    Nothing about an X window says which pty it is showing, and for a terminal
+    with one process behind every window the pid says nothing either. So ask the
+    terminal: writing an OSC title sequence to the pty is output, the way any
+    program's output is, and the terminal answers by retitling the window that
+    is showing it. Whichever window comes back wearing our marker is the one.
+
+    The marker is pushed and popped on the xterm title stack, so the title the
+    session had is put back exactly — including one Claude Code rewrites as it
+    works. A terminal without the stack ignores both, and the recorded title is
+    written back by hand instead.
+    """
+    if not WINDOWS.available():
+        return None, "Window probing needs X11 and xdotool"
+    marker = f"watchtower-probe-{uuid.uuid4().hex[:12]}"
+    before = {w["id"]: w["title"] for w in WINDOWS.windows(force=True)}
+    try:
+        with open(tty, "w") as terminal:
+            # Push the current title, then claim it.
+            terminal.write(f"\033[22;2t\033]2;{marker}\007")
+    except OSError as exc:
+        return None, f"Could not write to {tty}: {exc}"
+
+    found = None
+    deadline = time.time() + PROBE_TIMEOUT
+    while time.time() < deadline:
+        time.sleep(PROBE_STEP)
+        for window in WINDOWS.windows(force=True):
+            if window["title"] == marker:
+                found = window
+                break
+        if found:
+            break
+
+    try:
+        with open(tty, "w") as terminal:
+            terminal.write("\033[23;2t")  # pop it back
+            if found and before.get(found["id"]):
+                # Belt and braces, for a terminal with no title stack.
+                if any(w["title"] == marker for w in WINDOWS.windows(force=True)):
+                    terminal.write(f"\033]2;{before[found['id']]}\007")
+    except OSError:
+        pass
+    WINDOWS.windows(force=True)
+
+    if not found:
+        return None, (
+            "The terminal did not retitle a window — if this session is in a "
+            "background tab, bring it to the front and try again, or pair by hand"
+        )
+    return found["id"], "identified"
+
+
+def select_window() -> tuple[str | None, str]:
+    """Block until the person clicks a window, then return its id."""
+    if not shutil.which("xdotool"):
+        return None, "xdotool is not installed"
+    try:
+        result = subprocess.run(
+            ["xdotool", "selectwindow"], capture_output=True, text=True, timeout=45
+        )
+    except subprocess.TimeoutExpired:
+        return None, "No window was clicked within 45 seconds"
+    except OSError as exc:
+        return None, str(exc)
+    raw = (result.stdout or "").strip()
+    if not raw.isdigit():
+        return None, (result.stderr or "No window id came back").strip()
+    return hex(int(raw)), "paired"
+
+
+def identify_and_pair(session_id: str, session: dict) -> tuple[str | None, str]:
+    """Probe for a session's window and remember the answer.
+
+    The probe costs a title flicker, so its result is written to pairs.json
+    like one you made by clicking: a session is identified once, not on every
+    poll, and the answer survives a restart of the panel.
+    """
+    tty = session.get("tty")
+    if not tty:
+        return None, "This session is not attached to a terminal the panel can reach"
+    window_id, message = probe_window(tty)
+    if not window_id:
+        return None, message
+    pairs = load_pairs()
+    pairs[session_id] = {"id": window_id, "how": "identified"}
+    save_pairs(pairs)
+    return window_id, message
+
+
+def resolve_window(session_id: str, session: dict) -> tuple[dict | None, str, bool]:
+    """The window to act on, identifying it first if the guess was a tie.
+
+    Returns the window, a message for when there is none, and whether the probe
+    is what found it — the caller says so, because a title that flickered wants
+    explaining.
+    """
+    window = session.get("window")
+    if window and window.get("confidence") != "ambiguous":
+        return window, "", False
+    if session.get("tty"):
+        window_id, message = identify_and_pair(session_id, session)
+        if window_id:
+            return {"id": window_id, "confidence": "identified"}, "", True
+        if window:
+            # A tie is still a guess, and a guess is worse than saying so.
+            return None, f"Could not tell this session's window from the others — {message}", False
+        return None, message, False
+    if window:
+        return None, "Several windows look equally likely and there is no pty to tell them apart", False
+    return None, "No window is paired with this session yet", False
+
+
+# ------------------------------------------------------------------ session store
+
+
+class SessionStore:
+    """Polls the session files and keeps a state trace for each session."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._sessions: dict[str, dict] = {}
+        self._history: dict[str, list[list]] = {}
+        self._branch_cache: dict[str, tuple[float, str | None]] = {}
+        self._root_cache: dict[str, tuple[float, str | None]] = {}
+        self._activity_cache: dict[str, tuple[float, dict | None]] = {}
+        self._mode_cache: dict[str, tuple[float, str | None]] = {}
+        self._first_seen: dict[str, float] = {}
+        # pid -> (sampled at, cpu seconds then, was it working)
+        self._cpu: dict[int, tuple[float, float, bool]] = {}
+        self._transcript_cache: dict[str, tuple[float, float | None]] = {}
+
+    # --- reading
+
+    def _read_files(self) -> list[dict]:
+        live: list[dict] = []
+        try:
+            files = sorted(SESSION_DIR.glob("*.json"))
+        except OSError:
+            return []
+        for path in files:
+            try:
+                data = json.loads(path.read_text())
+                # The last resort for judging how fresh the status is.
+                data["fileMtime"] = path.stat().st_mtime
+            except (OSError, ValueError):
+                continue
+            pid = data.get("pid")
+            if not isinstance(pid, int):
+                continue
+            actual = proc_starttime(pid)
+            recorded = data.get("procStart")
+            if actual is None:
+                continue  # process is gone
+            if recorded not in (None, "", actual):
+                continue  # this pid belongs to something else now
+            live.append(data)
+        return live
+
+    def _branch(self, cwd: str) -> str | None:
+        now = time.time()
+        hit = self._branch_cache.get(cwd)
+        if hit and now - hit[0] < 15:
+            return hit[1]
+        value = git_branch(cwd)
+        self._branch_cache[cwd] = (now, value)
+        return value
+
+    def _repo_root(self, cwd: str) -> str | None:
+        # A working folder does not move under a running session, so this is
+        # cached longer than the branch, which changes whenever it checks out.
+        now = time.time()
+        hit = self._root_cache.get(cwd)
+        if hit and now - hit[0] < 60:
+            return hit[1]
+        value = git_root(cwd)
+        self._root_cache[cwd] = (now, value)
+        return value
+
+    def _activity(self, session_id: str, cwd: str) -> dict | None:
+        now = time.time()
+        hit = self._activity_cache.get(session_id)
+        if hit and now - hit[0] < 4:
+            return hit[1]
+        value = last_activity(session_id, cwd)
+        self._activity_cache[session_id] = (now, value)
+        return value
+
+    def _mode(self, session_id: str, cwd: str) -> str | None:
+        # Read less often than the poll: it changes only when the transcript's
+        # metadata block is re-appended, and finding it means walking back
+        # through the tail of the transcript.
+        now = time.time()
+        hit = self._mode_cache.get(session_id)
+        if hit and now - hit[0] < 10:
+            return hit[1]
+        value = read_permission_mode(session_id, cwd)
+        self._mode_cache[session_id] = (now, value)
+        return value
+
+    def _burning_cpu(self, pid: int, now: float) -> bool:
+        """Is this process actually doing something, judged over a few seconds?"""
+        current = cpu_seconds(pid)
+        if current is None:
+            return False
+        at, before, verdict = self._cpu.get(pid, (0.0, current, True))
+        if now - at >= CPU_WINDOW:
+            # A session first seen gets the benefit of the doubt until there are
+            # two readings to compare.
+            verdict = (current - before) / (now - at) > WORKING_CPU if at else True
+            self._cpu[pid] = (now, current, verdict)
+        return verdict
+
+    def _transcript_touched(self, session_id: str, cwd: str, now: float) -> float | None:
+        """When the transcript last grew — a working session appends constantly."""
+        hit = self._transcript_cache.get(session_id)
+        if hit and now - hit[0] < 4:
+            return hit[1]
+        newest = None
+        for path in transcript_paths(session_id, cwd):
+            try:
+                newest = max(newest or 0.0, path.stat().st_mtime)
+            except OSError:
+                continue
+        self._transcript_cache[session_id] = (now, newest)
+        return newest
+
+    def _looks_alive(self, data: dict, now: float) -> bool:
+        pid = data.get("pid")
+        if isinstance(pid, int) and self._burning_cpu(pid, now):
+            return True
+        session_id = data.get("sessionId") or str(pid)
+        touched = self._transcript_touched(session_id, data.get("cwd") or "", now)
+        return touched is not None and now - touched < TRANSCRIPT_WINDOW
+
+    # --- sampling loop
+
+    def sample(self) -> None:
+        now = time.time()
+        seen: set[str] = set()
+        for data in self._read_files():
+            session_id = data.get("sessionId") or str(data.get("pid"))
+            seen.add(session_id)
+            status = effective_status(data, now, self._looks_alive(data, now))
+            with self._lock:
+                self._first_seen.setdefault(session_id, now)
+                trace = self._history.setdefault(session_id, [])
+                if not trace or trace[-1][1] != status:
+                    trace.append([now, status])
+                cutoff = now - HISTORY_SECONDS
+                while len(trace) > 1 and trace[1][0] < cutoff:
+                    trace.pop(0)
+                # Store the status the trace agrees with, not the raw reading.
+                self._sessions[session_id] = {**data, "status": status, "seenAt": now}
+        with self._lock:
+            for session_id in list(self._sessions):
+                if session_id not in seen:
+                    # Keep it around briefly so the UI can show it closing out.
+                    if now - self._sessions[session_id].get("seenAt", now) > 20:
+                        gone = self._sessions.pop(session_id, None) or {}
+                        self._history.pop(session_id, None)
+                        self._first_seen.pop(session_id, None)
+                        self._transcript_cache.pop(session_id, None)
+                        self._mode_cache.pop(session_id, None)
+                        self._cpu.pop(gone.get("pid"), None)
+
+    def run_forever(self) -> None:
+        while True:
+            try:
+                self.sample()
+            except Exception:  # a sampler crash must not take the panel down
+                pass
+            time.sleep(SAMPLE_INTERVAL)
+
+    # --- presenting
+
+    def snapshot(self) -> dict:
+        now = time.time()
+        pairs = load_pairs()
+        names = load_names()
+        sticky = load_sticky()
+        dirty = False
+        with self._lock:
+            raw = list(self._sessions.values())
+            history = {k: list(v) for k, v in self._history.items()}
+
+        out = []
+        for data in raw:
+            session_id = data.get("sessionId") or str(data.get("pid"))
+            pid = data.get("pid")
+            cwd = data.get("cwd") or ""
+            alive = now - data.get("seenAt", 0) < 15
+            status = data.get("status") or "idle"
+            if not alive:
+                status = "offline"
+            chain = ancestors(pid) if isinstance(pid, int) else []
+            session = {
+                "sessionId": session_id,
+                "pid": pid,
+                # A name you typed wins over the one the session reports.
+                "name": names.get(session_id) or data.get("name") or f"session {pid}",
+                "givenName": names.get(session_id),
+                "defaultName": data.get("name") or f"session {pid}",
+                "cwd": cwd,
+                "folder": os.path.basename(cwd) or cwd,
+                "status": status,
+                "kind": data.get("kind") or "interactive",
+                "version": data.get("version"),
+                "startedAt": (data.get("startedAt") or 0) / 1000 or self._first_seen.get(session_id, now),
+                "statusSince": self._status_since(history.get(session_id), now),
+                "branch": self._branch(cwd) if cwd else None,
+                # The Git tab needs to tell "not a repository" apart from "a
+                # repository whose HEAD would not read", which a null branch
+                # cannot. Everything git runs against this root, not the cwd.
+                "repoRoot": self._repo_root(cwd) if cwd else None,
+                "activity": self._activity(session_id, cwd) if cwd else None,
+                # The mode as of this session's last turn, and what was asked for
+                # at the panel since — see read_permission_mode for why the two
+                # can disagree for a while.
+                "permissionMode": self._mode(session_id, cwd) if cwd else None,
+                "trace": self._trace(history.get(session_id), now),
+                "alive": alive,
+                "canSay": bool(
+                    alive
+                    and data.get("peerProtocol") == PEER_PROTOCOL
+                    and data.get("messagingSocketPath")
+                    and Path(data["messagingSocketPath"]).exists()
+                ),
+                "ancestors": chain,
+                # The pty is what tells two tabs of one terminal apart, and what
+                # the window probe writes to.
+                "tty": session_tty(pid) if isinstance(pid, int) else None,
+                # Enough of the chain to spot a multiplexer or an ssh hop.
+                "host": [proc_name(p) for p in chain[:5]],
+                "sticky": session_id in sticky,
+            }
+            # Keep what a sticky row will need once the process is gone. Written
+            # back now and then rather than every second — it is a poll loop.
+            if session_id in sticky:
+                held = sticky[session_id]
+                fresh = {
+                    "sessionId": session_id, "name": session["defaultName"], "cwd": cwd,
+                    "startedAt": session["startedAt"], "lastSeen": now,
+                    "version": session["version"], "kind": session["kind"],
+                }
+                if any(held.get(k) != fresh[k] for k in ("name", "cwd", "version")) \
+                        or now - (held.get("lastSeen") or 0) > 30:
+                    sticky[session_id] = fresh
+                    dirty = True
+            paired = (pairs.get(session_id) or {}).get("id")
+            if paired and window_exists(paired):
+                session["window"] = {
+                    "id": paired,
+                    "confidence": "paired" if pairs[session_id]["how"] == "picked" else "identified",
+                    "title": window_title(paired),
+                }
+            else:
+                if paired:
+                    pairs.pop(session_id, None)
+                    save_pairs(pairs)
+                match = WINDOWS.match(session)
+                session["window"] = match
+            out.append(session)
+
+        # A kept session whose process has gone still gets a row: same id, same
+        # transcript, no pid. It is `stopped` rather than `offline` — nothing has
+        # been lost, it is simply not running, and it can be started back up.
+        if dirty:
+            save_sticky(sticky)
+
+        live_ids = {s["sessionId"] for s in out}
+        for session_id, entry in sticky.items():
+            if session_id in live_ids:
+                continue
+            cwd = entry.get("cwd") or ""
+            out.append({
+                "sessionId": session_id,
+                "pid": None,
+                "name": names.get(session_id) or entry.get("name") or "kept session",
+                "givenName": names.get(session_id),
+                "defaultName": entry.get("name") or "kept session",
+                "cwd": cwd,
+                "folder": os.path.basename(cwd) or cwd,
+                "status": "stopped",
+                "kind": entry.get("kind") or "interactive",
+                "version": entry.get("version"),
+                "startedAt": entry.get("startedAt") or entry.get("lastSeen") or now,
+                "statusSince": entry.get("lastSeen") or now,
+                "branch": self._branch(cwd) if cwd else None,
+                "repoRoot": self._repo_root(cwd) if cwd else None,
+                "activity": self._activity(session_id, cwd) if cwd else None,
+                # For a stopped session this is the mode it was last in.
+                "permissionMode": self._mode(session_id, cwd) if cwd else None,
+                "trace": [],
+                "alive": False,
+                "canSay": False,
+                # Starting runs a command here, so it follows the same gate as sending.
+                "canStart": SAY_ENABLED,
+                "ancestors": [],
+                "tty": None,
+                "host": [],
+                "sticky": True,
+                "window": None,
+            })
+
+        order = {"waiting": 0, "busy": 1, "shell": 2, "idle": 3, "offline": 4, "stopped": 5}
+        out.sort(key=lambda s: (order.get(s["status"], 6), -(now - s["statusSince"])))
+        return {
+            "now": now,
+            "sessions": out,
+            "historySeconds": HISTORY_SECONDS,
+            "canFocus": WINDOWS.available(),
+            "canSend": SAY_ENABLED,
+        }
+
+    def raw(self, session_id: str) -> dict | None:
+        """The session file as last read — including the fields the UI never sees."""
+        with self._lock:
+            data = self._sessions.get(session_id)
+            return dict(data) if data else None
+
+    @staticmethod
+    def _status_since(trace: list[list] | None, now: float) -> float:
+        return trace[-1][0] if trace else now
+
+    @staticmethod
+    def _trace(trace: list[list] | None, now: float) -> list[dict]:
+        if not trace:
+            return []
+        spans = []
+        for index, (start, status) in enumerate(trace):
+            end = trace[index + 1][0] if index + 1 < len(trace) else now
+            spans.append({"from": start, "to": end, "status": status})
+        return spans
+
+
+STORE = SessionStore()
+
+
+# ------------------------------------------------------------------- http server
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "claude-watchtower"
+
+    def log_message(self, *args) -> None:  # keep the console quiet
+        pass
+
+    # --- helpers
+
+    def _send(self, code: int, body: bytes, content_type: str) -> None:
+        self.send_response(code)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+    def _json(self, payload: dict, code: int = 200) -> None:
+        self._send(code, json.dumps(payload).encode(), "application/json; charset=utf-8")
+
+    def _body(self) -> dict:
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            return json.loads(self.rfile.read(length) or b"{}")
+        except (ValueError, OSError):
+            return {}
+
+    def _session_by_id(self, session_id: str) -> dict | None:
+        for session in STORE.snapshot()["sessions"]:
+            if session["sessionId"] == session_id:
+                return session
+        return None
+
+    # --- routes
+
+    def do_GET(self) -> None:
+        path = self.path.split("?", 1)[0]
+        if path == "/api/state":
+            self._json(STORE.snapshot())
+            return
+        if path == "/api/transcript":
+            query = parse_qs(urlparse(self.path).query)
+            session_id = (query.get("sessionId") or [""])[0]
+            session = self._session_by_id(session_id)
+            if not session:
+                self._json({"ok": False, "message": "That session is no longer running"}, 404)
+                return
+            try:
+                limit = int((query.get("limit") or ["60"])[0])
+            except ValueError:
+                limit = 60
+            self._json(read_transcript(session_id, session["cwd"], limit))
+            return
+        if path == "/api/git":
+            query = parse_qs(urlparse(self.path).query)
+            session_id = (query.get("sessionId") or [""])[0]
+            session = self._session_by_id(session_id)
+            if not session:
+                self._json({"ok": False, "message": "That session is no longer running"}, 404)
+                return
+            root = session.get("repoRoot")
+            if not root:
+                self._json({"ok": False, "isRepo": False,
+                            "message": "This session's folder is not in a git repository"})
+                return
+            self._json({**read_git(root), "isRepo": True})
+            return
+        if path in ("/", "/index.html"):
+            self._serve_static("index.html", "text/html; charset=utf-8")
+            return
+        if path == "/favicon.ico":
+            self._send(204, b"", "image/x-icon")
+            return
+        if path.startswith(("/fonts/", "/vendor/")):
+            self._serve_static(path)
+            return
+        self._send(404, b"not found", "text/plain")
+
+    def do_POST(self) -> None:
+        path = self.path.split("?", 1)[0]
+        payload = self._body()
+        session_id = str(payload.get("sessionId") or "")
+
+        if path == "/api/focus":
+            session = self._session_by_id(session_id)
+            if not session:
+                self._json({"ok": False, "message": "That session is no longer running"}, 404)
+                return
+            window, why, identified = resolve_window(session_id, session)
+            if not window:
+                self._json({"ok": False, "message": why, "needsPairing": True}, 409)
+                return
+            WINDOWS.windows(force=True)
+            ok, message = activate(window["id"])
+            if ok and identified:
+                message = "focused — and this session's window is now remembered"
+            self._json({"ok": ok, "message": message, "window": window["id"],
+                        "identified": identified}, 200 if ok else 500)
+            return
+
+        if path == "/api/identify":
+            # Pairing without the click: the session's own terminal is asked
+            # which window it is showing. See probe_window.
+            session = self._session_by_id(session_id)
+            if not session:
+                self._json({"ok": False, "message": "That session is no longer running"}, 404)
+                return
+            window_id, message = identify_and_pair(session_id, session)
+            if not window_id:
+                self._json({"ok": False, "message": message, "needsPairing": True}, 409)
+                return
+            self._json({"ok": True, "message": "Found it — window identified and remembered",
+                        "window": window_id, "title": window_title(window_id)})
+            return
+
+        if path == "/api/pair":
+            if not self._session_by_id(session_id):
+                self._json({"ok": False, "message": "That session is no longer running"}, 404)
+                return
+            window_id, message = select_window()
+            if not window_id:
+                self._json({"ok": False, "message": message}, 400)
+                return
+            pairs = load_pairs()
+            pairs[session_id] = {"id": window_id, "how": "picked"}
+            save_pairs(pairs)
+            WINDOWS.windows(force=True)
+            self._json({"ok": True, "message": "Window paired", "window": window_id})
+            return
+
+        if path == "/api/end":
+            data = STORE.raw(session_id)
+            if not data:
+                self._json({"ok": False, "message": "That session is no longer running"}, 404)
+                return
+            ok, message = end_process(data.get("pid"), data.get("procStart"), bool(payload.get("force")))
+            if ok:
+                # The window pairing dies with the session it pointed at.
+                pairs = load_pairs()
+                if pairs.pop(session_id, None) is not None:
+                    save_pairs(pairs)
+            self._json({"ok": ok, "message": message}, 200 if ok else 409)
+            return
+
+        if path == "/api/say":
+            # A prompt is an instruction to an agent with tools, so this endpoint
+            # is worth more than the others put together. It stays on loopback
+            # even when the rest of the panel is served to the network.
+            if not SAY_ENABLED:
+                self._json({"ok": False, "message": "Sending is off because the panel is not bound to loopback"}, 403)
+                return
+            data = STORE.raw(session_id)
+            if not data:
+                self._json({"ok": False, "message": "That session is no longer running"}, 404)
+                return
+            ok, message = say_to_session(data, str(payload.get("text") or ""))
+            self._json({"ok": ok, "message": message}, 200 if ok else 409)
+            return
+
+        if path == "/api/sticky":
+            session = self._session_by_id(session_id)
+            sticky = load_sticky()
+            want = bool(payload.get("sticky", True))
+            if want:
+                if not session:
+                    self._json({"ok": False, "message": "There is no such session"}, 404)
+                    return
+                sticky[session_id] = {
+                    "sessionId": session_id, "name": session["defaultName"], "cwd": session["cwd"],
+                    "startedAt": session["startedAt"], "lastSeen": time.time(),
+                    "version": session["version"], "kind": session["kind"],
+                }
+                save_sticky(sticky)
+                self._json({"ok": True, "message": "Kept in the dashboard", "sticky": True})
+                return
+            if sticky.pop(session_id, None) is not None:
+                save_sticky(sticky)
+            self._json({"ok": True, "message": "No longer kept", "sticky": False})
+            return
+
+        if path == "/api/start":
+            # Starting a session runs a command on this machine, which is the same
+            # order of risk as sending it a prompt — so it lives behind the same
+            # loopback gate.
+            if not SAY_ENABLED:
+                self._json({"ok": False, "message": "Starting is off because the panel is not bound to loopback"}, 403)
+                return
+            entry = load_sticky().get(session_id)
+            if not entry:
+                self._json({"ok": False, "message": "That session is not being kept"}, 404)
+                return
+            if STORE.raw(session_id):
+                self._json({"ok": False, "message": "That session is already running"}, 409)
+                return
+            ok, message = start_session(entry)
+            text = str(payload.get("text") or "").strip()
+            if ok and text:
+                # It cannot hear us yet. Hand the message to a thread that waits
+                # for its socket and then delivers it.
+                threading.Thread(target=wait_and_say, args=(session_id, text), daemon=True).start()
+                message = "Starting it up — your message goes in as soon as it is listening"
+            self._json({"ok": ok, "message": message}, 200 if ok else 409)
+            return
+
+        if path == "/api/new":
+            # Same risk as /api/start — it runs a command on this machine — so it
+            # sits behind the same loopback gate. The folder comes from the session
+            # we were given, never from the request, so this cannot be pointed
+            # anywhere the panel is not already showing.
+            if not SAY_ENABLED:
+                self._json({"ok": False, "message": "Starting is off because the panel is not bound to loopback"}, 403)
+                return
+            session = self._session_by_id(session_id)
+            entry = load_sticky().get(session_id) or {}
+            cwd = (session or {}).get("cwd") or entry.get("cwd") or ""
+            if not session and not entry:
+                self._json({"ok": False, "message": "That session is no longer around"}, 404)
+                return
+            ok, message = new_session(cwd)
+            self._json({"ok": ok, "message": message}, 200 if ok else 409)
+            return
+
+        if path == "/api/rename":
+            session = self._session_by_id(session_id)
+            if not session:
+                self._json({"ok": False, "message": "That session is no longer running"}, 404)
+                return
+            # An empty name — or the session's own name typed back — clears the
+            # override rather than storing a second copy of the default.
+            name = clean_name(payload.get("name"))
+            names = load_names()
+            keep = bool(name) and name != session["defaultName"]
+            if keep:
+                names[session_id] = name
+                save_names(names)
+            elif names.pop(session_id, None) is not None:
+                save_names(names)
+            self._json({
+                "ok": True,
+                "message": "Renamed" if keep else "Name reset",
+                "name": name if keep else session["defaultName"],
+            })
+            return
+
+        if path == "/api/unpair":
+            pairs = load_pairs()
+            if pairs.pop(session_id, None) is not None:
+                save_pairs(pairs)
+            self._json({"ok": True, "message": "Pairing cleared"})
+            return
+
+        self._send(404, b"not found", "text/plain")
+
+    MIME = {
+        ".html": "text/html; charset=utf-8",
+        ".css": "text/css; charset=utf-8",
+        ".js": "text/javascript; charset=utf-8",
+        ".woff2": "font/woff2",
+        ".svg": "image/svg+xml",
+        ".json": "application/json",
+    }
+
+    def _serve_static(self, name: str, content_type: str | None = None) -> None:
+        target = (STATIC_DIR / name.lstrip("/")).resolve()
+        # Never serve outside the static directory.
+        if not str(target).startswith(str(STATIC_DIR) + os.sep) or not target.is_file():
+            self._send(404, b"not found", "text/plain")
+            return
+        kind = content_type or self.MIME.get(target.suffix, "application/octet-stream")
+        self._send(200, target.read_bytes(), kind)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Live panel for local Claude Code sessions")
+    parser.add_argument("--port", type=int, default=8787)
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--no-send", action="store_true",
+                        help="serve the conversation read-only, with no way to send input")
+    args = parser.parse_args()
+
+    global SAY_ENABLED
+    SAY_ENABLED = is_loopback(args.host) and not args.no_send
+
+    if not SESSION_DIR.exists():
+        print(f"warning: {SESSION_DIR} does not exist yet — start a Claude Code session first")
+
+    STORE.sample()
+    threading.Thread(target=STORE.run_forever, daemon=True).start()
+
+    server = ThreadingHTTPServer((args.host, args.port), Handler)
+    print(f"claude-watchtower → http://{args.host}:{args.port}")
+    if not WINDOWS.available():
+        print("note: xdotool/DISPLAY unavailable, so window focusing is switched off")
+    if not SAY_ENABLED:
+        why = "--no-send" if args.no_send else f"not bound to loopback ({args.host})"
+        print(f"note: sending input is switched off — {why}")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nstopped")
+
+
+if __name__ == "__main__":
+    main()

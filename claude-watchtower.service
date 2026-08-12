@@ -1,0 +1,15 @@
+[Unit]
+Description=claude-watchtower — live panel for local Claude Code sessions
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/Workspace/Projects/claude-busy-ui/server.py --port 8787
+Restart=on-failure
+RestartSec=3
+# xdotool needs the X display to raise windows.
+Environment=DISPLAY=:0
+
+[Install]
+WantedBy=graphical-session.target

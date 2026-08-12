@@ -1,0 +1,3518 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Claude sessions</title>
+<style>
+  /* ==========================================================================
+     Material Design 3 reference tokens.
+     Every --md-sys-color-* value is generated at runtime from the seed colour
+     by material-color-utilities, so no colour is hardcoded below this block.
+     ========================================================================== */
+  @font-face {
+    font-family: "Roboto";
+    src: url("/fonts/Roboto.woff2") format("woff2");
+    font-weight: 100 900;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: "Roboto Mono";
+    src: url("/fonts/RobotoMono.woff2") format("woff2");
+    font-weight: 100 700;
+    font-display: swap;
+  }
+
+  :root {
+    /* --- md.ref.typeface --- */
+    --md-ref-typeface-brand: "Roboto", system-ui, sans-serif;
+    --md-ref-typeface-plain: "Roboto", system-ui, sans-serif;
+    --md-ref-typeface-mono: "Roboto Mono", ui-monospace, monospace;
+
+    /* --- md.sys.shape.corner --- */
+    --md-sys-shape-corner-none: 0;
+    --md-sys-shape-corner-extra-small: 4px;
+    --md-sys-shape-corner-small: 8px;
+    --md-sys-shape-corner-medium: 12px;
+    --md-sys-shape-corner-large: 16px;
+    --md-sys-shape-corner-large-increased: 20px;
+    --md-sys-shape-corner-extra-large: 28px;
+    --md-sys-shape-corner-extra-large-increased: 32px;
+    --md-sys-shape-corner-full: 9999px;
+
+    /* --- md.sys.motion --- */
+    --md-sys-motion-easing-emphasized: cubic-bezier(0.2, 0, 0, 1);
+    --md-sys-motion-easing-emphasized-decelerate: cubic-bezier(0.05, 0.7, 0.1, 1);
+    --md-sys-motion-easing-emphasized-accelerate: cubic-bezier(0.3, 0, 0.8, 0.15);
+    --md-sys-motion-easing-standard: cubic-bezier(0.2, 0, 0, 1);
+    --md-sys-motion-duration-short4: 200ms;
+    --md-sys-motion-duration-medium2: 300ms;
+    --md-sys-motion-duration-medium4: 400ms;
+    --md-sys-motion-duration-long2: 500ms;
+
+    /* --- md.sys.typescale (baseline scale, sp/16 = rem) --- */
+    --md-sys-typescale-display-small-font: var(--md-ref-typeface-brand);
+    --md-sys-typescale-display-small-weight: 400;
+    --md-sys-typescale-display-small-size: 2.25rem;
+    --md-sys-typescale-display-small-line-height: 2.75rem;
+    --md-sys-typescale-display-small-tracking: 0;
+
+    --md-sys-typescale-headline-small-font: var(--md-ref-typeface-brand);
+    --md-sys-typescale-headline-small-weight: 400;
+    --md-sys-typescale-headline-small-size: 1.5rem;
+    --md-sys-typescale-headline-small-line-height: 2rem;
+    --md-sys-typescale-headline-small-tracking: 0;
+
+    --md-sys-typescale-title-large-font: var(--md-ref-typeface-plain);
+    --md-sys-typescale-title-large-weight: 400;
+    --md-sys-typescale-title-large-size: 1.375rem;
+    --md-sys-typescale-title-large-line-height: 1.75rem;
+    --md-sys-typescale-title-large-tracking: 0;
+
+    --md-sys-typescale-title-medium-font: var(--md-ref-typeface-plain);
+    --md-sys-typescale-title-medium-weight: 500;
+    --md-sys-typescale-title-medium-size: 1rem;
+    --md-sys-typescale-title-medium-line-height: 1.5rem;
+    --md-sys-typescale-title-medium-tracking: 0.009375rem;
+
+    --md-sys-typescale-title-small-font: var(--md-ref-typeface-plain);
+    --md-sys-typescale-title-small-weight: 500;
+    --md-sys-typescale-title-small-size: 0.875rem;
+    --md-sys-typescale-title-small-line-height: 1.25rem;
+    --md-sys-typescale-title-small-tracking: 0.00625rem;
+
+    --md-sys-typescale-body-large-font: var(--md-ref-typeface-plain);
+    --md-sys-typescale-body-large-weight: 400;
+    --md-sys-typescale-body-large-size: 1rem;
+    --md-sys-typescale-body-large-line-height: 1.5rem;
+    --md-sys-typescale-body-large-tracking: 0.03125rem;
+
+    --md-sys-typescale-body-medium-font: var(--md-ref-typeface-plain);
+    --md-sys-typescale-body-medium-weight: 400;
+    --md-sys-typescale-body-medium-size: 0.875rem;
+    --md-sys-typescale-body-medium-line-height: 1.25rem;
+    --md-sys-typescale-body-medium-tracking: 0.015625rem;
+
+    --md-sys-typescale-body-small-font: var(--md-ref-typeface-plain);
+    --md-sys-typescale-body-small-weight: 400;
+    --md-sys-typescale-body-small-size: 0.75rem;
+    --md-sys-typescale-body-small-line-height: 1rem;
+    --md-sys-typescale-body-small-tracking: 0.025rem;
+
+    --md-sys-typescale-label-large-font: var(--md-ref-typeface-plain);
+    --md-sys-typescale-label-large-weight: 500;
+    --md-sys-typescale-label-large-size: 0.875rem;
+    --md-sys-typescale-label-large-line-height: 1.25rem;
+    --md-sys-typescale-label-large-tracking: 0.00625rem;
+
+    --md-sys-typescale-label-medium-font: var(--md-ref-typeface-plain);
+    --md-sys-typescale-label-medium-weight: 500;
+    --md-sys-typescale-label-medium-size: 0.75rem;
+    --md-sys-typescale-label-medium-line-height: 1rem;
+    --md-sys-typescale-label-medium-tracking: 0.03125rem;
+
+    --md-sys-typescale-label-small-font: var(--md-ref-typeface-plain);
+    --md-sys-typescale-label-small-weight: 500;
+    --md-sys-typescale-label-small-size: 0.6875rem;
+    --md-sys-typescale-label-small-line-height: 1rem;
+    --md-sys-typescale-label-small-tracking: 0.03125rem;
+
+    /* --- md.sys.state layer opacities --- */
+    --md-sys-state-hover-opacity: 0.08;
+    --md-sys-state-focus-opacity: 0.10;
+    --md-sys-state-pressed-opacity: 0.10;
+    --md-sys-state-dragged-opacity: 0.16;
+
+    /* --- md.sys.spacing (8dp system) --- */
+    --md-sys-spacing-1: 4px;
+    --md-sys-spacing-2: 8px;
+    --md-sys-spacing-3: 12px;
+    --md-sys-spacing-4: 16px;
+    --md-sys-spacing-5: 20px;
+    --md-sys-spacing-6: 24px;
+  }
+
+  /* ============================== typescale utilities ====================== */
+  .md-display-small, .md-headline-small, .md-title-large, .md-title-medium,
+  .md-title-small, .md-body-large, .md-body-medium, .md-body-small,
+  .md-label-large, .md-label-medium, .md-label-small { margin: 0; }
+
+  .md-display-small {
+    font: var(--md-sys-typescale-display-small-weight) var(--md-sys-typescale-display-small-size)/var(--md-sys-typescale-display-small-line-height) var(--md-sys-typescale-display-small-font);
+    letter-spacing: var(--md-sys-typescale-display-small-tracking);
+  }
+  .md-headline-small {
+    font: var(--md-sys-typescale-headline-small-weight) var(--md-sys-typescale-headline-small-size)/var(--md-sys-typescale-headline-small-line-height) var(--md-sys-typescale-headline-small-font);
+    letter-spacing: var(--md-sys-typescale-headline-small-tracking);
+  }
+  .md-title-large {
+    font: var(--md-sys-typescale-title-large-weight) var(--md-sys-typescale-title-large-size)/var(--md-sys-typescale-title-large-line-height) var(--md-sys-typescale-title-large-font);
+    letter-spacing: var(--md-sys-typescale-title-large-tracking);
+  }
+  .md-title-medium {
+    font: var(--md-sys-typescale-title-medium-weight) var(--md-sys-typescale-title-medium-size)/var(--md-sys-typescale-title-medium-line-height) var(--md-sys-typescale-title-medium-font);
+    letter-spacing: var(--md-sys-typescale-title-medium-tracking);
+  }
+  .md-title-small {
+    font: var(--md-sys-typescale-title-small-weight) var(--md-sys-typescale-title-small-size)/var(--md-sys-typescale-title-small-line-height) var(--md-sys-typescale-title-small-font);
+    letter-spacing: var(--md-sys-typescale-title-small-tracking);
+  }
+  .md-body-large {
+    font: var(--md-sys-typescale-body-large-weight) var(--md-sys-typescale-body-large-size)/var(--md-sys-typescale-body-large-line-height) var(--md-sys-typescale-body-large-font);
+    letter-spacing: var(--md-sys-typescale-body-large-tracking);
+  }
+  .md-body-medium {
+    font: var(--md-sys-typescale-body-medium-weight) var(--md-sys-typescale-body-medium-size)/var(--md-sys-typescale-body-medium-line-height) var(--md-sys-typescale-body-medium-font);
+    letter-spacing: var(--md-sys-typescale-body-medium-tracking);
+  }
+  .md-body-small {
+    font: var(--md-sys-typescale-body-small-weight) var(--md-sys-typescale-body-small-size)/var(--md-sys-typescale-body-small-line-height) var(--md-sys-typescale-body-small-font);
+    letter-spacing: var(--md-sys-typescale-body-small-tracking);
+  }
+  .md-label-large {
+    font: var(--md-sys-typescale-label-large-weight) var(--md-sys-typescale-label-large-size)/var(--md-sys-typescale-label-large-line-height) var(--md-sys-typescale-label-large-font);
+    letter-spacing: var(--md-sys-typescale-label-large-tracking);
+  }
+  .md-label-medium {
+    font: var(--md-sys-typescale-label-medium-weight) var(--md-sys-typescale-label-medium-size)/var(--md-sys-typescale-label-medium-line-height) var(--md-sys-typescale-label-medium-font);
+    letter-spacing: var(--md-sys-typescale-label-medium-tracking);
+  }
+  .md-label-small {
+    font: var(--md-sys-typescale-label-small-weight) var(--md-sys-typescale-label-small-size)/var(--md-sys-typescale-label-small-line-height) var(--md-sys-typescale-label-small-font);
+    letter-spacing: var(--md-sys-typescale-label-small-tracking);
+  }
+  .md-mono { font-family: var(--md-ref-typeface-mono); font-variant-numeric: tabular-nums; }
+
+  /* ================================== base ================================= */
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  /* The scheme is generated in JS, so hold the first paint until the tokens
+     exist rather than flashing an unthemed page. */
+  html:not([data-scheme-ready]) body { visibility: hidden; }
+  body {
+    background: var(--md-sys-color-surface);
+    color: var(--md-sys-color-on-surface);
+    font: var(--md-sys-typescale-body-medium-weight) var(--md-sys-typescale-body-medium-size)/var(--md-sys-typescale-body-medium-line-height) var(--md-sys-typescale-body-medium-font);
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    transition: background var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-standard);
+  }
+  :focus-visible {
+    outline: 3px solid var(--md-sys-color-primary);
+    outline-offset: 2px;
+    border-radius: var(--md-sys-shape-corner-extra-small);
+  }
+
+  /* Material 3 state layer: a tinted overlay, never an opacity change */
+  .md-state { position: relative; overflow: hidden; isolation: isolate; }
+  .md-state::before {
+    content: ""; position: absolute; inset: 0; z-index: -1;
+    background: currentColor; opacity: 0;
+    transition: opacity 120ms var(--md-sys-motion-easing-standard);
+  }
+  .md-state:hover::before { opacity: var(--md-sys-state-hover-opacity); }
+  .md-state:focus-visible::before { opacity: var(--md-sys-state-focus-opacity); }
+  .md-state:active::before { opacity: var(--md-sys-state-pressed-opacity); }
+  .md-ripple {
+    position: absolute; border-radius: var(--md-sys-shape-corner-full); transform: scale(0); z-index: -1;
+    background: currentColor; opacity: 0.16; pointer-events: none;
+    animation: md-ripple var(--md-sys-motion-duration-medium4) var(--md-sys-motion-easing-standard) forwards;
+  }
+  @keyframes md-ripple { to { transform: scale(2.5); opacity: 0; } }
+
+  /* ============================== app shell ================================ */
+  html, body { height: 100%; }
+  body { overflow: hidden; }
+  .app { display: flex; flex-direction: column; height: 100vh; }
+
+  .app-bar {
+    display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+    height: 64px; flex: none; padding: 0 var(--md-sys-spacing-4);
+    background: var(--md-sys-color-surface-container);
+    color: var(--md-sys-color-on-surface);
+  }
+  .app-bar__headline { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: var(--md-sys-spacing-3); }
+  .app-bar__title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .app-bar__supporting { color: var(--md-sys-color-on-surface-variant); white-space: nowrap; }
+  .app-bar__actions { display: flex; align-items: center; gap: var(--md-sys-spacing-2); flex: none; }
+
+  .icon-button {
+    width: 40px; height: 40px; flex: none; position: relative;
+    display: grid; place-items: center;
+    border: 0; border-radius: var(--md-sys-shape-corner-full);
+    background: transparent; color: var(--md-sys-color-on-surface-variant);
+    cursor: pointer;
+  }
+  .icon-button::after { content: ""; position: absolute; inset: -4px; }
+  .icon-button svg { width: 24px; height: 24px; }
+
+  /* Canonical list-detail: the list is a pane, not a page. */
+  .panes { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 340px 1fr; }
+  .list-pane {
+    min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+    background: var(--md-sys-color-surface-container-low);
+    border-right: 1px solid var(--md-sys-color-outline-variant);
+    padding-bottom: var(--md-sys-spacing-4);
+  }
+  /* The header and tabs stay put; only the panel below them scrolls. */
+  .detail-pane { min-height: 0; overflow: hidden; background: var(--md-sys-color-surface); display: flex; flex-direction: column; }
+
+  /* ============================== filter chips ============================= */
+  /* The chips and the selection bar ride together at the top of the index, so a
+     bar that appears while you pick rows does not push the chips out of reach. */
+  .list-sticky {
+    position: sticky; top: 0; z-index: 2;
+    background: var(--md-sys-color-surface-container-low);
+  }
+  .chip-set {
+    display: flex; flex-wrap: wrap; gap: var(--md-sys-spacing-2);
+    margin: 0; padding: var(--md-sys-spacing-3) var(--md-sys-spacing-4); list-style: none;
+  }
+  .chip {
+    position: relative;
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 32px; padding: 0 var(--md-sys-spacing-3);
+    border-radius: var(--md-sys-shape-corner-small);
+    border: 1px solid var(--md-sys-color-outline-variant);
+    background: transparent; color: var(--md-sys-color-on-surface-variant);
+    cursor: pointer;
+    transition: background var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+                color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+                border-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+  }
+  .chip::after { content: ""; position: absolute; inset: -8px 0; }
+  .chip[aria-pressed="true"] {
+    background: var(--md-sys-color-secondary-container);
+    color: var(--md-sys-color-on-secondary-container);
+    border-color: transparent;
+  }
+  .chip__dot { width: 9px; height: 9px; border-radius: var(--md-sys-shape-corner-full); background: var(--chip-dot, currentColor); flex: none; }
+  .chip__check { width: 16px; height: 16px; display: none; }
+  .chip[aria-pressed="true"] .chip__check { display: block; }
+  .chip[aria-pressed="true"] .chip__dot { display: none; }
+
+  /* ============================== session list ============================= */
+  .session-list { list-style: none; margin: 0; padding: 0 var(--md-sys-spacing-2); display: flex; flex-direction: column; gap: 2px; }
+  .session-item {
+    /* Navigation-drawer item anatomy: pill shape, 56dp+, active = secondary. */
+    width: 100%; text-align: left; cursor: pointer; border: 0;
+    /* A shift-click picks a run of rows; without this it also drags a selection
+       across their text. */
+    user-select: none;
+    display: flex; align-items: center; gap: var(--md-sys-spacing-3);
+    padding: var(--md-sys-spacing-2) var(--md-sys-spacing-3);
+    border-radius: var(--md-sys-shape-corner-full);
+    background: transparent; color: var(--md-sys-color-on-surface-variant);
+    transition: background var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+                color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+  }
+  .session-item[aria-current="true"] {
+    background: var(--md-sys-color-secondary-container);
+    color: var(--md-sys-color-on-secondary-container);
+  }
+  /* The avatar says two things at once: which host, and which state. */
+  .session-item__avatar {
+    width: 40px; height: 40px; flex: none;
+    border-radius: var(--md-sys-shape-corner-full);
+    background: var(--state-container); color: var(--state-on-container);
+    display: grid; place-items: center; position: relative;
+  }
+  .session-item__avatar svg { width: 20px; height: 20px; }
+  .session-item__lamp {
+    position: absolute; right: -1px; bottom: -1px;
+    width: 12px; height: 12px; border-radius: var(--md-sys-shape-corner-full);
+    background: var(--state-colour);
+    box-shadow: 0 0 0 2px var(--md-sys-color-surface-container-low);
+  }
+  .session-item[aria-current="true"] .session-item__lamp { box-shadow: 0 0 0 2px var(--md-sys-color-secondary-container); }
+  .session-item[data-status="busy"] .session-item__lamp { animation: lamp-throb 1.6s var(--md-sys-motion-easing-standard) infinite; }
+  .session-item[data-status="waiting"] .session-item__lamp { animation: lamp-flash 1.1s var(--md-sys-motion-easing-standard) infinite; }
+  @keyframes lamp-throb { 0%, 100% { box-shadow: 0 0 0 2px var(--md-sys-color-surface-container-low); } 70% { box-shadow: 0 0 0 2px var(--md-sys-color-surface-container-low), 0 0 0 8px transparent; } }
+  @keyframes lamp-flash { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  /* A column, so a name you typed yourself is cut to the row rather than
+     running under the clock on the right. */
+  .session-item__text { min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; }
+  .session-item__headline { display: block; min-width: 0; color: var(--md-sys-color-on-surface); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .session-item[aria-current="true"] .session-item__headline { color: var(--md-sys-color-on-secondary-container); }
+  .session-item__pin svg { width: 13px; height: 13px; vertical-align: -1px; margin-inline-end: 4px; opacity: 0.75; }
+  .session-item__supporting { display: block; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .session-item__trailing { flex: none; text-align: right; }
+
+  .list-empty { padding: var(--md-sys-spacing-6) var(--md-sys-spacing-4); color: var(--md-sys-color-on-surface-variant); text-align: center; }
+
+  /* ============================== groups =================================== */
+  /* Sessions that belong together — the same folder by default, or a grouping
+     you made yourself — sit under a header that folds them away. */
+  .group { display: flex; flex-direction: column; gap: 2px; margin-top: var(--md-sys-spacing-1); }
+  .group__header {
+    width: 100%; display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+    padding: var(--md-sys-spacing-2) var(--md-sys-spacing-3);
+    border: 0; border-radius: var(--md-sys-shape-corner-full);
+    background: transparent; color: var(--md-sys-color-on-surface-variant);
+    text-align: left; cursor: pointer; font: inherit;
+  }
+  .group__chevron { flex: none; display: grid; place-items: center; width: 20px; height: 20px;
+    transition: transform var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard); }
+  .group__chevron svg { width: 18px; height: 18px; }
+  .group[data-collapsed="true"] .group__chevron { transform: rotate(-90deg); }
+  /* Which kind of group this is: a folder, or one you put together yourself. */
+  .group__icon { flex: none; display: grid; place-items: center; width: 18px; height: 18px; opacity: 0.75; }
+  .group__icon svg { width: 16px; height: 16px; }
+  .group__name { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* A folded group still has to say what is inside it: one dot per state its
+     sessions are in, so a group hiding something that needs an answer shows it. */
+  .group__lamps { flex: none; display: flex; gap: 3px; }
+  .group__lamp { width: 8px; height: 8px; border-radius: var(--md-sys-shape-corner-full); background: var(--lamp); }
+  .group__count { flex: none; opacity: 0.85; min-width: 2ch; text-align: right; }
+  .group__items {
+    list-style: none; margin: 0 0 0 var(--md-sys-spacing-4); padding: 0 0 0 var(--md-sys-spacing-2);
+    display: flex; flex-direction: column; gap: 2px;
+    border-inline-start: 1px solid var(--md-sys-color-outline-variant);
+  }
+  .group[data-collapsed="true"] .group__items { display: none; }
+  /* A name being typed into the header, in the same place the name was. */
+  .group__field {
+    flex: 1 1 auto; min-width: 0;
+    padding: 0 var(--md-sys-spacing-2);
+    background: color-mix(in srgb, currentColor 10%, transparent);
+    border: 0; border-bottom: 2px solid currentColor;
+    border-radius: var(--md-sys-shape-corner-extra-small);
+    color: inherit; font: inherit; letter-spacing: inherit; outline: none;
+  }
+
+  /* ========================== picking several rows ========================== */
+  /* Ctrl-click or shift-click ticks rows for a group action. Picked is primary,
+     which is nothing else in the list, so it never reads as the selection. */
+  .session-item[data-picked="true"] {
+    background: var(--md-sys-color-primary-container);
+    color: var(--md-sys-color-on-primary-container);
+  }
+  .session-item[data-picked="true"] .session-item__headline { color: var(--md-sys-color-on-primary-container); }
+  .session-item[data-picked="true"] .session-item__lamp { box-shadow: 0 0 0 2px var(--md-sys-color-primary-container); }
+  /* The row you are also looking at keeps its ring, so both facts stay readable. */
+  .session-item[data-picked="true"][aria-current="true"] {
+    outline: 2px solid var(--md-sys-color-primary); outline-offset: -2px;
+  }
+  /* A group holding picked rows, which matters most when it is folded over them. */
+  .group[data-picked] > .group__header { color: var(--md-sys-color-primary); }
+  .pick-bar {
+    display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+    padding: 0 var(--md-sys-spacing-4) var(--md-sys-spacing-3);
+  }
+  .pick-bar[hidden] { display: none; }
+  .pick-bar__count { flex: 1 1 auto; min-width: 0; color: var(--md-sys-color-on-surface-variant); }
+  .pick-bar .button { height: 32px; padding: 0 var(--md-sys-spacing-3); }
+
+  /* ================================ detail ================================= */
+  .detail-empty { flex: 1 1 auto; display: grid; place-items: center; padding: var(--md-sys-spacing-6); text-align: center; color: var(--md-sys-color-on-surface-variant); }
+
+  .detail-header {
+    flex: none; padding: var(--md-sys-spacing-6) var(--md-sys-spacing-6) var(--md-sys-spacing-4);
+    background: var(--state-container); color: var(--state-on-container);
+  }
+  .detail-header__top { display: flex; align-items: flex-start; gap: var(--md-sys-spacing-4); }
+  .detail-header__text { flex: 1 1 auto; min-width: 0; }
+  .detail-header__title { display: flex; align-items: center; gap: var(--md-sys-spacing-2); flex-wrap: wrap; }
+  .detail-header__subtitle { opacity: 0.85; margin-top: 2px; }
+  /* The title doubles as the rename control: a click turns it into a field. */
+  .name-button {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: none; border: 0; padding: 2px var(--md-sys-spacing-2); margin-inline-start: -8px;
+    border-radius: var(--md-sys-shape-corner-small);
+    color: inherit; font: inherit; letter-spacing: inherit; text-align: left; cursor: text;
+  }
+  .name-button > span { overflow-wrap: anywhere; }
+  .name-button svg { width: 16px; height: 16px; flex: none; opacity: 0; transition: opacity 120ms; }
+  .name-button:hover svg, .name-button:focus-visible svg { opacity: 0.7; }
+  .name-field {
+    /* Sized to the text by startRename, so the state beside it keeps its place. */
+    min-width: 0; flex: 0 1 auto; max-width: 100%;
+    padding: 2px var(--md-sys-spacing-2); margin-inline-start: -8px;
+    background: color-mix(in srgb, var(--state-on-container) 10%, transparent);
+    border: 0; border-bottom: 2px solid currentColor; border-radius: var(--md-sys-shape-corner-small);
+    color: inherit; font: inherit; letter-spacing: inherit; outline: none;
+  }
+  .detail-header__meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--md-sys-spacing-1) var(--md-sys-spacing-2); margin-top: var(--md-sys-spacing-3); opacity: 0.9; }
+  .detail-header__actions { flex: none; display: flex; flex-direction: column; gap: var(--md-sys-spacing-1); align-items: stretch; }
+  .meta-sep { opacity: 0.45; }
+  /* The permission mode, sitting with the other facts and reading like one: the
+     same outlined pill as the host, filled in only for the two modes that mean
+     the session may act on its own. */
+  .mode-tag {
+    display: inline-flex; align-items: center;
+    height: 24px; padding: 0 var(--md-sys-spacing-2);
+    border-radius: var(--md-sys-shape-corner-small);
+    border: 1px solid currentColor;
+  }
+  .mode-tag[data-loose="1"] { background: var(--state-on-container); color: var(--state-container); border-color: transparent; }
+  /* A caveat that belongs to the fact beside it, so it stays on its line. */
+  .fact-note { opacity: 0.75; }
+  .host {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 24px; padding: 0 var(--md-sys-spacing-2) 0 6px;
+    border-radius: var(--md-sys-shape-corner-small);
+    border: 1px solid currentColor;
+  }
+  .host svg { width: 14px; height: 14px; flex: none; }
+  .back-button { display: none; }
+
+  /* ------------------------------- state trace ----------------------------- */
+  .trace { margin-top: var(--md-sys-spacing-4); position: relative; }
+  .trace__bar {
+    display: flex; justify-content: flex-end; gap: 2px; height: 10px;
+    border-radius: var(--md-sys-shape-corner-full); overflow: hidden;
+    background: var(--md-sys-color-surface);
+  }
+  .trace__span {
+    height: 100%; background: var(--seg); min-width: 1px; cursor: default;
+    transition: opacity 120ms ease, filter 120ms ease;
+  }
+  /* Hovering one span dims the rest, so the piece the tooltip describes is
+     unmistakable even when the slices are a pixel wide. */
+  .trace__bar:hover .trace__span { opacity: 0.45; }
+  /* Must carry :hover too, or the rule above outranks it and dims the hot slice
+     along with the rest — the whole bar greys out and nothing stands proud. */
+  .trace__bar:hover .trace__span--hot { opacity: 1; filter: brightness(1.15); }
+  .trace__tip {
+    position: absolute; bottom: calc(100% + var(--md-sys-spacing-2));
+    z-index: 5; pointer-events: none; opacity: 0;
+    transform: translate(-50%, 4px);
+    transition: opacity 120ms ease, transform 120ms ease;
+    padding: var(--md-sys-spacing-2) var(--md-sys-spacing-3);
+    border-radius: var(--md-sys-shape-corner-small);
+    background: var(--md-sys-color-inverse-surface);
+    color: var(--md-sys-color-inverse-on-surface);
+    box-shadow: 0 2px 6px 2px color-mix(in srgb, var(--md-sys-color-shadow) 15%, transparent),
+                0 1px 2px color-mix(in srgb, var(--md-sys-color-shadow) 30%, transparent);
+    white-space: nowrap;
+  }
+  .trace__tip[data-open="1"] { opacity: 1; transform: translate(-50%, 0); }
+  .trace__tip-state { display: flex; align-items: center; gap: var(--md-sys-spacing-2); }
+  .trace__tip-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--seg); flex: none; }
+  .trace__tip-times { display: block; margin-top: 2px; opacity: 0.85; }
+  .trace__span:first-child { border-radius: var(--md-sys-shape-corner-full) 0 0 var(--md-sys-shape-corner-full); }
+  .trace__span:last-child { border-radius: 0 var(--md-sys-shape-corner-full) var(--md-sys-shape-corner-full) 0; }
+  .trace__span:only-child { border-radius: var(--md-sys-shape-corner-full); }
+  .trace__axis { display: flex; justify-content: space-between; margin-top: var(--md-sys-spacing-1); opacity: 0.75; }
+
+  /* ================================== tabs ================================= */
+  /* Four tabs do not fit a phone, so the strip scrolls rather than truncating —
+     MD3's scrollable primary tabs. The scrollbar itself is hidden: it would sit
+     on the divider and the tabs are reachable by swipe and by keyboard anyway. */
+  .tabs {
+    flex: none; display: flex; gap: 0;
+    background: var(--md-sys-color-surface);
+    border-bottom: 1px solid var(--md-sys-color-outline-variant);
+    position: sticky; top: 0; z-index: 1;
+    overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab {
+    position: relative; flex: 0 0 auto;
+    height: 48px; padding: 0 var(--md-sys-spacing-6);
+    border: 0; background: transparent; cursor: pointer;
+    color: var(--md-sys-color-on-surface-variant);
+    display: inline-flex; align-items: center; gap: var(--md-sys-spacing-2);
+  }
+  .tab svg { width: 18px; height: 18px; }
+  .tab[aria-selected="true"] { color: var(--md-sys-color-primary); }
+  .tab[aria-selected="true"]::after {
+    content: ""; position: absolute; left: 50%; transform: translateX(-50%);
+    bottom: 0; width: calc(100% - 32px); height: 3px;
+    background: var(--md-sys-color-primary);
+    border-radius: var(--md-sys-shape-corner-full) var(--md-sys-shape-corner-full) 0 0;
+  }
+  /* Holds the scrolling panel and the floating jump button over it. */
+  .panel-wrap { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; position: relative; }
+  .tab-panel { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+    padding: var(--md-sys-spacing-4) var(--md-sys-spacing-6) var(--md-sys-spacing-6); }
+
+  .jump-last {
+    position: absolute; right: var(--md-sys-spacing-6); bottom: var(--md-sys-spacing-4);
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 36px; padding: 0 var(--md-sys-spacing-4);
+    border: 0; border-radius: var(--md-sys-shape-corner-full); cursor: pointer;
+    background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container);
+    box-shadow: 0 2px 6px rgb(0 0 0 / 0.18);
+  }
+  .jump-last[hidden] { display: none; }
+  .jump-last svg { width: 16px; height: 16px; flex: none; }
+  /* One icon, turned over when the message sits below instead of above. */
+  .jump-last[data-dir="down"] svg { transform: rotate(180deg); }
+
+  /* =============================== composer ================================ */
+  /* Sits outside the scrolling panel so it stays put as the conversation moves. */
+  .composer {
+    flex: none; display: flex; gap: var(--md-sys-spacing-2); align-items: flex-end;
+    padding: var(--md-sys-spacing-3) var(--md-sys-spacing-6) var(--md-sys-spacing-4);
+    border-top: 1px solid var(--md-sys-color-outline-variant);
+    background: var(--md-sys-color-surface);
+    position: relative;
+  }
+  /* The rule above the box is the handle. It overlays rather than sits in the
+     flow, so the grab area is a comfortable 12px without moving anything. */
+  .composer-grip {
+    position: absolute; top: -6px; left: 0; right: 0; height: 12px;
+    border: 0; padding: 0; background: none; cursor: ns-resize; touch-action: none;
+  }
+  .composer-grip::before {
+    content: ""; position: absolute; left: 0; right: 0; top: 5px; height: 2px;
+    border-radius: 1px; background: transparent; transition: background 120ms ease;
+  }
+  .composer-grip:hover::before,
+  .composer-grip:focus-visible::before,
+  .composer-grip.is-dragging::before { background: var(--md-sys-color-primary); }
+  .composer-grip:focus-visible { outline: none; }
+  .composer__field {
+    flex: 1 1 auto; min-width: 0; resize: none; max-height: 40vh;
+    padding: var(--md-sys-spacing-3) var(--md-sys-spacing-4);
+    border-radius: var(--md-sys-shape-corner-large);
+    border: 1px solid var(--md-sys-color-outline);
+    background: var(--md-sys-color-surface-container-lowest);
+    color: var(--md-sys-color-on-surface);
+    font: inherit; font-family: var(--md-sys-typescale-body-large-font, inherit);
+  }
+  .composer__field:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: -2px; border-color: transparent; }
+  .composer__field:disabled { background: color-mix(in srgb, var(--md-sys-color-on-surface) 4%, transparent);
+    border-color: var(--md-sys-color-outline-variant); color: var(--md-sys-color-on-surface-variant); }
+  .composer__send { flex: none; min-height: 48px; }
+  /* Why it is off, in the place the reader is already looking. */
+  .composer__why { flex: 1 1 auto; margin: 0; color: var(--md-sys-color-on-surface-variant); }
+
+  /* ================================== chat ================================= */
+  .chat { display: flex; flex-direction: column; gap: var(--md-sys-spacing-3); }
+  .chat__note { align-self: center; color: var(--md-sys-color-on-surface-variant); padding: var(--md-sys-spacing-2) 0; }
+  .msg { max-width: min(76%, 720px); padding: var(--md-sys-spacing-3) var(--md-sys-spacing-4); border-radius: var(--md-sys-shape-corner-large); }
+  .msg--user {
+    align-self: flex-end;
+    background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);
+    border-end-end-radius: var(--md-sys-shape-corner-extra-small);
+  }
+  .msg--assistant {
+    align-self: flex-start;
+    background: var(--md-sys-color-surface-container-low); color: var(--md-sys-color-on-surface);
+    border: 1px solid var(--md-sys-color-outline-variant);
+    border-end-start-radius: var(--md-sys-shape-corner-extra-small);
+  }
+  /* A turn that only ran tools is activity, not conversation — it gets a quiet
+     full-width row instead of a speech bubble. */
+  .activity-row {
+    display: flex; align-items: baseline; gap: var(--md-sys-spacing-2);
+    padding: var(--md-sys-spacing-1) var(--md-sys-spacing-2);
+    color: var(--md-sys-color-on-surface-variant);
+  }
+  .activity-row__time { flex: none; opacity: 0.7; }
+  .activity-row__tools { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
+  .msg__who { display: flex; align-items: baseline; gap: var(--md-sys-spacing-2); margin-bottom: var(--md-sys-spacing-1); opacity: 0.8; }
+  /* Rendered Markdown. The bubble sets the rhythm: first and last child sit
+     flush with the padding, everything between gets one gap of air. */
+  .msg__text { overflow-wrap: anywhere; }
+  .msg__text > * { margin: var(--md-sys-spacing-2) 0; }
+  .msg__text > :first-child { margin-top: 0; }
+  .msg__text > :last-child { margin-bottom: 0; }
+  .msg__text .md-head { margin: var(--md-sys-spacing-3) 0 var(--md-sys-spacing-1); font-weight: 700; }
+  .msg__text ul, .msg__text ol { padding-inline-start: 1.4em; }
+  .msg__text li { margin: 2px 0; }
+  .msg__text li > ul, .msg__text li > ol { margin: 2px 0; }
+  .msg__text a { color: inherit; text-underline-offset: 2px; }
+  .msg__text code {
+    padding: 1px 5px; border-radius: var(--md-sys-shape-corner-extra-small);
+    background: color-mix(in srgb, currentColor 12%, transparent); font-size: 0.92em;
+  }
+  .md-code {
+    margin: var(--md-sys-spacing-2) 0; padding: var(--md-sys-spacing-3);
+    border-radius: var(--md-sys-shape-corner-medium);
+    background: color-mix(in srgb, currentColor 8%, transparent);
+    border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+    overflow-x: auto; white-space: pre; -webkit-overflow-scrolling: touch;
+  }
+  .md-code code { padding: 0; background: none; font-size: 0.88em; line-height: 1.5; }
+  .msg__text blockquote {
+    margin-inline: 0; padding-inline-start: var(--md-sys-spacing-3);
+    border-inline-start: 3px solid color-mix(in srgb, currentColor 30%, transparent);
+    opacity: 0.9;
+  }
+  .msg__text hr { border: 0; border-top: 1px solid color-mix(in srgb, currentColor 22%, transparent); }
+  /* Tables can be wider than the bubble, so they scroll on their own. */
+  .md-table { display: block; overflow-x: auto; border-collapse: collapse; max-width: 100%; }
+  .md-table th, .md-table td {
+    padding: 4px var(--md-sys-spacing-2); text-align: left;
+    border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+  }
+  .md-table th { font-weight: 700; background: color-mix(in srgb, currentColor 7%, transparent); }
+  .msg__tools { display: flex; flex-direction: column; gap: var(--md-sys-spacing-1); margin-top: var(--md-sys-spacing-2); }
+  .tool-line {
+    display: flex; align-items: baseline; gap: var(--md-sys-spacing-2);
+    padding: 5px var(--md-sys-spacing-2);
+    border-radius: var(--md-sys-shape-corner-extra-small);
+    background: color-mix(in srgb, currentColor 8%, transparent);
+  }
+  .tool-line__name { flex: none; font-weight: 700; }
+  .tool-line__detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; opacity: 0.85; }
+
+  /* ============================== detail: facts ============================ */
+  .section { margin-bottom: var(--md-sys-spacing-6); }
+  .section__title { color: var(--md-sys-color-on-surface-variant); margin-bottom: var(--md-sys-spacing-3); }
+  .facts { display: grid; grid-template-columns: minmax(120px, 180px) 1fr; gap: 0; margin: 0; }
+  .facts dt { padding: var(--md-sys-spacing-2) 0; color: var(--md-sys-color-on-surface-variant); border-top: 1px solid var(--md-sys-color-outline-variant); }
+  .facts dd { padding: var(--md-sys-spacing-2) 0; margin: 0; border-top: 1px solid var(--md-sys-color-outline-variant); overflow-wrap: anywhere; }
+  .row { display: flex; align-items: center; gap: var(--md-sys-spacing-4); flex-wrap: wrap; }
+  /* Identify and pair sit side by side when a window cannot be told apart. */
+  .detail-window-actions { display: flex; gap: var(--md-sys-spacing-2); flex-wrap: wrap; }
+  .row__grow { flex: 1 1 auto; min-width: 0; }
+
+  /* =============================== detail: git ============================= */
+  /* The branch line: where HEAD is, and how far it has drifted from upstream. */
+  .git-head { display: flex; align-items: center; gap: var(--md-sys-spacing-3); flex-wrap: wrap;
+    margin-bottom: var(--md-sys-spacing-4); }
+  .git-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px var(--md-sys-spacing-3);
+    border-radius: var(--md-sys-shape-corner-small);
+    background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container);
+  }
+  .git-badge svg { width: 15px; height: 15px; }
+  .git-badge--quiet { background: transparent; color: var(--md-sys-color-on-surface-variant);
+    padding-inline: 0; }
+
+  /* One row per changed file. The status letters keep a fixed column so the
+     paths line up down the list and a glance reads the shape of the change. */
+  .git-files { display: flex; flex-direction: column; }
+  .git-file {
+    display: flex; align-items: center; gap: var(--md-sys-spacing-3);
+    padding: var(--md-sys-spacing-2) 0;
+    border-top: 1px solid var(--md-sys-color-outline-variant);
+  }
+  .git-file__xy { flex: none; width: 2ch; letter-spacing: 1px; text-align: center;
+    color: var(--md-sys-color-on-surface-variant); }
+  .git-file__path { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; direction: rtl; text-align: left; }
+  .git-file__dir { color: var(--md-sys-color-on-surface-variant); }
+  .git-file__from { flex: none; color: var(--md-sys-color-on-surface-variant); }
+  /* Added, modified, removed and conflicted each get a colour that is already in
+     the scheme, so they follow the base colour like everything else. */
+  .git-file[data-mark="A"] .git-file__xy { color: var(--md-extended-color-idle-color, var(--md-sys-color-primary)); }
+  .git-file[data-mark="D"] .git-file__xy { color: var(--md-sys-color-error); }
+  .git-file[data-mark="U"] .git-file__xy { color: var(--md-sys-color-error); font-weight: 700; }
+
+  /* The graph: one lane per concurrent line of history, drawn beside the log. */
+  .git-graph { display: grid; grid-template-columns: auto 1fr; }
+  .git-graph__lanes { grid-column: 1; }
+  /* A fixed height, because the rail beside each row is an SVG of exactly this
+     many pixels: let the rows grow with their text and the lanes stop meeting
+     across the join. The subject is ellipsised rather than wrapped for the same
+     reason. */
+  .git-commit {
+    display: grid; grid-template-columns: subgrid; grid-column: 1 / -1;
+    align-items: center; gap: var(--md-sys-spacing-3);
+    height: 52px;
+  }
+  .git-commit__rail { grid-column: 1; align-self: stretch; display: block; }
+  /* The separator runs under the text only. Carrying it across the rail column
+     would put a 1px break through every lane, at every row. */
+  .git-commit__body { grid-column: 2; min-width: 0; align-self: stretch;
+    display: flex; flex-direction: column; justify-content: center;
+    border-top: 1px solid var(--md-sys-color-outline-variant); }
+  .git-commit__subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .git-commit__meta { color: var(--md-sys-color-on-surface-variant); display: flex; gap: 6px;
+    align-items: center; flex-wrap: wrap; }
+  .git-ref {
+    padding: 1px 6px; border-radius: var(--md-sys-shape-corner-extra-small);
+    background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);
+  }
+  .git-ref--head { background: var(--md-sys-color-tertiary-container); color: var(--md-sys-color-on-tertiary-container); }
+  .git-empty { color: var(--md-sys-color-on-surface-variant); padding: var(--md-sys-spacing-3) 0; }
+
+  /* ================================= buttons =============================== */
+  .button {
+    position: relative;
+    display: inline-flex; align-items: center; justify-content: center; gap: var(--md-sys-spacing-2);
+    height: 40px; padding: 0 var(--md-sys-spacing-6);
+    border: 0; border-radius: var(--md-sys-shape-corner-full);
+    cursor: pointer; white-space: nowrap;
+    font: var(--md-sys-typescale-label-large-weight) var(--md-sys-typescale-label-large-size)/var(--md-sys-typescale-label-large-line-height) var(--md-sys-typescale-label-large-font);
+    letter-spacing: var(--md-sys-typescale-label-large-tracking);
+  }
+  .button::after { content: ""; position: absolute; inset: -4px; }
+  .button svg { width: 18px; height: 18px; flex: none; }
+  .button--filled { background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); }
+  .button--tonal { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+  .button--text { background: transparent; color: var(--md-sys-color-primary); padding: 0 var(--md-sys-spacing-3); }
+  .button--outlined { background: transparent; color: currentColor; border: 1px solid currentColor; }
+  /* On the tinted detail header, the card's own pair is the only safe fill. */
+  .detail-header .button--filled,
+  .detail-header .button--tonal { background: var(--state-on-container); color: var(--state-container); }
+  .button--danger { background: var(--md-sys-color-error); color: var(--md-sys-color-on-error); }
+  .button--danger-outlined { background: transparent; color: var(--md-sys-color-error); border: 1px solid var(--md-sys-color-error); }
+  .button:disabled { opacity: 0.38; cursor: not-allowed; }
+  .hint { display: flex; gap: 5px; justify-content: center; align-items: baseline; opacity: 0.85; }
+  .link-button { background: none; border: 0; padding: 0; cursor: pointer; color: inherit; font: inherit; text-decoration: underline; text-underline-offset: 2px; }
+
+  /* ================================= switch ================================ */
+  .switch { display: inline-flex; align-items: center; gap: var(--md-sys-spacing-3); cursor: pointer; user-select: none; }
+  .switch__label { color: var(--md-sys-color-on-surface-variant); }
+  .switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .switch__track {
+    position: relative; width: 52px; height: 32px; flex: none;
+    border-radius: var(--md-sys-shape-corner-full);
+    background: var(--md-sys-color-surface-container-highest);
+    border: 2px solid var(--md-sys-color-outline);
+    transition: background var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+                border-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+  }
+  .switch__thumb {
+    position: absolute; top: 50%; left: 6px; transform: translateY(-50%);
+    width: 16px; height: 16px; border-radius: var(--md-sys-shape-corner-full);
+    background: var(--md-sys-color-outline);
+    display: grid; place-items: center;
+    transition: left var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-emphasized),
+                width var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-emphasized),
+                height var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-emphasized),
+                background var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+  }
+  .switch__thumb svg { width: 16px; height: 16px; opacity: 0; }
+  .switch input:checked + .switch__track { background: var(--md-sys-color-primary); border-color: var(--md-sys-color-primary); }
+  .switch input:checked + .switch__track .switch__thumb { left: 22px; width: 24px; height: 24px; background: var(--md-sys-color-on-primary); }
+  .switch input:checked + .switch__track .switch__thumb svg { opacity: 1; stroke: var(--md-sys-color-primary); }
+  .switch input:focus-visible + .switch__track { outline: 3px solid var(--md-sys-color-primary); outline-offset: 3px; }
+
+  /* ============================== segmented button ========================= */
+  .segmented { display: inline-flex; }
+  .segmented__item {
+    height: 40px; padding: 0 var(--md-sys-spacing-4);
+    border: 1px solid var(--md-sys-color-outline);
+    background: transparent; color: var(--md-sys-color-on-surface);
+    cursor: pointer; position: relative;
+    display: inline-flex; align-items: center; gap: 6px;
+    font: var(--md-sys-typescale-label-large-weight) var(--md-sys-typescale-label-large-size)/var(--md-sys-typescale-label-large-line-height) var(--md-sys-typescale-label-large-font);
+  }
+  .segmented__item:first-child { border-radius: var(--md-sys-shape-corner-full) 0 0 var(--md-sys-shape-corner-full); }
+  .segmented__item:last-child { border-radius: 0 var(--md-sys-shape-corner-full) var(--md-sys-shape-corner-full) 0; border-left-width: 0; }
+  .segmented__item:not(:first-child):not(:last-child) { border-left-width: 0; }
+  .segmented__item[aria-pressed="true"] { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+  .segmented__item svg { width: 18px; height: 18px; display: none; }
+  .segmented__item[aria-pressed="true"] svg { display: block; }
+
+  /* ============================== context menu ============================= */
+  /* Right-clicking a session opens this over everything, positioned at the
+     pointer. Fixed, and a child of body, so a list repaint cannot tear it out. */
+  .menu {
+    position: fixed; z-index: 20; min-width: 232px; max-width: min(320px, 92vw);
+    padding: var(--md-sys-spacing-2) 0;
+    /* A short window must not put the last items out of reach — scroll instead
+       of overflowing. The cap is set from innerHeight when it opens. */
+    max-height: calc(100vh - 16px); overflow-y: auto; overscroll-behavior: contain;
+    background: var(--md-sys-color-surface-container);
+    color: var(--md-sys-color-on-surface);
+    border-radius: var(--md-sys-shape-corner-small);
+    box-shadow: 0 2px 6px 2px color-mix(in srgb, var(--md-sys-color-shadow) 15%, transparent),
+                0 1px 2px 0 color-mix(in srgb, var(--md-sys-color-shadow) 30%, transparent);
+    opacity: 0; transform: scale(0.96); transform-origin: top left;
+    transition: opacity var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+                transform var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-emphasized-decelerate);
+  }
+  .menu[data-open="true"] { opacity: 1; transform: scale(1); }
+  /* Which session this menu belongs to — the list keeps its own selection. */
+  .menu__title {
+    padding: var(--md-sys-spacing-2) var(--md-sys-spacing-4) var(--md-sys-spacing-3);
+    color: var(--md-sys-color-on-surface-variant);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .menu__item {
+    display: flex; align-items: center; gap: var(--md-sys-spacing-3);
+    width: 100%; min-height: 48px; padding: var(--md-sys-spacing-2) var(--md-sys-spacing-4);
+    border: 0; background: none; color: inherit; text-align: left; cursor: pointer;
+    font: inherit;
+  }
+  .menu__item:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: -2px; }
+  .menu__item[disabled] { color: var(--md-sys-color-on-surface-variant); opacity: 0.38; cursor: default; }
+  .menu__item--danger { color: var(--md-sys-color-error); }
+  .menu__icon { flex: none; display: grid; place-items: center; width: 20px; height: 20px; }
+  .menu__icon svg { width: 20px; height: 20px; }
+  .menu__label { flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* The state the label cannot carry: which window matched, where the folder is. */
+  .menu__hint { flex: none; color: var(--md-sys-color-on-surface-variant); opacity: 0.9; max-width: 42%;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .menu__item--danger .menu__hint { color: inherit; }
+  .menu__divider { height: 1px; margin: var(--md-sys-spacing-2) 0; border: 0;
+    background: var(--md-sys-color-outline-variant); }
+  /* The row — or group header — the open menu acts on, so the target is never
+     in doubt. */
+  .session-list li[data-menu="open"] > .session-item,
+  .session-list li[data-menu="open"] > .group__header {
+    outline: 2px solid var(--md-sys-color-primary); outline-offset: -2px;
+  }
+
+  /* ================================= dialog ================================ */
+  .scrim {
+    position: fixed; inset: 0; z-index: 10;
+    background: color-mix(in srgb, var(--md-sys-color-scrim) 32%, transparent);
+    display: grid; place-items: center; padding: var(--md-sys-spacing-4);
+    opacity: 0; pointer-events: none;
+    transition: opacity var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+  }
+  .scrim[data-open="true"] { opacity: 1; pointer-events: auto; }
+  .dialog {
+    width: min(560px, 100%); max-height: 90vh; overflow: auto;
+    background: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);
+    border-radius: var(--md-sys-shape-corner-extra-large);
+    padding: var(--md-sys-spacing-6);
+    transform: scale(0.9); opacity: 0;
+    transition: transform var(--md-sys-motion-duration-medium4) var(--md-sys-motion-easing-emphasized-decelerate),
+                opacity var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+  }
+  .scrim[data-open="true"] .dialog { transform: scale(1); opacity: 1; }
+  .dialog__headline { margin-bottom: var(--md-sys-spacing-2); }
+  .dialog__supporting { color: var(--md-sys-color-on-surface-variant); margin-bottom: var(--md-sys-spacing-6); }
+  .dialog__actions { display: flex; justify-content: flex-end; gap: var(--md-sys-spacing-2); }
+  /* Keeps the last-resort action away from the one people mean to press. */
+  .dialog__actions-start { margin-right: auto; color: var(--md-sys-color-on-surface-variant); }
+  .divider { height: 1px; background: var(--md-sys-color-outline-variant); border: 0; margin: 0 0 var(--md-sys-spacing-6); }
+
+  .swatches { display: flex; flex-wrap: wrap; gap: var(--md-sys-spacing-3); align-items: center; }
+  .swatch {
+    width: 48px; height: 48px; flex: none; position: relative;
+    border-radius: var(--md-sys-shape-corner-full);
+    border: 2px solid transparent; background: var(--swatch);
+    cursor: pointer; display: grid; place-items: center;
+    transition: transform var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-emphasized);
+  }
+  .swatch:hover { transform: scale(1.08); }
+  .swatch[aria-pressed="true"] { border-color: var(--md-sys-color-on-surface); }
+  .swatch svg { width: 22px; height: 22px; opacity: 0; stroke: var(--swatch-on); }
+  .swatch[aria-pressed="true"] svg { opacity: 1; }
+  .swatch--custom { background: var(--md-sys-color-surface-container-highest); overflow: hidden; }
+  .swatch--custom input { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; padding: 0; cursor: pointer; opacity: 0; }
+  .swatch--custom svg { opacity: 1; stroke: var(--md-sys-color-on-surface-variant); }
+  .seed-readout { color: var(--md-sys-color-on-surface-variant); margin-top: var(--md-sys-spacing-3); }
+  .code { font-family: var(--md-ref-typeface-mono); background: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface); padding: 1px 6px; border-radius: var(--md-sys-shape-corner-extra-small); }
+
+  /* ================================ snackbar =============================== */
+  .snackbar {
+    position: fixed; left: 50%; bottom: var(--md-sys-spacing-6); z-index: 12;
+    transform: translate(-50%, calc(100% + 48px));
+    display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+    min-height: 48px; padding: var(--md-sys-spacing-3) var(--md-sys-spacing-4);
+    background: var(--md-sys-color-inverse-surface); color: var(--md-sys-color-inverse-on-surface);
+    border-radius: var(--md-sys-shape-corner-extra-small);
+    box-shadow: 0 4px 8px 3px color-mix(in srgb, var(--md-sys-color-shadow) 15%, transparent),
+                0 1px 3px color-mix(in srgb, var(--md-sys-color-shadow) 30%, transparent);
+    max-width: min(560px, calc(100vw - 32px));
+    transition: transform var(--md-sys-motion-duration-long2) var(--md-sys-motion-easing-emphasized);
+  }
+  .snackbar[data-open="true"] { transform: translate(-50%, 0); }
+
+  /* =============================== responsive ============================== */
+  /* Compact: one pane at a time, with a back affordance — the canonical
+     list-detail behaviour below 600dp. */
+  @media (max-width: 899px) {
+    .panes { grid-template-columns: 1fr; }
+    .panes[data-view="list"] .detail-pane { display: none; }
+    .panes[data-view="detail"] .list-pane { display: none; }
+    .panes[data-view="detail"] .back-button { display: grid; }
+    .app-bar__supporting { display: none; }
+    .detail-header, .tab-panel { padding-inline: var(--md-sys-spacing-4); }
+    /* Tighter tabs so four of them mostly fit before the strip has to scroll,
+       while keeping the 48dp target height. */
+    .tab { padding-inline: var(--md-sys-spacing-4); }
+    .msg { max-width: 92%; }
+  }
+  @media (min-width: 1400px) { .panes { grid-template-columns: 380px 1fr; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before { animation: none !important; transition-duration: 1ms !important; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="app-bar">
+    <button class="icon-button md-state back-button" id="backButton" aria-label="Back to the session list">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+    </button>
+    <div class="app-bar__headline">
+      <h1 class="app-bar__title md-title-large">Claude sessions</h1>
+      <span class="app-bar__supporting md-label-medium" id="barSupporting"></span>
+    </div>
+    <div class="app-bar__actions">
+      <label class="switch">
+        <input type="checkbox" id="themeToggle" aria-label="Dark theme">
+        <span class="switch__track"><span class="switch__thumb">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+        </span></span>
+        <span class="switch__label md-label-large" id="themeLabel">Light</span>
+      </label>
+      <button class="icon-button md-state" id="settingsButton" aria-label="Appearance settings" aria-haspopup="dialog">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3.2"/>
+          <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.9 19.3a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.7 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.7a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9v.09A1.7 1.7 0 0 0 21 10.1a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1.03z"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="panes" id="panes" data-view="list">
+    <nav class="list-pane" aria-label="Sessions">
+      <div class="list-sticky">
+        <ul class="chip-set" id="chipSet"></ul>
+        <div class="pick-bar" id="pickBar" hidden>
+          <span class="pick-bar__count md-label-large" id="pickCount" role="status" aria-live="polite"></span>
+          <button class="button button--text md-state" id="pickClear" type="button">Clear</button>
+          <button class="button button--tonal md-state" id="pickGroup" type="button">Group</button>
+        </div>
+      </div>
+      <ul class="session-list" id="sessionList"></ul>
+      <p class="list-empty md-body-medium" id="listEmpty" hidden></p>
+    </nav>
+    <section class="detail-pane" id="detailPane" aria-live="polite"></section>
+  </div>
+</div>
+
+<div class="scrim" id="settingsScrim" data-open="false">
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="settingsHeadline">
+    <h2 class="dialog__headline md-headline-small" id="settingsHeadline">Appearance</h2>
+    <p class="dialog__supporting md-body-medium">
+      The whole palette is generated from one base colour, the way Material 3 dynamic
+      colour works. Pick a base and every surface, container, and state colour is
+      derived from it.
+    </p>
+    <section class="section">
+      <h3 class="section__title md-title-small">Base colour</h3>
+      <div class="swatches" id="swatches"></div>
+      <p class="seed-readout md-body-small" id="seedReadout"></p>
+    </section>
+    <hr class="divider">
+    <section class="section">
+      <h3 class="section__title md-title-small">Contrast</h3>
+      <div class="segmented" id="contrastGroup" role="group" aria-label="Contrast level"></div>
+    </section>
+    <div class="dialog__actions">
+      <button class="button button--text md-state" id="resetTheme">Reset</button>
+      <button class="button button--filled md-state" id="closeSettings">Done</button>
+    </div>
+  </div>
+</div>
+
+<div class="scrim" id="endScrim" data-open="false">
+  <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="endHeadline" aria-describedby="endSupporting">
+    <h2 class="dialog__headline md-headline-small" id="endHeadline">End this session?</h2>
+    <p class="dialog__supporting md-body-medium" id="endSupporting"></p>
+    <div class="dialog__actions">
+      <button class="button button--text md-state dialog__actions-start" id="endForce">Force quit</button>
+      <button class="button button--text md-state" id="endCancel">Cancel</button>
+      <button class="button button--danger md-state" id="endConfirm">End session</button>
+    </div>
+  </div>
+</div>
+
+<div class="menu" id="sessionMenu" role="menu" data-open="false" hidden></div>
+
+<div class="snackbar md-body-medium" id="snackbar" role="status" aria-live="polite" data-open="false"></div>
+
+<script type="module">
+import {
+  argbFromHex, hexFromArgb, Hct, SchemeVibrant, TonalPalette,
+} from "/vendor/material-color-utilities.js";
+
+/* ==========================================================================
+   Dynamic colour — one seed generates the entire scheme.
+   ========================================================================== */
+const DEFAULT_SEED = "#E8288F";
+const SEED_PRESETS = [
+  { hex: "#E8288F", name: "Pink" }, { hex: "#7C4DFF", name: "Violet" },
+  { hex: "#00A18F", name: "Teal" }, { hex: "#F4511E", name: "Coral" },
+  { hex: "#3D5AFE", name: "Blue" }, { hex: "#7CB342", name: "Green" },
+];
+const CONTRAST_LEVELS = [
+  { key: "standard", label: "Standard", value: 0 },
+  { key: "medium", label: "Medium", value: 0.5 },
+  { key: "high", label: "High", value: 1 },
+];
+const STATE_BASE_HUES = { waiting: "#FF8A00", idle: "#5B6BC0" };
+const MIN_HUE_GAP = 35;
+const MAX_CUSTOM_CHROMA = 48;
+
+const SYS_ROLES = [
+  "primary", "onPrimary", "primaryContainer", "onPrimaryContainer",
+  "secondary", "onSecondary", "secondaryContainer", "onSecondaryContainer",
+  "tertiary", "onTertiary", "tertiaryContainer", "onTertiaryContainer",
+  "error", "onError", "errorContainer", "onErrorContainer",
+  "surface", "onSurface", "onSurfaceVariant", "surfaceDim", "surfaceBright",
+  "surfaceContainerLowest", "surfaceContainerLow", "surfaceContainer",
+  "surfaceContainerHigh", "surfaceContainerHighest",
+  "outline", "outlineVariant", "inverseSurface", "inverseOnSurface", "inversePrimary",
+  "shadow", "scrim",
+];
+const kebab = (name) => name.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase());
+const hueDistance = (a, b) => { const d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; };
+
+function firstFreeHue(baseHue, occupied) {
+  for (let delta = 0; delta <= 180; delta += 5) {
+    for (const sign of delta === 0 ? [1] : [1, -1]) {
+      const candidate = (baseHue + sign * delta + 360) % 360;
+      if (occupied.every((hue) => hueDistance(candidate, hue) >= MIN_HUE_GAP)) return candidate;
+    }
+  }
+  return baseHue;
+}
+function customRoles(palette, dark) {
+  return dark
+    ? { color: palette.tone(80), onColor: palette.tone(20), container: palette.tone(30), onContainer: palette.tone(90) }
+    : { color: palette.tone(40), onColor: palette.tone(100), container: palette.tone(90), onContainer: palette.tone(10) };
+}
+
+let settings = { seed: DEFAULT_SEED, dark: matchMedia("(prefers-color-scheme: dark)").matches, contrast: "standard" };
+
+function loadSettings() {
+  const params = new URLSearchParams(location.search);
+  const seed = params.get("seed") || localStorage.getItem("cbu-seed");
+  if (seed && /^#[0-9a-f]{6}$/i.test(seed)) settings.seed = seed;
+  const theme = params.get("theme") || localStorage.getItem("cbu-theme");
+  if (theme === "dark" || theme === "light") settings.dark = theme === "dark";
+  const contrast = params.get("contrast") || localStorage.getItem("cbu-contrast");
+  if (CONTRAST_LEVELS.some((l) => l.key === contrast)) settings.contrast = contrast;
+}
+function persist() {
+  localStorage.setItem("cbu-seed", settings.seed);
+  localStorage.setItem("cbu-theme", settings.dark ? "dark" : "light");
+  localStorage.setItem("cbu-contrast", settings.contrast);
+}
+
+function applyScheme() {
+  const root = document.documentElement;
+  const seedArgb = argbFromHex(settings.seed);
+  const level = CONTRAST_LEVELS.find((l) => l.key === settings.contrast) || CONTRAST_LEVELS[0];
+  const scheme = new SchemeVibrant(Hct.fromInt(seedArgb), settings.dark, level.value);
+  for (const role of SYS_ROLES) {
+    if (scheme[role] === undefined) continue;
+    root.style.setProperty(`--md-sys-color-${kebab(role)}`, hexFromArgb(scheme[role]));
+  }
+  const occupied = [Hct.fromInt(scheme.primary).hue];
+  for (const [name, baseHex] of Object.entries(STATE_BASE_HUES)) {
+    const base = Hct.fromInt(argbFromHex(baseHex));
+    const hue = firstFreeHue(base.hue, occupied);
+    occupied.push(hue);
+    const palette = TonalPalette.fromHueAndChroma(hue, Math.min(base.chroma, MAX_CUSTOM_CHROMA));
+    for (const [role, argb] of Object.entries(customRoles(palette, settings.dark))) {
+      root.style.setProperty(`--md-extended-color-${name}-${kebab(role)}`, hexFromArgb(argb));
+    }
+  }
+  root.style.colorScheme = settings.dark ? "dark" : "light";
+  root.dataset.schemeReady = "true";
+  themeToggle.checked = settings.dark;
+  themeLabel.textContent = settings.dark ? "Dark" : "Light";
+  paintFavicon();
+}
+
+/* ------------------------------------------------------------- state map */
+const STATE = {
+  waiting: { label: "Needs an answer", short: "answer", prefix: "--md-extended-color-waiting" },
+  busy: { label: "Working", short: "working", prefix: "--md-sys-color-primary", sys: true },
+  idle: { label: "Waiting", short: "waiting", prefix: "--md-extended-color-idle" },
+  offline: { label: "Closed", short: "closed", prefix: null },
+  // A kept session whose process has gone. Not lost, just not running.
+  stopped: { label: "Stopped", short: "stopped", prefix: null },
+};
+/* `shell` is not shown as a state of its own. It is what Claude Code writes on
+   the way into a foreground command *and* what it leaves behind when a turn
+   ends, so on screen it was a second colour for the same thing: waiting. The raw
+   status still drives behaviour (a message can be queued for a shell session);
+   only the display folds it in. */
+const STATE_ALIAS = { shell: "idle" };
+const stateKeyOf = (status) => STATE_ALIAS[status] || status;
+const stateOf = (status) => STATE[stateKeyOf(status)] || STATE.idle;
+
+/* When the state you can see began. The server times the raw status, which
+   restarts every time a waiting session dips through `shell`; on screen nothing
+   happened, so the clock should not jump back to zero. */
+function displaySince(session) {
+  const spans = session.trace || [];
+  const key = stateKeyOf(session.status);
+  let since = session.statusSince;
+  for (let i = spans.length - 1; i >= 0; i--) {
+    if (stateKeyOf(spans[i].status) !== key) break;
+    since = spans[i].from;
+  }
+  return since;
+}
+for (const entry of Object.values(STATE)) {
+  if (entry.sys) {
+    entry.colour = "var(--md-sys-color-primary)";
+    entry.container = "var(--md-sys-color-primary-container)";
+    entry.onContainer = "var(--md-sys-color-on-primary-container)";
+  } else if (entry.prefix) {
+    entry.colour = `var(${entry.prefix}-color)`;
+    entry.container = `var(${entry.prefix}-container)`;
+    entry.onContainer = `var(${entry.prefix}-on-container)`;
+  } else {
+    entry.colour = "var(--md-sys-color-outline)";
+    entry.container = "var(--md-sys-color-surface-container-high)";
+    entry.onContainer = "var(--md-sys-color-on-surface-variant)";
+  }
+}
+const STATE_ORDER = ["waiting", "busy", "idle", "offline", "stopped"];
+
+/* ---------------------------------------------------------------- icons */
+const ICON = {
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+  focus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M21 3l-9 9M10 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5"/></svg>',
+  pair: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 4 7 16 2-6 6-2z"/></svg>',
+  power: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v9"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></svg>',
+  plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+  chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-8 8H8l-5 3 1.5-5A8 8 0 1 1 21 12z"/></svg>',
+  info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>',
+  // The branch, for the Git tab and the header badge on both git tabs.
+  branch: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6.5" cy="18" r="2.5"/><circle cx="6.5" cy="6" r="2.5"/><circle cx="17.5" cy="10" r="2.5"/><path d="M6.5 8.5v7M17.5 12.5c0 3-2.5 3.5-5.5 3.5"/></svg>',
+  // A commit graph, for History — three nodes on a line with one branching off.
+  history: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="5" r="2"/><circle cx="7" cy="19" r="2"/><circle cx="17" cy="12" r="2"/><path d="M7 7v10M7 12h5.5a3 3 0 0 0 2.7-1.6"/></svg>',
+  play: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4.5v15l13-7.5z"/></svg>',
+  pin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3z"/></svg>',
+  pinOff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3z"/><path d="M3 3l18 18"/></svg>',
+  up: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
+  pencil: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10-10a2.8 2.8 0 0 0-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg>',
+  bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 9a6 6 0 1 0-12 0c0 5-2 6-2 6h16s-2-1-2-6"/><path d="M10.3 20a2 2 0 0 0 3.4 0"/></svg>',
+  bellOff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 9a6 6 0 0 0-9-5.2"/><path d="M6.3 6.3A6 6 0 0 0 6 9c0 5-2 6-2 6h13"/><path d="M10.3 20a2 2 0 0 0 3.4 0"/><path d="m3 3 18 18"/></svg>',
+  copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg>',
+  chevron: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
+  group: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/></svg>',
+  ungroup: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="m2 2 20 20"/></svg>',
+  folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h3.6l2 2H19a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+};
+const HOST_KIND = {
+  editor: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 7-5 5 5 5M15 7l5 5-5 5"/></svg>',
+  terminal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="16" rx="3"/><path d="m7 10 2.5 2L7 14M12.5 14.5H17"/></svg>',
+  multiplexer: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3.5" width="19" height="17" rx="3"/><path d="M11 3.5v17M11 12h10.5"/></svg>',
+  remote: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3.5 9h17M3.5 15h17M12 3a15 15 0 0 0 0 18M12 3a15 15 0 0 1 0 18"/></svg>',
+  unknown: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18"/></svg>',
+};
+const HOST_BY_PROCESS = {
+  code: ["editor", "VS Code"], "code-insiders": ["editor", "VS Code Insiders"], codium: ["editor", "VSCodium"],
+  "gnome-terminal-": ["terminal", "GNOME Terminal"], konsole: ["terminal", "Konsole"],
+  "xfce4-terminal": ["terminal", "Xfce Terminal"], alacritty: ["terminal", "Alacritty"],
+  kitty: ["terminal", "kitty"], wezterm: ["terminal", "WezTerm"], "wezterm-gui": ["terminal", "WezTerm"],
+  ghostty: ["terminal", "Ghostty"], xterm: ["terminal", "xterm"],
+  tmux: ["multiplexer", "tmux"], "tmux: server": ["multiplexer", "tmux"], screen: ["multiplexer", "screen"],
+  sshd: ["remote", "SSH"],
+};
+function hostOf(session) {
+  for (const name of session.host || []) {
+    const hit = HOST_BY_PROCESS[name];
+    if (hit) return { icon: HOST_KIND[hit[0]], label: hit[1] };
+  }
+  const fallback = (session.host || []).filter((n) => !["systemd", "init", "bash", "zsh", "fish", "sh", "login"].includes(n)).pop();
+  return fallback ? { icon: HOST_KIND.terminal, label: fallback } : { icon: HOST_KIND.unknown, label: "unknown host" };
+}
+
+/* ---------------------------------------------------------------- element refs */
+const panes = document.getElementById("panes");
+const sessionList = document.getElementById("sessionList");
+const listEmpty = document.getElementById("listEmpty");
+const detailPane = document.getElementById("detailPane");
+const chipSet = document.getElementById("chipSet");
+const barSupporting = document.getElementById("barSupporting");
+const themeToggle = document.getElementById("themeToggle");
+const themeLabel = document.getElementById("themeLabel");
+const snackbar = document.getElementById("snackbar");
+const settingsScrim = document.getElementById("settingsScrim");
+const endScrim = document.getElementById("endScrim");
+const swatchRow = document.getElementById("swatches");
+const seedReadout = document.getElementById("seedReadout");
+const contrastGroup = document.getElementById("contrastGroup");
+const backButton = document.getElementById("backButton");
+const pickBar = document.getElementById("pickBar");
+const pickCount = document.getElementById("pickCount");
+const pickGroup = document.getElementById("pickGroup");
+const pickClear = document.getElementById("pickClear");
+
+let feed = { sessions: [], now: Date.now() / 1000, historySeconds: 1800, canFocus: true, canSend: false };
+let skew = 0;
+let lastGood = 0;
+let filter = "all";
+let selectedId = localStorage.getItem("cbu-selected") || null;
+let tab = localStorage.getItem("cbu-tab") || "chat";
+let transcript = null;
+let transcriptFor = null;
+let transcriptBusy = false;
+let git = null;
+let gitFor = null;
+let gitBusy = false;
+let lastStatuses = new Map();
+let inFlight = null;
+let mutedSessions = new Set(JSON.parse(localStorage.getItem("cbu-muted") || "[]"));
+/* A pinned height for the message box in px, or null to size itself to the text.
+   Dragging the rule above the box pins it; double-clicking hands it back. */
+let composerHeight = Number(localStorage.getItem("cbu-composer-height")) || null;
+let resizingComposer = false;
+// The session whose name is being edited right now, if any. A poll must not
+// rebuild the pane out from under the field.
+let renamingId = null;
+
+/* ==========================================================================
+   Grouping the index.
+
+   Two kinds of group, and they mean different things. A *folder* group is not
+   stored at all: it is what the list looks like when two or more sessions share
+   a working folder, which is the shape most people's sessions already have —
+   several Claudes in one repository. A group you make yourself, by picking rows
+   and pressing Group, is stored, wins over the folder grouping for the rows in
+   it, and keeps its own name.
+
+   All of it is a view of the list, so it lives in this browser rather than on
+   the server, the same way muting does.
+   ========================================================================== */
+function loadGroups() {
+  try {
+    const raw = JSON.parse(localStorage.getItem("cbu-groups") || "[]");
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .filter((g) => g && typeof g.id === "string" && Array.isArray(g.members))
+      .map((g) => ({
+        id: g.id,
+        name: typeof g.name === "string" && g.name.trim() ? g.name : "Group",
+        members: g.members.filter((id) => typeof id === "string"),
+        collapsed: !!g.collapsed,
+      }))
+      .filter((g) => g.members.length);
+  } catch (error) {
+    return [];
+  }
+}
+let customGroups = loadGroups();
+const saveGroups = () => localStorage.setItem("cbu-groups", JSON.stringify(customGroups));
+
+/* Folders you told the panel not to group, and groups you folded away. Both are
+   keyed by the folder path, which outlives the sessions in it. */
+const loadKeySet = (key) => {
+  try {
+    const raw = JSON.parse(localStorage.getItem(key) || "[]");
+    return new Set(Array.isArray(raw) ? raw.filter((k) => typeof k === "string") : []);
+  } catch (error) {
+    return new Set();
+  }
+};
+let looseFolders = loadKeySet("cbu-loose-folders");
+let collapsedFolders = loadKeySet("cbu-collapsed-folders");
+const saveKeySet = (key, set) => localStorage.setItem(key, JSON.stringify([...set]));
+
+/* The rows ticked for a group action, the row a shift-click measures from, and
+   the ids the list is showing in the order it draws them — which is what makes a
+   shift-click select the run you can actually see. */
+let picked = new Set();
+let pickAnchor = null;
+let visibleOrder = [];
+/* The blocks the list is showing, so a menu opened from the keyboard can find
+   the group its header belongs to. */
+let lastBlocks = [];
+/* The group whose name is being typed, so a poll cannot rebuild the list out
+   from under the field. */
+let renamingGroup = null;
+
+const groupOf = (id) => customGroups.find((g) => g.members.includes(id)) || null;
+const folderKeyOf = (session) => session.cwd || session.folder || "";
+
+/* What the index draws, top to bottom: bare rows and groups, each group where
+   its first member would have been. */
+function listBlocks(visible) {
+  const perFolder = new Map();
+  for (const session of visible) {
+    if (groupOf(session.sessionId)) continue;
+    const key = folderKeyOf(session);
+    perFolder.set(key, (perFolder.get(key) || 0) + 1);
+  }
+  const blocks = [];
+  const open = new Map();
+  for (const session of visible) {
+    const custom = groupOf(session.sessionId);
+    const folder = folderKeyOf(session);
+    let key = null;
+    if (custom) key = `custom:${custom.id}`;
+    // One session in a folder is a row, not a group of one.
+    else if (folder && perFolder.get(folder) > 1 && !looseFolders.has(folder)) key = `folder:${folder}`;
+    if (!key) {
+      blocks.push({ kind: "session", session });
+      continue;
+    }
+    let block = open.get(key);
+    if (!block) {
+      block = {
+        kind: "group", key, custom,
+        folder: custom ? null : folder,
+        name: custom ? custom.name : (session.folder || folder),
+        collapsed: custom ? custom.collapsed : collapsedFolders.has(folder),
+        sessions: [],
+      };
+      open.set(key, block);
+      blocks.push(block);
+    }
+    block.sessions.push(session);
+  }
+  return blocks;
+}
+
+function toggleGroup(block) {
+  if (block.custom) {
+    block.custom.collapsed = !block.custom.collapsed;
+    saveGroups();
+  } else {
+    if (collapsedFolders.has(block.folder)) collapsedFolders.delete(block.folder);
+    else collapsedFolders.add(block.folder);
+    saveKeySet("cbu-collapsed-folders", collapsedFolders);
+  }
+  render();
+}
+
+/* Picking rows. Ctrl-click ticks one, shift-click ticks the run between it and
+   the last row you touched; a plain click goes back to selecting one session. */
+function togglePick(id) {
+  if (picked.has(id)) picked.delete(id);
+  else picked.add(id);
+  render();
+}
+
+function pickRange(from, to) {
+  const a = visibleOrder.indexOf(from);
+  const b = visibleOrder.indexOf(to);
+  if (a === -1 || b === -1) return togglePick(to);
+  for (const id of visibleOrder.slice(Math.min(a, b), Math.max(a, b) + 1)) picked.add(id);
+  render();
+}
+
+function clearPicked(repaint = true) {
+  if (!picked.size) return;
+  picked.clear();
+  if (repaint) render();
+}
+
+function onRowClick(id, event) {
+  if (event.ctrlKey || event.metaKey) {
+    togglePick(id);
+    pickAnchor = id;
+    return;
+  }
+  if (event.shiftKey) {
+    pickRange(pickAnchor ?? id, id);
+    pickAnchor = id;
+    return;
+  }
+  picked.clear();
+  pickAnchor = id;
+  selectSession(id);
+}
+
+/* Group the picked rows. They leave whatever group they were in — a session
+   belongs to one — and the new group takes the folder's name when they share
+   one, because that is what you would have called it. */
+function groupPicked() {
+  const ids = visibleOrder.filter((id) => picked.has(id));
+  if (ids.length < 2) return;
+  const sessions = ids.map(sessionById).filter(Boolean);
+  const folders = new Set(sessions.map((s) => s.folder).filter(Boolean));
+  const name = folders.size === 1 ? [...folders][0] : `${ids.length} sessions`;
+  for (const group of customGroups) group.members = group.members.filter((id) => !picked.has(id));
+  customGroups = customGroups.filter((g) => g.members.length);
+  customGroups.unshift({ id: `g${Date.now().toString(36)}`, name, members: ids, collapsed: false });
+  saveGroups();
+  picked.clear();
+  showSnackbar(`Grouped ${ids.length} sessions as “${name}”`);
+  render();
+}
+
+function ungroup(block) {
+  if (block.custom) {
+    customGroups = customGroups.filter((g) => g.id !== block.custom.id);
+    saveGroups();
+    showSnackbar(`“${block.name}” ungrouped`);
+  } else {
+    // A folder group is not stored, so leaving it apart is what gets stored.
+    looseFolders.add(block.folder);
+    saveKeySet("cbu-loose-folders", looseFolders);
+    showSnackbar(`${block.name} is no longer grouped by folder`);
+  }
+  render();
+}
+
+function leaveGroup(id) {
+  const group = groupOf(id);
+  if (!group) return;
+  group.members = group.members.filter((member) => member !== id);
+  customGroups = customGroups.filter((g) => g.members.length);
+  saveGroups();
+  showSnackbar("Taken out of the group");
+  render();
+}
+
+function regroupFolders() {
+  looseFolders.clear();
+  saveKeySet("cbu-loose-folders", looseFolders);
+  render();
+}
+
+function syncPickBar() {
+  const count = picked.size;
+  pickBar.hidden = count === 0;
+  pickCount.textContent = count
+    ? `${count} picked${count < 2 ? " — ctrl-click another" : ""}`
+    : "";
+  pickGroup.disabled = count < 2;
+}
+
+/* -------------------------------------------------------------------- format */
+function duration(seconds) {
+  seconds = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60), s = seconds % 60;
+  if (h) return `${h}h${String(m).padStart(2, "0")}m`;
+  if (m) return `${m}m${String(s).padStart(2, "0")}s`;
+  return `${s}s`;
+}
+function shorten(path, keep = 2) {
+  const home = path.replace(/^\/home\/[^/]+/, "~");
+  const parts = home.split("/");
+  return parts.length > keep + 2 ? `${parts[0]}/…/${parts.slice(-keep).join("/")}` : home;
+}
+function clockOf(iso) {
+  if (!iso) return "";
+  const date = new Date(iso);
+  return Number.isNaN(date.valueOf()) ? "" : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+function escapeHtml(text) {
+  return String(text ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+const selected = () => feed.sessions.find((s) => s.sessionId === selectedId) || null;
+
+/* ------------------------------------------------------------------ markdown */
+/* A transcript is Markdown, and reading it raw — literal ###, **, and fences —
+   is hard work, so the bubbles render it. This is a small line-based renderer:
+   headings, lists, fenced and inline code, quotes, tables, rules, emphasis and
+   links, which is what a Claude answer actually uses.
+
+   Safety: nothing from a message ever reaches the page as markup. Code is held
+   aside before anything else runs, every other scrap is escaped before a tag is
+   added, and a link is only made when its target is http, https or mailto. */
+const MD_HOLD = "\u0000";
+
+function safeUrl(url) {
+  const value = String(url).trim();
+  return /^(https?:\/\/|mailto:)[^\s"'<>]+$/i.test(value) ? value : null;
+}
+
+function renderMarkdown(text) {
+  const held = [];
+  const keep = (html) => `${MD_HOLD}${held.push(html) - 1}${MD_HOLD}`;
+  const source = String(text ?? "").replace(/\r\n?/g, "\n");
+
+  // Fenced code first: nothing inside a fence is Markdown. A fence inside a list
+  // is indented, so the indent comes off the code and stays on the line — that is
+  // what keeps the block inside its list item.
+  const body = source.replace(/^([ \t]*)```[^\n]*\n?([\s\S]*?)(?:^[ \t]*```[ \t]*$|$(?![\s\S]))/gm, (all, pad, code) => {
+    const flat = pad ? code.replace(new RegExp(`^${pad}`, "gm"), "") : code;
+    return pad + keep(`<pre class="md-code"><code class="md-mono">${escapeHtml(flat.replace(/\n$/, ""))}</code></pre>`);
+  });
+
+  const inline = (raw) => {
+    // Inline code goes the same way, so emphasis cannot reach inside it.
+    let s = String(raw).replace(/`([^`\n]+)`/g, (all, code) => keep(`<code class="md-mono">${escapeHtml(code)}</code>`));
+    s = escapeHtml(s);
+    // An image becomes a link to it: the panel never loads a remote file.
+    s = s.replace(/!\[([^\]\n]*)\]\(([^)\s]+)\)/g, (all, alt, url) => `[${alt || "image"}](${url})`);
+    s = s.replace(/\[([^\]\n]*)\]\(([^)\s]+)\)/g, (all, label, url) => {
+      const href = safeUrl(url.replace(/&amp;/g, "&"));
+      return href ? `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${label || escapeHtml(href)}</a>` : all;
+    });
+    s = s.replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, (all, before, url) => {
+      // A sentence's full stop is not part of its link.
+      const trail = url.match(/[.,;:!?]+$/)?.[0] || "";
+      const bare = url.slice(0, url.length - trail.length);
+      const href = safeUrl(bare.replace(/&amp;/g, "&"));
+      return href ? `${before}<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${bare}</a>${trail}` : all;
+    });
+    s = s.replace(/\*\*\*(\S(?:[^*]*\S)?)\*\*\*/g, "<strong><em>$1</em></strong>");
+    s = s.replace(/\*\*(\S(?:[^*]*\S)?)\*\*/g, "<strong>$1</strong>");
+    // The marks have to hug the words, or `a * b * c` turns into italics.
+    s = s.replace(/(^|[^*\w])\*(\S(?:[^*\n]*\S)?)\*/g, "$1<em>$2</em>");
+    s = s.replace(/(^|[^_\w])_(\S(?:[^_\n]*\S)?)_(?!\w)/g, "$1<em>$2</em>");
+    s = s.replace(/~~([^~]+)~~/g, "<del>$1</del>");
+    return s.replace(/\n/g, "<br>");
+  };
+
+  const out = [];
+  const stack = [];   // open lists, outermost first
+  let para = [];      // lines of the paragraph being read
+  let item = [];      // lines of the list item being read
+  let quote = [];     // lines of the block quote being read
+  let blank = false;  // was the line before this one empty?
+
+  const flushItem = () => { if (item.length) { out.push(inline(item.join("\n"))); item = []; } };
+  const flushPara = () => {
+    if (stack.length) return flushItem();
+    if (para.length) { out.push(`<p>${inline(para.join("\n"))}</p>`); para = []; }
+  };
+  const flushQuote = () => {
+    if (!quote.length) return;
+    out.push(`<blockquote>${inline(quote.join("\n"))}</blockquote>`);
+    quote = [];
+  };
+  const closeLists = (indent) => {
+    flushItem();
+    while (stack.length && stack[stack.length - 1].indent >= indent) {
+      const list = stack.pop();
+      out.push(`</li></${list.tag}>`);
+    }
+  };
+  const closeAll = () => { flushQuote(); flushPara(); closeLists(0); };
+  const add = (line) => (stack.length ? item : para).push(line);
+
+  const lines = body.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const bare = line.trim();
+
+    if (!bare) { flushQuote(); flushItem(); if (!stack.length) flushPara(); blank = true; continue; }
+
+    // A blank line then something flush with the margin is the end of the list;
+    // indent the same thing instead and it stays inside the item. The next
+    // bullet, of course, carries the list on.
+    const startsItem = /^\s*([-*+]|\d+[.)])\s+/.test(line);
+    if (blank && stack.length && !startsItem && !/^\s{2,}/.test(line)) closeLists(0);
+    blank = false;
+
+    if (bare.startsWith(">")) { flushPara(); flushItem(); quote.push(bare.replace(/^>\s?/, "")); continue; }
+    flushQuote();
+
+    // A held code block stands on its own line; inside a list it belongs to the item.
+    const only = bare.match(new RegExp(`^${MD_HOLD}(\\d+)${MD_HOLD}$`));
+    if (only) { flushItem(); if (!stack.length) flushPara(); out.push(held[Number(only[1])]); continue; }
+
+    const heading = bare.match(/^(#{1,6})\s+(.*)$/);
+    if (heading) {
+      closeAll();
+      const level = Math.min(heading[1].length + 2, 6);
+      const size = heading[1].length <= 2 ? "md-title-medium" : "md-title-small";
+      out.push(`<h${level} class="md-head ${size}">${inline(heading[2])}</h${level}>`);
+      continue;
+    }
+
+    if (/^([-*_])\1{2,}$/.test(bare)) { closeAll(); out.push("<hr>"); continue; }
+
+    // A table needs its header underline on the next line to count as one.
+    if (bare.startsWith("|") && /^\|?[\s:|-]+\|[\s:|-]*$/.test((lines[i + 1] || "").trim()) && (lines[i + 1] || "").includes("-")) {
+      closeAll();
+      const cells = (row) => row.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+      const head = cells(bare);
+      const rows = [];
+      i += 2;
+      while (i < lines.length && lines[i].trim().startsWith("|")) rows.push(cells(lines[i++]));
+      i--;
+      out.push(`<table class="md-table"><thead><tr>${head.map((c) => `<th>${inline(c)}</th>`).join("")}</tr></thead>`
+        + `<tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${inline(c)}</td>`).join("")}</tr>`).join("")}</tbody></table>`);
+      continue;
+    }
+
+    const bullet = line.match(/^(\s*)([-*+]|\d+[.)])\s+(.*)$/);
+    if (bullet) {
+      const indent = bullet[1].length;
+      const tag = /\d/.test(bullet[2]) ? "ol" : "ul";
+      flushPara();
+      flushItem();
+      while (stack.length && stack[stack.length - 1].indent > indent) {
+        const list = stack.pop();
+        out.push(`</li></${list.tag}>`);
+      }
+      const top = stack[stack.length - 1];
+      if (top && top.indent === indent && top.tag === tag) {
+        out.push("</li><li>");
+      } else {
+        if (top && top.indent === indent) { stack.pop(); out.push(`</li></${top.tag}>`); }
+        stack.push({ tag, indent });
+        out.push(`<${tag}><li>`);
+      }
+      // A task list reads better as a box than as literal brackets.
+      item = [bullet[3].replace(/^\[([ xX])\]\s+/, (all, mark) => (mark === " " ? "☐ " : "☑ "))];
+      continue;
+    }
+
+    // Not a list line at all: an unindented one ends the list.
+    if (stack.length && !/^\s{2,}/.test(line)) { closeLists(0); flushItem(); }
+    add(bare);
+  }
+  closeAll();
+
+  return out.join("").replace(new RegExp(`${MD_HOLD}(\\d+)${MD_HOLD}`, "g"), (all, n) => held[Number(n)]);
+}
+
+/* ------------------------------------------------------------------ transport */
+async function poll() {
+  try {
+    const response = await fetch("/api/state", { cache: "no-store" });
+    if (!response.ok) throw new Error(String(response.status));
+    const data = await response.json();
+    skew = data.now - Date.now() / 1000;
+    feed = data;
+    lastGood = Date.now();
+    notifyWaiting(data.sessions);
+    render();
+    if (selectedId && (transcriptFor !== selectedId || tab === "chat")) fetchTranscript();
+    if (selectedId && isGitTab(tab)) fetchGit();
+  } catch (error) {
+    barSupporting.textContent = "lost the server — retrying";
+  }
+}
+
+async function fetchTranscript() {
+  const id = selectedId;
+  if (!id || transcriptBusy) return;
+  if (tab !== "chat" && transcriptFor === id) return;
+  transcriptBusy = true;
+  try {
+    const response = await fetch(`/api/transcript?sessionId=${encodeURIComponent(id)}&limit=80`, { cache: "no-store" });
+    if (!response.ok) throw new Error(String(response.status));
+    const data = await response.json();
+    if (selectedId !== id) return;             // selection moved on while fetching
+    // Enough of the transcript to notice a new message, or the last one growing.
+    // Rebuilding on every poll instead — which "always redraw the chat tab" came
+    // down to — throws the pane away a second at a time, under the pointer.
+    const stamp = (t) => {
+      const last = t?.messages?.[t.messages.length - 1];
+      return [t?.title ?? "", t?.messages?.length ?? -1, last?.at ?? "",
+              last?.text?.length ?? 0, last?.tools?.length ?? 0].join("|");
+    };
+    const changed = stamp(data) !== stamp(transcript) || transcriptFor !== id;
+    transcript = data;
+    transcriptFor = id;
+    if (changed) renderDetail(true);
+  } catch (error) {
+    /* leave the previous transcript on screen */
+  } finally {
+    transcriptBusy = false;
+  }
+}
+
+/* Reading a repository costs a subprocess or three, unlike the transcript's file
+   read, so this runs on its own slower clock rather than on every poll. */
+let gitPolledAt = 0;
+const GIT_POLL_MS = 2500;
+
+/* Everything the Git tab draws, in one string. Same reasoning as the
+   transcript's: re-rendering on every poll throws the pane away under the
+   pointer, so the panel only redraws when the repository actually moved. */
+/* Both git tabs are drawn from the same reading, so they fetch and fall back
+   together. */
+const isGitTab = (name) => name === "git" || name === "history";
+
+function gitStamp(g) {
+  return [g?.ok, g?.isRepo, g?.head ?? "", g?.branch ?? "", g?.ahead ?? 0, g?.behind ?? 0,
+          g?.stashes ?? 0, g?.commits?.[0]?.sha ?? "", g?.commits?.length ?? -1,
+          (g?.files ?? []).map((f) => `${f.path}:${f.staged ?? ""}${f.unstaged ?? ""}${f.untracked ? "?" : ""}`).join(",")].join("|");
+}
+
+async function fetchGit(force) {
+  const id = selectedId;
+  if (!id || gitBusy) return;
+  if (!force && gitFor === id && Date.now() - gitPolledAt < GIT_POLL_MS) return;
+  gitBusy = true;
+  gitPolledAt = Date.now();
+  try {
+    const response = await fetch(`/api/git?sessionId=${encodeURIComponent(id)}`, { cache: "no-store" });
+    if (!response.ok) throw new Error(String(response.status));
+    const data = await response.json();
+    if (selectedId !== id) return;             // selection moved on while fetching
+    const changed = gitStamp(data) !== gitStamp(git) || gitFor !== id;
+    git = data;
+    gitFor = id;
+    if (changed) renderDetail(true);
+  } catch (error) {
+    /* leave the previous reading on screen */
+  } finally {
+    gitBusy = false;
+  }
+}
+
+async function run(url, session, button, waitingMessage, extra) {
+  if (inFlight) return;
+  inFlight = url;
+  button.disabled = true;
+  if (waitingMessage) showSnackbar(waitingMessage, 44000);
+  try {
+    const response = await fetch(url, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: session.sessionId, ...extra }),
+    });
+    const data = await response.json().catch(() => ({}));
+    showSnackbar(data.message || (response.ok ? "Done" : "That did not work"));
+  } catch (error) {
+    showSnackbar("Could not reach the server");
+  } finally {
+    inFlight = null;
+    button.disabled = false;
+    poll();
+  }
+}
+
+/* --------------------------------------------------------------- rendering */
+function render() {
+  const counts = {};
+  for (const session of feed.sessions) {
+    const key = stateKeyOf(session.status);
+    counts[key] = (counts[key] || 0) + 1;
+  }
+  if (filter !== "all" && !counts[filter]) filter = "all";
+
+  // A kept session with no process is on the list but is not running, so it is
+  // counted apart from the live ones rather than inflating them.
+  const stopped = counts.stopped || 0;
+  const total = feed.sessions.length - stopped;
+  const waiting = counts.waiting || 0;
+  const parts = [];
+  if (total) parts.push(`${total} live`);
+  if (waiting) parts.push(`${waiting} needs an answer`);
+  if (stopped) parts.push(`${stopped} kept`);
+  // Counts the blocked sessions only — the ones that cannot go on without you.
+  barSupporting.textContent = parts.length ? parts.join(" · ") : "nothing running";
+  document.title = waiting ? `(${waiting}) Claude sessions` : "Claude sessions";
+
+  // Keep a valid selection: fall back to the top of the list.
+  const visible = filter === "all" ? feed.sessions : feed.sessions.filter((s) => stateKeyOf(s.status) === filter);
+  if (!visible.some((s) => s.sessionId === selectedId)) {
+    selectedId = visible.length ? visible[0].sessionId : null;
+    if (selectedId) localStorage.setItem("cbu-selected", selectedId);
+  }
+
+  renderChips(counts);
+  renderList(visible);
+  renderDetail(false);
+  paintFavicon(counts);
+}
+
+function renderChips(counts) {
+  const entries = [{ key: "all", label: `all ${feed.sessions.length}` }];
+  for (const key of STATE_ORDER) if (counts[key]) entries.push({ key, label: `${counts[key]} ${STATE[key].short}` });
+  const signature = entries.map((e) => e.key + e.label).join("|") + filter;
+  if (chipSet.dataset.signature === signature) return;
+  chipSet.dataset.signature = signature;
+  chipSet.innerHTML = "";
+  for (const entry of entries) {
+    const item = document.createElement("li");
+    const chip = document.createElement("button");
+    chip.className = "chip md-state md-label-large";
+    chip.type = "button";
+    chip.setAttribute("aria-pressed", String(filter === entry.key));
+    if (entry.key !== "all") chip.style.setProperty("--chip-dot", STATE[entry.key].colour);
+    chip.innerHTML = `<span class="chip__check">${ICON.check}</span>${entry.key === "all" ? "" : '<span class="chip__dot"></span>'}<span>${escapeHtml(entry.label)}</span>`;
+    chip.addEventListener("click", () => { filter = filter === entry.key ? "all" : entry.key; render(); });
+    item.appendChild(chip);
+    chipSet.appendChild(item);
+  }
+}
+
+function renderList(visible) {
+  listEmpty.hidden = visible.length > 0;
+  // A menu whose row is leaving the list — ended, or filtered out — has nothing
+  // left to act on.
+  if (menuFor && !visible.some((s) => s.sessionId === menuFor)) closeSessionMenu({ restoreFocus: false });
+  // Rows that have left the list cannot be part of a pick any more.
+  const here = new Set(visible.map((s) => s.sessionId));
+  for (const id of [...picked]) if (!here.has(id)) picked.delete(id);
+  if (!visible.length) {
+    listEmpty.textContent = feed.sessions.length
+      ? "Nothing in this state. Pick “all” above."
+      : "No sessions are running. Start one with claude in any terminal.";
+    sessionList.innerHTML = "";
+    sessionList.dataset.layout = "";
+    visibleOrder = [];
+    lastBlocks = [];
+    syncPickBar();
+    return;
+  }
+
+  const blocks = listBlocks(visible);
+  lastBlocks = blocks;
+  // A group menu whose group has gone — ungrouped, or its rows filtered out —
+  // has nothing left to act on either.
+  if (menuGroup && !blocks.some((block) => block.key === menuGroup)) {
+    closeSessionMenu({ restoreFocus: false });
+  }
+  // Only the rows you can see, in the order you see them: what a shift-click
+  // range and “group the picked rows” both count along.
+  visibleOrder = blocks.flatMap((block) => block.kind === "group"
+    ? (block.collapsed ? [] : block.sessions.map((s) => s.sessionId))
+    : [block.session.sessionId]);
+
+  // The skeleton is rebuilt only when the shape changes — which group a row is
+  // in, what a group is called, whether it is folded. A status changing repaints
+  // the row in place, as it always did.
+  const layout = blocks.map((block) => block.kind === "group"
+    ? `g:${block.key}:${block.name}:${block.collapsed}:${block.sessions.map((s) => s.sessionId).join(",")}`
+    : `s:${block.session.sessionId}`).join("|");
+  if (sessionList.dataset.layout !== layout && !renamingGroup) {
+    sessionList.dataset.layout = layout;
+    sessionList.textContent = "";
+    for (const block of blocks) {
+      if (block.kind === "session") {
+        const row = document.createElement("li");
+        row.dataset.id = block.session.sessionId;
+        sessionList.appendChild(row);
+        continue;
+      }
+      const item = document.createElement("li");
+      item.className = "group";
+      item.dataset.group = block.key;
+      item.dataset.collapsed = String(block.collapsed);
+      item.appendChild(groupHeader(block));
+      const inner = document.createElement("ul");
+      inner.className = "group__items";
+      for (const session of block.sessions) {
+        const row = document.createElement("li");
+        row.dataset.id = session.sessionId;
+        inner.appendChild(row);
+      }
+      item.appendChild(inner);
+      sessionList.appendChild(item);
+    }
+    // The rebuild threw away the mark on the row the open menu points at.
+    const marked = menuFor
+      ? sessionList.querySelector(`li[data-id="${CSS.escape(menuFor)}"]`)
+      : menuGroup ? sessionList.querySelector(`li[data-group="${CSS.escape(menuGroup)}"]`) : null;
+    if (marked) marked.dataset.menu = "open";
+  }
+
+  for (const session of visible) {
+    const item = sessionList.querySelector(`li[data-id="${CSS.escape(session.sessionId)}"]`);
+    if (item) paintListItem(item, session);
+  }
+  // A folded group can be hiding rows you picked, so its header says so rather
+  // than leaving the count in the bar looking wrong.
+  for (const block of blocks) {
+    if (block.kind !== "group") continue;
+    const item = sessionList.querySelector(`li[data-group="${CSS.escape(block.key)}"]`);
+    if (!item) continue;
+    const inside = block.sessions.filter((s) => picked.has(s.sessionId)).length;
+    if (inside) item.dataset.picked = String(inside);
+    else delete item.dataset.picked;
+    const count = item.querySelector(".group__count");
+    if (count) count.textContent = inside ? `${inside} of ${block.sessions.length}` : String(block.sessions.length);
+  }
+  syncPickBar();
+}
+
+/* The header of one group: fold it away with a click, act on it with a
+   right-click. A folded group still shows the states inside it. */
+function groupHeader(block) {
+  const button = document.createElement("button");
+  button.className = "group__header md-state";
+  button.type = "button";
+  button.setAttribute("aria-expanded", String(!block.collapsed));
+  const states = [...new Set(block.sessions.map((s) => stateKeyOf(s.status)))]
+    .sort((a, b) => STATE_ORDER.indexOf(a) - STATE_ORDER.indexOf(b));
+  button.innerHTML = `
+    <span class="group__chevron">${ICON.chevron}</span>
+    <span class="group__icon" title="${block.custom ? "A group you made" : "Sessions in one folder"}">${
+      block.custom ? ICON.group : ICON.folder}</span>
+    <span class="group__name md-title-small">${escapeHtml(block.name)}</span>
+    <span class="group__lamps">${states
+      .map((key) => `<span class="group__lamp" style="--lamp:${STATE[key].colour}" title="${escapeHtml(STATE[key].label)}"></span>`)
+      .join("")}</span>
+    <span class="group__count md-label-small md-mono">${block.sessions.length}</span>`;
+  button.addEventListener("click", () => toggleGroup(block));
+  button.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    openGroupMenu(block, event.clientX, event.clientY);
+  });
+  return button;
+}
+
+function paintListItem(item, session) {
+  const state = stateOf(session.status);
+  const host = hostOf(session);
+  const isSelected = session.sessionId === selectedId;
+  const isPicked = picked.has(session.sessionId);
+  // Picking is deliberately out of the signature: it is an attribute on a row
+  // that already exists, and rebuilding the row would take the keyboard focus
+  // away from it just as you were picking the next one.
+  const signature = [stateKeyOf(session.status), session.name, session.folder, host.label,
+                     isSelected, session.sticky].join(" ");
+  if (item.dataset.signature !== signature) {
+    item.dataset.signature = signature;
+    item.innerHTML = `
+      <button class="session-item md-state" type="button" data-status="${stateKeyOf(session.status)}"
+              aria-current="${isSelected}" data-picked="${isPicked}">
+        <span class="session-item__avatar">${host.icon}<span class="session-item__lamp"></span></span>
+        <span class="session-item__text">
+          <span class="session-item__headline md-title-small">${
+            session.sticky ? `<span class="session-item__pin" title="Kept in the dashboard">${ICON.pin}</span>` : ""
+          }${escapeHtml(session.name)}</span>
+          <span class="session-item__supporting md-body-small">${escapeHtml(state.short)} · ${escapeHtml(session.folder || "")}</span>
+        </span>
+        <span class="session-item__trailing md-label-small md-mono" data-since="${displaySince(session)}"></span>
+      </button>`;
+    const button = item.firstElementChild;
+    button.style.setProperty("--state-colour", state.colour);
+    button.style.setProperty("--state-container", state.container);
+    button.style.setProperty("--state-on-container", state.onContainer);
+    // The id, not the session: the object is replaced on every poll, the row is not.
+    const id = session.sessionId;
+    button.addEventListener("click", (event) => onRowClick(id, event));
+  } else {
+    const button = item.firstElementChild;
+    button.setAttribute("aria-current", String(isSelected));
+    button.dataset.picked = String(isPicked);
+    button.dataset.status = stateKeyOf(session.status);
+  }
+  const trailing = item.querySelector("[data-since]");
+  if (trailing) trailing.dataset.since = displaySince(session);
+}
+
+function selectSession(id) {
+  selectedId = id;
+  localStorage.setItem("cbu-selected", id);
+  transcript = null;
+  transcriptFor = null;
+  git = null;
+  gitFor = null;
+  panes.dataset.view = "detail";
+  render();
+  fetchTranscript();
+  if (isGitTab(tab)) fetchGit(true);
+}
+
+function setTab(next) {
+  tab = next;
+  localStorage.setItem("cbu-tab", next);
+  renderDetail(true);
+  if (next === "chat") fetchTranscript();
+  if (isGitTab(next)) fetchGit();
+}
+
+/* ==========================================================================
+   Sidebar context menu — the per-session actions, at the pointer.
+   Right-clicking does NOT change the selection: on a narrow screen selecting
+   swaps the sidebar out for the detail pane, which would take the menu with it.
+   The menu names its session instead, so the target is never ambiguous.
+   ========================================================================== */
+const sessionMenu = document.getElementById("sessionMenu");
+let menuFor = null;     // sessionId the open menu belongs to
+let menuGroup = null;   // or the key of the group it belongs to, for a header menu
+/* The row to hand focus back to, held as an id rather than the element: the list
+   repaints on every status change, which detaches the button we were given. */
+let menuReturn = null;
+
+const sessionById = (id) => feed.sessions.find((s) => s.sessionId === id) || null;
+
+function setMuted(id, muted) {
+  if (muted) mutedSessions.add(id);
+  else mutedSessions.delete(id);
+  localStorage.setItem("cbu-muted", JSON.stringify([...mutedSessions]));
+  renderDetail();
+}
+
+async function copyText(text, done) {
+  try {
+    await navigator.clipboard.writeText(text);
+    showSnackbar(done);
+  } catch (error) {
+    // Clipboard permission can be refused even on loopback. Fall back rather
+    // than leaving a menu item that silently does nothing.
+    const box = document.createElement("textarea");
+    box.value = text;
+    box.setAttribute("readonly", "");
+    box.style.cssText = "position:fixed;top:-1000px;left:0;opacity:0";
+    document.body.appendChild(box);
+    box.select();
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+    box.remove();
+    showSnackbar(ok ? done : "Could not reach the clipboard");
+  }
+}
+
+/* What this session can actually have done to it, in the order you reach for it.
+   Anything that cannot apply right now is left out rather than shown dead —
+   except focusing, which is disabled with its reason, because its absence would
+   otherwise look like a missing feature. */
+function menuItemsFor(session) {
+  const win = session.window;
+  const muted = mutedSessions.has(session.sessionId);
+  const items = [
+    { key: "open", icon: ICON.chat, label: "Open conversation",
+      run: () => { selectSession(session.sessionId); setTab("chat"); } },
+    { key: "details", icon: ICON.info, label: "Show details",
+      run: () => { selectSession(session.sessionId); setTab("about"); } },
+    { divider: true },
+  ];
+  // Window actions mean nothing for a session with no process behind it.
+  if (session.status === "stopped") {
+    // nothing to focus or pair
+  } else if (!feed.canFocus) {
+    items.push({ key: "focus", icon: ICON.focus, label: "Focus window", hint: "needs xdotool", disabled: true });
+  } else if (win) {
+    const paired = isRemembered(win);
+    items.push({ key: "focus", icon: ICON.focus, label: "Focus window",
+      hint: windowSays(win, "short"),
+      run: (el) => run("/api/focus", session, el, isAmbiguous(win) ? IDENTIFY_NOTE : undefined) });
+    if (!paired && session.tty) {
+      items.push({ key: "identify", icon: ICON.pair, label: "Identify window",
+        hint: "ask the terminal",
+        run: (el) => run("/api/identify", session, el, IDENTIFY_NOTE) });
+    }
+    items.push(paired
+      ? { key: "unpair", icon: ICON.pair, label: "Clear pairing", run: (el) => run("/api/unpair", session, el) }
+      : { key: "pair", icon: ICON.pair, label: "Pair another window",
+          run: (el) => run("/api/pair", session, el, "Click the window that belongs to this session") });
+  } else {
+    if (session.tty) {
+      items.push({ key: "identify", icon: ICON.pair, label: "Identify window",
+        hint: "ask the terminal",
+        run: (el) => run("/api/identify", session, el, IDENTIFY_NOTE) });
+    }
+    items.push({ key: "pair", icon: ICON.pair, label: "Pair window",
+      run: (el) => run("/api/pair", session, el, "Click the window that belongs to this session") });
+  }
+  if (session.status === "stopped") {
+    items.push({ key: "start", icon: ICON.play, label: "Start it up",
+      hint: feed.canSend ? "claude --resume" : "needs loopback",
+      disabled: !feed.canSend,
+      run: (el) => run("/api/start", session, el) });
+  }
+  // A second session on the same work, started where this one is — a fresh
+  // conversation rather than a resume, so it never touches this one's transcript.
+  if (session.cwd) {
+    items.push({ key: "new", icon: ICON.plus, label: "New session here",
+      hint: feed.canSend ? (session.folder || shorten(session.cwd, 1)) : "needs loopback",
+      disabled: !feed.canSend,
+      run: (el) => run("/api/new", session, el) });
+  }
+  items.push({ key: "sticky", icon: session.sticky ? ICON.pinOff : ICON.pin,
+    label: session.sticky ? "Stop keeping this one" : "Keep in the dashboard",
+    hint: session.sticky ? "drops it when it closes" : "stays after it closes",
+    run: (el) => run("/api/sticky", session, el, null, { sticky: !session.sticky }) });
+  items.push({ key: "mute", icon: muted ? ICON.bell : ICON.bellOff,
+    label: muted ? "Unmute notifications" : "Mute notifications",
+    run: () => { setMuted(session.sessionId, !muted); showSnackbar(muted ? "Notifications on" : "Notifications muted"); } });
+  items.push({ divider: true });
+  if (session.cwd) {
+    items.push({ key: "copy-path", icon: ICON.copy, label: "Copy folder path",
+      hint: session.folder || shorten(session.cwd, 1),
+      run: () => copyText(session.cwd, "Folder path copied") });
+  }
+  items.push({ key: "copy-id", icon: ICON.copy, label: "Copy session id",
+    run: () => copyText(session.sessionId, "Session id copied") });
+  // Grouping acts on the rows you picked, so it is offered where the picking is.
+  const group = groupOf(session.sessionId);
+  if (picked.size > 1 && picked.has(session.sessionId)) {
+    items.push({ divider: true });
+    items.push({ key: "group", icon: ICON.group, label: `Group these ${picked.size}`,
+      run: () => groupPicked() });
+  }
+  if (group) {
+    items.push({ divider: true });
+    items.push({ key: "leave", icon: ICON.ungroup, label: "Take out of the group",
+      hint: group.name, run: () => leaveGroup(session.sessionId) });
+  }
+  if (session.alive !== false) {
+    items.push({ divider: true });
+    items.push({ key: "end", icon: ICON.power, label: "End session…", danger: true,
+      run: () => openEndDialog(session) });
+  }
+  return items;
+}
+
+/* One menu, opened over a row or over a group header. `forId` / `forGroup` say
+   which, so the thing it acts on is marked while it stands open. */
+function openMenu({ title, label, items, forId = null, forGroup = null }, x, y) {
+  closeSessionMenu();
+  sessionMenu.setAttribute("aria-label", label);
+  sessionMenu.innerHTML =
+    `<p class="menu__title md-label-small" role="none">${escapeHtml(title)}</p>` +
+    items.map((item) => item.divider
+      ? `<hr class="menu__divider" role="separator">`
+      : `<button class="menu__item md-state${item.danger ? " menu__item--danger" : ""}" type="button"
+           role="menuitem" data-key="${item.key}"${item.disabled ? " disabled" : ""}>
+          <span class="menu__icon">${item.icon}</span>
+          <span class="menu__label md-label-large">${escapeHtml(item.label)}</span>
+          ${item.hint ? `<span class="menu__hint md-label-small">${escapeHtml(item.hint)}</span>` : ""}
+        </button>`).join("");
+
+  for (const button of sessionMenu.querySelectorAll(".menu__item")) {
+    const item = items.find((i) => i.key === button.dataset.key);
+    if (!item?.run) continue;
+    button.addEventListener("click", () => {
+      closeSessionMenu({ restoreFocus: false });
+      item.run(button);
+    });
+  }
+
+  menuFor = forId;
+  menuGroup = forGroup;
+  sessionMenu.hidden = false;
+  // offsetWidth, not the bounding rect: the open transition scales the box and
+  // would give a measurement smaller than the space it is about to need.
+  const pad = 8;
+  // Cap before measuring: a menu taller than the window has to scroll, or the
+  // clamp below would push its last items off the bottom edge.
+  sessionMenu.style.maxHeight = `${window.innerHeight - pad * 2}px`;
+  const width = sessionMenu.offsetWidth;
+  const height = sessionMenu.offsetHeight;
+  sessionMenu.style.left = `${Math.max(pad, Math.min(x, window.innerWidth - width - pad))}px`;
+  sessionMenu.style.top = `${Math.max(pad, Math.min(y, window.innerHeight - height - pad))}px`;
+  sessionMenu.dataset.open = "true";
+
+  const mark = forId
+    ? sessionList.querySelector(`li[data-id="${CSS.escape(forId)}"]`)
+    : forGroup ? sessionList.querySelector(`li[data-group="${CSS.escape(forGroup)}"]`) : null;
+  if (mark) mark.dataset.menu = "open";
+  sessionMenu.querySelector(".menu__item:not([disabled])")?.focus();
+}
+
+function openSessionMenu(session, x, y) {
+  openMenu({
+    title: session.name,
+    label: `Actions for ${session.name}`,
+    items: menuItemsFor(session),
+    forId: session.sessionId,
+  }, x, y);
+}
+
+/* What a group can have done to it: folded, renamed, or taken apart. A folder
+   group has no stored name to change — its name is the folder — so taking it
+   apart is the only thing it offers besides folding. */
+function openGroupMenu(block, x, y) {
+  const items = [
+    { key: "fold", icon: ICON.chevron, label: block.collapsed ? "Expand" : "Fold away",
+      hint: `${block.sessions.length} sessions`, run: () => toggleGroup(block) },
+    { divider: true },
+  ];
+  if (block.custom) {
+    items.push({ key: "rename", icon: ICON.pencil, label: "Rename group…",
+      run: () => startGroupRename(block) });
+    items.push({ key: "ungroup", icon: ICON.ungroup, label: "Ungroup",
+      hint: "the rows stay", run: () => ungroup(block) });
+  } else {
+    // Every row under a folder header shares that folder, so any of them names
+    // the place a new session should open — a custom group has no one folder.
+    const any = block.sessions[0];
+    if (any) {
+      items.push({ key: "new", icon: ICON.plus, label: "New session here",
+        hint: feed.canSend ? shorten(block.folder, 1) : "needs loopback",
+        disabled: !feed.canSend,
+        run: (el) => run("/api/new", any, el) });
+      items.push({ divider: true });
+    }
+    items.push({ key: "ungroup", icon: ICON.ungroup, label: "Do not group this folder",
+      hint: shorten(block.folder, 2), run: () => ungroup(block) });
+    if (looseFolders.size) {
+      items.push({ key: "regroup", icon: ICON.folder, label: "Group every folder again",
+        hint: `${looseFolders.size} left out`, run: () => regroupFolders() });
+    }
+  }
+  items.push({ divider: true });
+  items.push({ key: "pick", icon: ICON.group, label: "Pick every session in it",
+    run: () => {
+      for (const session of block.sessions) picked.add(session.sessionId);
+      pickAnchor = block.sessions[block.sessions.length - 1]?.sessionId ?? null;
+      render();
+    } });
+  openMenu({
+    title: block.name,
+    label: `Actions for the group ${block.name}`,
+    items,
+    forGroup: block.key,
+  }, x, y);
+}
+
+/* Renaming a group works like renaming a session: the name in the header turns
+   into a field, Enter or clicking away keeps it, Escape leaves it alone. */
+function startGroupRename(block) {
+  if (!block.custom || renamingGroup) return;
+  const header = sessionList.querySelector(`li[data-group="${CSS.escape(block.key)}"] > .group__header`);
+  if (!header) return;
+  renamingGroup = block.key;
+  // The header is a button, and a field inside a button would fold the group away
+  // on the first space, so the whole header steps aside while you type.
+  const row = document.createElement("div");
+  row.className = "group__header";
+  const field = document.createElement("input");
+  field.type = "text";
+  field.className = "group__field md-title-small";
+  field.value = block.custom.name;
+  field.maxLength = 60;
+  field.setAttribute("aria-label", "Group name");
+  row.innerHTML = `<span class="group__chevron">${ICON.chevron}</span>
+    <span class="group__icon">${ICON.group}</span>`;
+  row.appendChild(field);
+  header.replaceWith(row);
+  field.focus();
+  field.select();
+
+  let done = false;
+  const finish = (save) => {
+    if (done) return;
+    done = true;
+    renamingGroup = null;
+    const typed = field.value.trim();
+    if (save && typed && typed !== block.custom.name) {
+      block.custom.name = typed;
+      saveGroups();
+    }
+    // Rebuilt from the model, which puts the real header back either way.
+    sessionList.dataset.layout = "";
+    render();
+  };
+  field.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") { event.preventDefault(); finish(true); }
+    else if (event.key === "Escape") { event.preventDefault(); finish(false); }
+  });
+  field.addEventListener("blur", () => finish(true));
+}
+
+function closeSessionMenu({ restoreFocus = true } = {}) {
+  if (!menuFor && !menuGroup) return;
+  for (const row of sessionList.querySelectorAll('[data-menu="open"]')) delete row.dataset.menu;
+  sessionMenu.dataset.open = "false";
+  sessionMenu.hidden = true;
+  menuFor = null;
+  menuGroup = null;
+  const back = menuReturn;
+  menuReturn = null;
+  if (restoreFocus && back) {
+    sessionList.querySelector(`[data-id="${CSS.escape(back)}"] .session-item`)?.focus();
+  }
+}
+
+/* Arrow keys walk the enabled items and wrap; Escape gives focus back to the row. */
+sessionMenu.addEventListener("keydown", (event) => {
+  const enabled = [...sessionMenu.querySelectorAll(".menu__item:not([disabled])")];
+  if (!enabled.length) return;
+  const at = enabled.indexOf(document.activeElement);
+  const go = (i) => { enabled[(i + enabled.length) % enabled.length].focus(); event.preventDefault(); };
+  if (event.key === "ArrowDown") go(at + 1);
+  else if (event.key === "ArrowUp") go(at - 1);
+  else if (event.key === "Home") go(0);
+  else if (event.key === "End") go(enabled.length - 1);
+  else if (event.key === "Escape") { event.preventDefault(); closeSessionMenu(); }
+  else if (event.key === "Tab") closeSessionMenu();
+});
+
+sessionList.addEventListener("contextmenu", (event) => {
+  const row = event.target.closest("li[data-id]");
+  const session = row && sessionById(row.dataset.id);
+  if (!session) return;
+  event.preventDefault();
+  menuReturn = session.sessionId;
+  openSessionMenu(session, event.clientX, event.clientY);
+});
+
+/* Space on a focused row picks it, which is the keyboard's ctrl-click: without it
+   grouping would be a pointer-only feature. Enter still opens the session. */
+sessionList.addEventListener("keydown", (event) => {
+  if (event.key !== " ") return;
+  const row = event.target.closest("li[data-id]");
+  if (!row || !event.target.closest(".session-item")) return;
+  event.preventDefault();     // or the button below takes it as a click
+  togglePick(row.dataset.id);
+  pickAnchor = row.dataset.id;
+  // The repaint keeps the row, so put the focus back where the reader left it.
+  sessionList.querySelector(`li[data-id="${CSS.escape(row.dataset.id)}"] .session-item`)?.focus();
+});
+
+// The keyboard route to the same menu: Shift-F10, or the dedicated menu key.
+sessionList.addEventListener("keydown", (event) => {
+  if (!(event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey))) return;
+  const row = event.target.closest("li[data-id]");
+  const session = row && sessionById(row.dataset.id);
+  if (session) {
+    event.preventDefault();
+    menuReturn = session.sessionId;
+    const rect = row.querySelector(".session-item").getBoundingClientRect();
+    openSessionMenu(session, rect.left + 16, rect.bottom - 8);
+    return;
+  }
+  // The same key on a group header opens the group's menu.
+  const header = event.target.closest("li.group")?.querySelector(":scope > .group__header");
+  const block = header && lastBlocks.find((b) => b.kind === "group" && b.key === header.parentElement.dataset.group);
+  if (!block) return;
+  event.preventDefault();
+  const rect = header.getBoundingClientRect();
+  openGroupMenu(block, rect.left + 16, rect.bottom - 8);
+});
+
+// Anything that moves the menu away from what it points at closes it.
+document.addEventListener("pointerdown", (event) => {
+  if ((menuFor || menuGroup) && !sessionMenu.contains(event.target)) closeSessionMenu({ restoreFocus: false });
+}, true);
+window.addEventListener("blur", () => closeSessionMenu({ restoreFocus: false }));
+window.addEventListener("resize", () => closeSessionMenu({ restoreFocus: false }));
+// Capture, because scroll does not bubble and the scrolling box may be the pane
+// or the list itself depending on the breakpoint. Scrolling within the menu is
+// the reader working through a long one, not moving away from it.
+document.addEventListener("scroll", (event) => {
+  if ((menuFor || menuGroup) && !sessionMenu.contains(event.target)) closeSessionMenu({ restoreFocus: false });
+}, true);
+
+function renderDetail(force) {
+  const session = selected();
+  if (!session) {
+    detailPane.dataset.signature = "";
+    detailPane.innerHTML = `<div class="detail-empty">
+      <div><h2 class="md-headline-small">Nothing selected</h2>
+      <p class="md-body-medium">Pick a session on the left to see its conversation and settings.</p></div></div>`;
+    return;
+  }
+  const state = stateOf(session.status);
+  const host = hostOf(session);
+  // A session outside a repository has no Git tab to show, so a tab left over
+  // from the last session you looked at falls back rather than showing nothing.
+  if (isGitTab(tab) && !session.repoRoot) tab = "chat";
+  const signature = [
+    session.sessionId, session.name, stateKeyOf(session.status), session.branch, session.window?.confidence,
+    host.label, tab, transcript?.messages?.length ?? -1, transcript?.title ?? "",
+    session.repoRoot ?? "", gitFor === session.sessionId ? gitStamp(git) : "",
+    mutedSessions.has(session.sessionId), feed.canFocus, feed.canSend, session.canSay, session.sticky,
+    session.permissionMode ?? "",
+  ].join(" ");
+  if (!force && detailPane.dataset.signature === signature) {
+    const clock = detailPane.querySelector("[data-since]");
+    if (clock) clock.dataset.since = displaySince(session);
+    // The trace moves on every poll even when nothing else does. Repaint it in
+    // place rather than rebuilding the pane around it.
+    const standing = detailPane.querySelector(".detail-header");
+    if (standing) paintTrace(standing, session);
+    return;
+  }
+
+  // A drag holds the pointer capture on the grip, so the pane must not be
+  // rebuilt under it. Keep the trace moving in place and let the rebuild land
+  // when the pointer comes up — the signature stays stale until then.
+  // The same goes for a name being typed: rebuilding would throw the field and
+  // the half-typed name away.
+  if ((resizingComposer || renamingId === session.sessionId) && !force) {
+    const standing = detailPane.querySelector(".detail-header");
+    if (standing) paintTrace(standing, session);
+    return;
+  }
+
+  // Preserve chat scroll position across re-renders.
+  const chatBefore = detailPane.querySelector("#chatScroll");
+  const wasAtBottom = !chatBefore || chatBefore.scrollHeight - chatBefore.scrollTop - chatBefore.clientHeight < 80;
+  // A half-typed message must survive a re-render — the poll re-renders every time
+  // the status changes or a message lands, which is exactly while you are typing.
+  const fieldBefore = detailPane.querySelector("#sayField");
+  const draft = fieldBefore ? {
+    text: fieldBefore.value,
+    start: fieldBefore.selectionStart,
+    end: fieldBefore.selectionEnd,
+    focused: document.activeElement === fieldBefore,
+  } : null;
+
+  // Whatever was being typed is gone with the rebuild below.
+  renamingId = null;
+  detailPane.dataset.signature = signature;
+  detailPane.innerHTML = `
+    ${detailHeader(session, state, host)}
+    <div class="tabs" role="tablist">
+      <button class="tab md-state md-label-large" role="tab" data-tab="chat" aria-selected="${tab === "chat"}">${ICON.chat}Conversation</button>
+      ${session.repoRoot ? `
+        <button class="tab md-state md-label-large" role="tab" data-tab="git" aria-selected="${tab === "git"}">${ICON.branch}Git</button>
+        <button class="tab md-state md-label-large" role="tab" data-tab="history" aria-selected="${tab === "history"}">${ICON.history}History</button>` : ""}
+      <button class="tab md-state md-label-large" role="tab" data-tab="about" aria-selected="${tab === "about"}">${ICON.info}Details</button>
+    </div>
+    <div class="panel-wrap">
+      <div class="tab-panel" id="chatScroll" role="tabpanel">
+        ${tab === "chat" ? chatPanel(session)
+          : tab === "git" ? gitPanel(session)
+          : tab === "history" ? historyPanel(session)
+          : aboutPanel(session, host)}
+      </div>
+      ${tab === "chat" ? `<button class="jump-last md-state md-label-large" id="jumpLast" hidden>${ICON.up}Last request</button>` : ""}
+    </div>
+    ${tab === "chat" ? composer(session) : ""}`;
+
+  const header = detailPane.querySelector(".detail-header");
+  header.style.setProperty("--state-colour", state.colour);
+  header.style.setProperty("--state-container", state.container);
+  header.style.setProperty("--state-on-container", state.onContainer);
+
+  paintTrace(header, session);
+  wireTrace(header);
+
+  for (const button of detailPane.querySelectorAll("[data-tab]")) {
+    button.addEventListener("click", () => setTab(button.dataset.tab));
+  }
+  detailPane.querySelector("[data-act='rename']")?.addEventListener("click", (e) => startRename(session, e.currentTarget));
+  detailPane.querySelector("[data-act='start']")?.addEventListener("click", (e) => run("/api/start", session, e.currentTarget));
+  detailPane.querySelector("[data-act='focus']")?.addEventListener("click", (e) => run("/api/focus", session, e.currentTarget));
+  detailPane.querySelector("[data-act='pair']")?.addEventListener("click", (e) =>
+    run("/api/pair", session, e.currentTarget, "Click the window that belongs to this session"));
+  detailPane.querySelector("[data-act='identify']")?.addEventListener("click", (e) =>
+    run("/api/identify", session, e.currentTarget, IDENTIFY_NOTE));
+  detailPane.querySelector("[data-act='unpair']")?.addEventListener("click", (e) => run("/api/unpair", session, e.currentTarget));
+  detailPane.querySelector("#stickyToggle")?.addEventListener("change", (event) =>
+    run("/api/sticky", session, event.target, null, { sticky: event.target.checked }));
+  detailPane.querySelector("#muteToggle")?.addEventListener("change", (event) => {
+    if (event.target.checked) mutedSessions.delete(session.sessionId);
+    else mutedSessions.add(session.sessionId);
+    localStorage.setItem("cbu-muted", JSON.stringify([...mutedSessions]));
+  });
+  detailPane.querySelector("[data-act='end']")?.addEventListener("click", () => openEndDialog(session));
+  detailPane.querySelector("#openAppearance")?.addEventListener("click", () => openSettings(true));
+
+  const field = detailPane.querySelector("#sayField");
+  if (field) {
+    if (draft && draft.text) {
+      field.value = draft.text;
+      if (draft.focused) {
+        field.focus();
+        field.setSelectionRange(draft.start, draft.end);
+      }
+    }
+    growField(field);
+    syncGrip(field);
+    const grip = detailPane.querySelector("#composerGrip");
+    if (grip) wireComposerGrip(grip, field);
+    field.addEventListener("input", () => growField(field));
+    field.addEventListener("keydown", (event) => {
+      // Enter sends, as it does in the terminal; Shift-Enter for a newline.
+      if (event.key === "Enter" && !event.shiftKey && !event.altKey) {
+        event.preventDefault();
+        sendMessage(session, detailPane.querySelector("[data-act='say']"));
+      }
+    });
+  }
+  detailPane.querySelector("[data-act='say']")?.addEventListener("click", (e) => sendMessage(session, e.currentTarget));
+
+  const chatAfter = detailPane.querySelector("#chatScroll");
+  if (chatAfter && tab === "chat" && wasAtBottom) chatAfter.scrollTop = chatAfter.scrollHeight;
+  if (chatAfter && tab === "chat") wireJumpLast(chatAfter);
+}
+
+/* "Last request" — a long answer buries the thing you asked for, so this jumps
+   back to your last message. It only shows when that message is off screen, and
+   the arrow points the way it will travel. */
+function wireJumpLast(scroller) {
+  const button = detailPane.querySelector("#jumpLast");
+  if (!button) return;
+  const target = () => [...scroller.querySelectorAll(".msg--user")].pop() || null;
+
+  const sync = () => {
+    const mark = target();
+    if (!mark) { button.hidden = true; return; }
+    const box = scroller.getBoundingClientRect();
+    const spot = mark.getBoundingClientRect();
+    const above = spot.bottom < box.top + 8;
+    const below = spot.top > box.bottom - 8;
+    button.hidden = !(above || below);
+    button.dataset.dir = above ? "up" : "down";
+  };
+
+  button.addEventListener("click", () => {
+    const mark = target();
+    if (!mark) return;
+    const top = mark.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+    scroller.scrollTo({ top: scroller.scrollTop + top - 12, behavior: "smooth" });
+  });
+  scroller.addEventListener("scroll", sync, { passive: true });
+  sync();
+}
+
+/* One line, matching the send button beside it. */
+const COMPOSER_MIN = 48;
+/* Leave the conversation something to live in, whatever the window does. */
+const composerMax = () => Math.max(COMPOSER_MIN, detailPane.clientHeight - 200);
+
+function growField(field) {
+  if (composerHeight) {
+    // A pinned box keeps its height and scrolls inside, so the 40vh ceiling
+    // that bounds the auto-grown one has to come off.
+    field.style.maxHeight = "none";
+    field.style.height = `${Math.min(composerHeight, composerMax())}px`;
+    return;
+  }
+  field.style.maxHeight = "";
+  field.style.height = "auto";
+  field.style.height = `${field.scrollHeight}px`;
+}
+
+function setComposerHeight(px, field) {
+  composerHeight = Math.round(Math.min(Math.max(px, COMPOSER_MIN), composerMax()));
+  localStorage.setItem("cbu-composer-height", composerHeight);
+  growField(field);
+  syncGrip(field);
+}
+
+function resetComposerHeight(field) {
+  composerHeight = null;
+  localStorage.removeItem("cbu-composer-height");
+  growField(field);
+  syncGrip(field);
+}
+
+function syncGrip(field) {
+  const grip = detailPane.querySelector("#composerGrip");
+  if (!grip) return;
+  grip.setAttribute("aria-valuenow", Math.round(composerHeight || field.clientHeight));
+  grip.setAttribute("aria-valuemin", COMPOSER_MIN);
+  grip.setAttribute("aria-valuemax", Math.round(composerMax()));
+}
+
+function wireComposerGrip(grip, field) {
+  grip.addEventListener("pointerdown", (event) => {
+    // Without this the drag selects the transcript text behind the pointer.
+    event.preventDefault();
+    const startY = event.clientY;
+    const startHeight = field.getBoundingClientRect().height;
+    // Up is bigger: the box grows towards the conversation it is pushing back.
+    const move = (e) => setComposerHeight(startHeight + (startY - e.clientY), field);
+    const done = () => {
+      grip.removeEventListener("pointermove", move);
+      grip.classList.remove("is-dragging");
+      resizingComposer = false;
+      renderDetail(); // let through whatever the drag held off
+    };
+    grip.setPointerCapture(event.pointerId);
+    grip.classList.add("is-dragging");
+    resizingComposer = true;
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("pointerup", done, { once: true });
+    grip.addEventListener("pointercancel", done, { once: true });
+  });
+  grip.addEventListener("dblclick", () => resetComposerHeight(field));
+  grip.addEventListener("keydown", (event) => {
+    const from = composerHeight || field.clientHeight;
+    const step = event.shiftKey ? 64 : 16;
+    if (event.key === "ArrowUp") setComposerHeight(from + step, field);
+    else if (event.key === "ArrowDown") setComposerHeight(from - step, field);
+    else if (event.key === "Home" || event.key === "Escape") resetComposerHeight(field);
+    else return;
+    event.preventDefault();
+  });
+}
+
+async function sendMessage(session, button) {
+  const field = detailPane.querySelector("#sayField");
+  if (!field || !button) return;
+  const text = field.value.trim();
+  if (!text) return;
+  // Clear optimistically so typing the next one is not blocked on the round trip,
+  // and put it back if the send fails — a lost message is worse than a stale box.
+  field.value = "";
+  growField(field);
+  const restore = () => {
+    const live = detailPane.querySelector("#sayField");
+    if (live && !live.value) { live.value = text; growField(live); }
+  };
+  if (inFlight) { restore(); return; }
+  // A stopped session cannot hear anything yet, so the message rides along with
+  // the start: the server delivers it once the session is listening again.
+  const url = session.status === "stopped" ? "/api/start" : "/api/say";
+  inFlight = url;
+  button.disabled = true;
+  try {
+    const response = await fetch(url, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: session.sessionId, text }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) restore();
+    showSnackbar(data.message || (response.ok ? "Sent" : "That did not send"));
+  } catch (error) {
+    restore();
+    showSnackbar("Could not reach the server");
+  } finally {
+    inFlight = null;
+    button.disabled = false;
+    poll();
+  }
+}
+
+/* Renaming. The title in the header is a button; clicking it swaps in a field
+   in the same spot. Enter or leaving the field keeps the name, Escape drops it,
+   and an empty name puts the session's own name back. The name is kept by the
+   server, so it outlives a reload and shows in the list too. */
+function startRename(session, button) {
+  if (renamingId) return;
+  renamingId = session.sessionId;
+  const field = document.createElement("input");
+  field.type = "text";
+  field.className = "name-field md-headline-small";
+  field.value = session.name;
+  field.maxLength = 80;
+  field.setAttribute("aria-label", "Session name");
+  // Wide enough that a whole name is readable while you type it, and it grows
+  // with what you type rather than scrolling inside a short box.
+  const fit = () => { field.style.width = `${Math.min(72, Math.max(28, field.value.length + 2))}ch`; };
+  fit();
+  field.addEventListener("input", fit);
+  button.replaceWith(field);
+  field.focus();
+  field.select();
+
+  let done = false;
+  const finish = (save) => {
+    if (done) return;
+    done = true;
+    renamingId = null;
+    const name = field.value.trim();
+    if (save && name !== session.name) commitRename(session, name);
+    else renderDetail(true);
+  };
+  field.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") { event.preventDefault(); finish(true); }
+    else if (event.key === "Escape") { event.preventDefault(); finish(false); }
+  });
+  field.addEventListener("blur", () => finish(true));
+}
+
+async function commitRename(session, name) {
+  // Show the new name at once; the next poll confirms it from the server.
+  const local = feed.sessions.find((s) => s.sessionId === session.sessionId);
+  if (local) local.name = name || local.defaultName || local.name;
+  render();
+  try {
+    const response = await fetch("/api/rename", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: session.sessionId, name }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) showSnackbar(data.message || "That rename did not stick");
+  } catch (error) {
+    showSnackbar("Could not reach the server");
+  } finally {
+    poll();
+  }
+}
+
+function detailHeader(session, state, host) {
+  const stopped = session.status === "stopped";
+  // A stopped session has no host to name and no uptime to count — what it has
+  // is a folder to come back to and a time it was last seen.
+  const meta = stopped ? [`<span class="md-mono md-body-small">${escapeHtml(shorten(session.cwd, 3))}</span>`] : [
+    `<span class="host md-label-small">${host.icon}${escapeHtml(host.label)}</span>`,
+    `<span class="md-mono md-body-small">${escapeHtml(shorten(session.cwd, 3))}</span>`,
+  ];
+  if (session.branch) meta.push(`<span class="meta-sep">·</span><span class="md-mono md-body-small">${escapeHtml(session.branch)}</span>`);
+  meta.push(stopped
+    ? `<span class="meta-sep">·</span><span class="md-body-small">kept here</span>`
+    : `<span class="meta-sep">·</span><span class="md-body-small">up ${duration(Date.now() / 1000 + skew - session.startedAt)}</span>`);
+  const mode = modeTag(session);
+  if (mode) meta.push(`<span class="meta-sep">·</span>${mode}`);
+  const title = transcriptFor === session.sessionId && transcript?.title ? transcript.title : null;
+  return `<header class="detail-header">
+      <div class="detail-header__top">
+        <div class="detail-header__text">
+          <div class="detail-header__title">
+            <h2 class="md-headline-small">
+              <button class="name-button md-state" data-act="rename" title="Click to rename this session"
+                      aria-label="Rename ${escapeHtml(session.name)}"><span>${escapeHtml(session.name)}</span>${ICON.pencil}</button>
+            </h2>
+            <span class="md-label-large">${escapeHtml(state.label)}
+              <span class="md-mono md-body-small" data-since="${displaySince(session)}">${duration(Date.now() / 1000 + skew - displaySince(session))}</span></span>
+          </div>
+          ${title ? `<p class="detail-header__subtitle md-body-medium">${escapeHtml(title)}</p>` : ""}
+          <div class="detail-header__meta">${meta.join(" ")}</div>
+        </div>
+        <div class="detail-header__actions">${headerActions(session)}</div>
+      </div>
+      ${traceFor(session)}
+    </header>`;
+}
+
+/* How much rope a session has: the permission mode, read and not set.
+
+   Read, because a session writes the mode into its transcript only when the
+   metadata block is re-appended — never when the mode changes. A working session
+   therefore says where it is within seconds, and one sitting at its prompt keeps
+   saying whatever it last said, so the pill carries when it was true.
+
+   Not set, because the panel cannot aim a keypress at a session. There is no
+   external setter — Shift+Tab is the only way in — and X11 pairs windows, while
+   a terminal window holds tabs and a VS Code window holds terminals. A press
+   sent at a window lands in whichever tab has focus, which may be a different
+   Claude. Loosening the wrong session's permissions is not a thing to get wrong
+   occasionally, so this stays a readout. */
+const MODE_LABELS = {
+  default: "Manual",
+  acceptEdits: "Accept edits",
+  plan: "Plan",
+  bypassPermissions: "Bypass",
+  auto: "Auto",
+  dontAsk: "Don't ask",
+};
+const MODE_NOTES = {
+  default: "Asks before it edits or runs anything",
+  acceptEdits: "Edits without asking, still asks before it runs a command",
+  plan: "Plans only — nothing changes until you approve it",
+  bypassPermissions: "Asks for nothing at all",
+  auto: "Routine work goes through, the rest still comes to you",
+  dontAsk: "Never asks; set outside the session",
+};
+// The modes where the session may act without coming back to you. Worth seeing
+// across a list of sessions at a glance, so they are the filled ones.
+const LOOSE_MODES = new Set(["bypassPermissions", "auto", "acceptEdits", "dontAsk"]);
+
+/* The mode as a pill among the facts, or nothing at all when the session has
+   never written one down — an empty pill would be a fact about the panel, not
+   about the session. */
+function modeTag(session) {
+  const mode = session.permissionMode;
+  if (!mode) return "";
+  const note = MODE_NOTES[mode] || "";
+  const when = session.status === "stopped"
+    ? "the mode it was last in"
+    : "as of the last time this session wrote its mode down — it records it now and then, not the moment it changes";
+  return `<span class="mode-tag md-label-small" data-loose="${LOOSE_MODES.has(mode) ? "1" : "0"}"
+      title="${escapeHtml(note ? `${note} · ${when}` : when)}">${escapeHtml(MODE_LABELS[mode] || mode)}</span>`;
+}
+
+/* How sure the panel is about a window, said the same way everywhere. An
+   ambiguous match is not a match: several windows scored alike — the usual
+   cause being one terminal process behind all of them — and the honest move is
+   to say so rather than raise one of them and hope. */
+const WINDOW_CONFIDENCE = {
+  paired: { short: "paired by you", long: "you chose this one" },
+  identified: { short: "confirmed", long: "its terminal pointed to this one" },
+  high: { short: "matched", long: "matched automatically" },
+  likely: { short: "best guess", long: "a best guess from the process tree" },
+  ambiguous: { short: "can't tell yet", long: "several windows look alike from the outside" },
+};
+
+function windowSays(win, key) {
+  return (WINDOW_CONFIDENCE[win?.confidence] || WINDOW_CONFIDENCE.likely)[key];
+}
+
+function isAmbiguous(win) {
+  return win?.confidence === "ambiguous";
+}
+
+/* Both a click and a probe write a pairing, and either can be cleared. */
+function isRemembered(win) {
+  return win?.confidence === "paired" || win?.confidence === "identified";
+}
+
+/* Identifying asks the session's own terminal which window it is showing, by
+   retitling it for a moment. The title comes straight back. */
+const IDENTIFY_NOTE = "Asking the terminal — its title will flicker";
+
+function headerActions(session) {
+  // A stopped session has no window to raise; what it has is a way back.
+  if (session.status === "stopped") {
+    if (!feed.canSend) return `<p class="hint md-label-small">starting needs the panel on loopback</p>`;
+    return `<button class="button button--filled md-state" data-act="start">${ICON.play} Start it up</button>
+            <p class="hint md-label-small">resumes this conversation</p>`;
+  }
+  if (!feed.canFocus) return `<p class="hint md-label-small">focusing needs xdotool</p>`;
+  const win = session.window;
+  if (!win) {
+    return `<button class="button button--tonal md-state" data-act="pair">${ICON.pair} Pair window</button>
+            <p class="hint md-label-small">then one click jumps here</p>`;
+  }
+  const paired = isRemembered(win);
+  // An ambiguous match still gets a Focus button: pressing it identifies the
+  // window first and then raises it, which is the one click you wanted anyway.
+  const title = isAmbiguous(win) ? "" : win.title;
+  return `<button class="button button--filled md-state" data-act="focus"${title ? ` title="${escapeHtml(title)}"` : ""}>${ICON.focus} Focus window</button>
+          <p class="hint md-label-small">${windowSays(win, "short")} <span class="meta-sep">·</span>
+            <button class="link-button" data-act="${paired ? "unpair" : "pair"}">${paired ? "clear" : "pick another"}</button></p>`;
+}
+
+/* An empty shell. The bar is filled by paintTrace and then kept up to date in
+   place: the trace changes every second, and rebuilding it under the pointer
+   would blink the tooltip out on every poll. */
+function traceFor(session) {
+  if (!(session.trace || []).length) return "";
+  return `<div class="trace">
+      <div class="trace__bar" role="img" aria-label="State over the last while"></div>
+      <div class="trace__axis md-label-small"><span></span><span>now</span></div>
+      <div class="trace__tip md-label-small" data-open="0"></div>
+    </div>`;
+}
+
+/* The spans to draw: everything inside the window, with neighbours that show as
+   the same state joined up — otherwise folding `shell` into Waiting would leave
+   a seam every time a session ran a command. */
+function traceSpans(session) {
+  const spans = session.trace || [];
+  if (!spans.length) return null;
+  const end = feed.now;
+  const observed = end - spans[0].from;
+  const window = Math.min(feed.historySeconds, Math.max(observed, 15));
+  const start = end - window;
+  const merged = [];
+  for (const span of spans) {
+    if (span.to <= start || span.from >= end) continue;
+    const key = stateKeyOf(span.status);
+    const last = merged[merged.length - 1];
+    if (last && last.key === key) last.to = span.to;
+    else merged.push({ key, from: span.from, to: span.to });
+  }
+  const drawn = [];
+  for (const span of merged) {
+    const from = Math.max(span.from, start), to = Math.min(span.to, end);
+    if (to <= from) continue;
+    drawn.push({
+      key: span.key, from: span.from, to: span.to,
+      width: ((to - from) / window) * 100,
+      live: span.to >= end,
+      clipped: span.from < start,
+    });
+  }
+  return { drawn, observed: Math.min(window, observed) };
+}
+
+function paintTrace(root, session) {
+  const bar = root.querySelector(".trace__bar");
+  if (!bar) return;
+  const model = traceSpans(session);
+  if (!model) return;
+  const { drawn, observed } = model;
+  const span = duration(observed);
+  bar.setAttribute("aria-label", `State over the last ${span}`);
+  root.querySelector(".trace__axis span").textContent = `last ${span}`;
+
+  // Same run of states as last time? Then only the numbers moved: widen the
+  // slices where they are, and leave every node — and the hover on it — alone.
+  const shape = drawn.map((s) => `${s.key}@${s.from.toFixed(3)}`).join("|");
+  const same = bar.dataset.shape === shape && bar.children.length === drawn.length;
+  if (!same) bar.innerHTML = drawn.map(() => `<span class="trace__span"></span>`).join("");
+  bar.dataset.shape = shape;
+
+  drawn.forEach((s, i) => {
+    const node = bar.children[i];
+    const state = STATE[s.key] || STATE.idle;
+    node.style.width = `${s.width.toFixed(3)}%`;
+    if (!same) {
+      node.style.setProperty("--seg", state.colour);
+      node.dataset.state = state.label;
+      node.dataset.colour = state.colour;
+      node.dataset.from = s.from;
+      node.dataset.clipped = s.clipped ? "1" : "";
+    }
+    const to = s.live ? "" : String(s.to);
+    if (node.dataset.to !== to) node.dataset.to = to;
+  });
+
+  // A tooltip standing open over the live slice is counting up; refresh its text
+  // without disturbing the pointer.
+  root._traceRefresh?.();
+}
+
+/* Wall-clock time of a server epoch, corrected for the client's clock offset. */
+function clockAt(epoch) {
+  return new Date((epoch - skew) * 1000).toLocaleTimeString([], {
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  });
+}
+
+/* Hovering a slice of the trace names the state and says when it started and
+   ended. A slice running up to now has no end yet, so it says "now" instead of
+   inventing one; a slice older than the window says its true start with a "from
+   before" marker rather than the clipped edge. */
+let tracePointer = null; // last pointer position, so a repaint can pick the tip back up
+function wireTrace(root) {
+  const bar = root.querySelector(".trace__bar");
+  const tip = root.querySelector(".trace__tip");
+  if (!bar || !tip) return;
+  let hot = null;
+
+  const hide = () => {
+    tip.dataset.open = "0";
+    hot?.classList.remove("trace__span--hot");
+    hot = null;
+  };
+
+  const showAt = (clientX, clientY) => {
+    const seg = document.elementFromPoint(clientX, clientY)?.closest(".trace__span");
+    if (!seg || !bar.contains(seg)) return hide();
+    if (seg !== hot) {
+      hot?.classList.remove("trace__span--hot");
+      seg.classList.add("trace__span--hot");
+      hot = seg;
+    }
+    const from = Number(seg.dataset.from);
+    const to = seg.dataset.to ? Number(seg.dataset.to) : null;
+    const ended = to === null ? "now" : clockAt(to);
+    const began = seg.dataset.clipped ? `before ${clockAt(from)}` : clockAt(from);
+    const text = `<span class="trace__tip-state md-label-medium">
+        <span class="trace__tip-dot" style="--seg:${seg.dataset.colour}"></span>
+        ${escapeHtml(seg.dataset.state)} <span class="md-mono">${duration((to ?? feed.now) - from)}</span>
+      </span>
+      <span class="trace__tip-times md-mono">${escapeHtml(began)} → ${escapeHtml(ended)}</span>`;
+    if (tip.innerHTML !== text) tip.innerHTML = text;
+    // Follow the pointer along the bar, kept clear of both edges.
+    const rect = bar.getBoundingClientRect();
+    const half = tip.offsetWidth / 2;
+    tip.style.left = `${Math.min(Math.max(clientX - rect.left, half), rect.width - half)}px`;
+    tip.dataset.open = "1";
+  };
+
+  bar.addEventListener("pointermove", (event) => {
+    tracePointer = { x: event.clientX, y: event.clientY };
+    showAt(event.clientX, event.clientY);
+  });
+  // A bar torn out from under the pointer also fires leave. That is not the
+  // reader moving away, so it must not forget where the pointer is — the fresh
+  // bar is about to ask.
+  bar.addEventListener("pointerleave", () => {
+    if (!bar.isConnected) return;
+    tracePointer = null;
+    hide();
+  });
+
+  // Repaints and full re-renders both land here. If the pointer never left the
+  // bar, put the tip straight back — a stationary reader should not have to
+  // jiggle the mouse to get it again, and the live slice keeps counting up.
+  root._traceRefresh = () => { if (tracePointer) showAt(tracePointer.x, tracePointer.y); };
+  root._traceRefresh();
+}
+
+/* Why this session cannot be sent to, or null if it can. Every case says what is
+   wrong rather than leaving a dead box on screen. */
+function sendBlockedReason(session) {
+  if (!feed.canSend) return "sending is off — the panel is not on loopback";
+  // A stopped session gets a composer of its own: writing in it starts it up.
+  if (session.status === "stopped") return null;
+  if (session.status === "offline") return "that session has closed";
+  if (!session.canSay) return "this session is not listening for messages";
+  // A blocked session cannot read a queued message: the prompt in front of it is
+  // modal. Queuing one anyway would look like it was ignored.
+  if (session.status === "waiting") return "answer the prompt in the terminal — a queued message cannot reach it";
+  return null;
+}
+
+function composer(session) {
+  const why = sendBlockedReason(session);
+  if (why) {
+    return `<div class="composer"><p class="composer__why md-label-medium">${escapeHtml(why)}</p></div>`;
+  }
+  const queued = stateKeyOf(session.status) === "busy";
+  const stopped = session.status === "stopped";
+  const placeholder = stopped
+    ? "Write here and it starts back up…"
+    : queued ? "Queue a message for when it finishes…" : "Send a message…";
+  return `<div class="composer">
+      <div class="composer-grip" id="composerGrip" role="separator" aria-orientation="horizontal"
+        tabindex="0" aria-label="Resize the message box"
+        title="Drag to resize · double-click to fit the text"></div>
+      <textarea class="composer__field md-body-large" id="sayField" rows="1"
+        aria-label="Message this session"
+        placeholder="${placeholder}"></textarea>
+      <button class="button button--filled md-state composer__send" data-act="say">${stopped ? "Start &amp; send" : "Send"}</button>
+    </div>`;
+}
+
+function chatPanel(session) {
+  if (transcriptFor !== session.sessionId || !transcript) {
+    return `<p class="chat__note md-body-medium">Reading the conversation…</p>`;
+  }
+  if (!transcript.messages.length) {
+    return `<p class="chat__note md-body-medium">Nothing in this transcript yet.</p>`;
+  }
+  const rows = transcript.truncated
+    ? [`<p class="chat__note md-label-small">showing the last ${transcript.messages.length} messages</p>`]
+    : [];
+  const toolLines = (tools) => (tools || []).map((tool) => `<span class="tool-line md-mono md-body-small">
+      <span class="tool-line__name">${escapeHtml(tool.name)}</span>
+      <span class="tool-line__detail">${escapeHtml(tool.detail || "")}</span></span>`).join("");
+
+  for (const message of transcript.messages) {
+    // Tool-only turns are activity, not speech — keep them out of bubbles so the
+    // actual conversation stays readable.
+    if (!message.text && (message.tools || []).length) {
+      rows.push(`<div class="activity-row">
+          <span class="activity-row__time md-label-small md-mono">${escapeHtml(clockOf(message.at))}</span>
+          <span class="activity-row__tools">${toolLines(message.tools)}</span>
+        </div>`);
+      continue;
+    }
+    if (!message.text) continue;
+    // A message that came in over the socket says so: sent from this composer it
+    // reads "you, from here", and sent by another session it carries that
+    // session's name — because the receiving Claude was told the same thing.
+    const who = message.role !== "user" ? "claude"
+      : message.from === undefined ? "you"
+      : message.from ? `${escapeHtml(message.from)} <span class="meta-sep">·</span> another session`
+      : "you <span class=\"meta-sep\">·</span> from here";
+    const tools = toolLines(message.tools);
+    rows.push(`<div class="msg msg--${message.role === "user" ? "user" : "assistant"}">
+        <div class="msg__who"><span class="md-label-small">${who}</span><span class="md-label-small md-mono">${escapeHtml(clockOf(message.at))}</span></div>
+        <div class="msg__text md-body-medium">${renderMarkdown(message.text)}</div>
+        ${tools ? `<div class="msg__tools">${tools}</div>` : ""}
+      </div>`);
+  }
+  return `<div class="chat">${rows.join("")}</div>`;
+}
+
+/* ==========================================================================
+   Git — what the repository this session works in looks like right now.
+
+   Read-only on purpose for now. Staging or committing underneath a session that
+   is halfway through editing the same worktree is a race with no upside, so the
+   panel reports and leaves the writing to the session.
+   ========================================================================== */
+
+/* Commit ages run to days and weeks, which duration() — built for how long a
+   session has been in a state — would render as three-figure hours. */
+function ago(seconds) {
+  const s = Math.max(0, Math.floor(seconds));
+  if (s < 60) return "just now";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}d ago`;
+  const w = Math.floor(d / 7);
+  return w < 6 ? `${w}w ago` : `${Math.floor(d / 30)}mo ago`;
+}
+
+/* Lane assignment: the same walk a commit graph is always drawn from.
+
+   `lanes` holds, per column, the sha that column is currently waiting to reach.
+   A commit takes the lane that was waiting for it — or a free one if nothing
+   was — and hands that lane to its first parent; a merge's remaining parents
+   open lanes of their own. Anything else still waiting for this commit was a
+   second child, and its lane closes here.
+
+   Each row records the lane state either side of it, which is what lets the
+   rail below draw a line that actually joins up with its neighbours. */
+function layoutGraph(commits) {
+  const lanes = [];
+  const rows = [];
+  const take = (sha) => {
+    const free = lanes.indexOf(null);
+    if (free !== -1) { lanes[free] = sha; return free; }
+    lanes.push(sha);
+    return lanes.length - 1;
+  };
+  for (const commit of commits) {
+    const before = [...lanes];
+    let lane = lanes.indexOf(commit.sha);
+    if (lane === -1) lane = take(commit.sha);
+    // A second child of this commit sits in another lane; it ends here.
+    const merged = [];
+    for (let i = 0; i < lanes.length; i++) {
+      if (i !== lane && lanes[i] === commit.sha) { merged.push(i); lanes[i] = null; }
+    }
+    lanes[lane] = commit.parents[0] ?? null;
+    const forks = [];
+    for (const parent of commit.parents.slice(1)) {
+      // A parent already expected elsewhere reuses that lane rather than opening
+      // a second column for the same line of history.
+      const existing = lanes.indexOf(parent);
+      forks.push(existing !== -1 ? existing : take(parent));
+    }
+    // Trailing empties would leave the rail padded with blank columns.
+    while (lanes.length && lanes[lanes.length - 1] === null) lanes.pop();
+    rows.push({ commit, lane, merged, forks, before, after: [...lanes] });
+  }
+  return rows;
+}
+
+const LANE_COLOURS = [
+  "var(--md-sys-color-primary)", "var(--md-sys-color-tertiary)",
+  "var(--md-extended-color-waiting-color, var(--md-sys-color-secondary))",
+  "var(--md-extended-color-idle-color, var(--md-sys-color-error))",
+  "var(--md-sys-color-secondary)",
+];
+const laneColour = (index) => LANE_COLOURS[index % LANE_COLOURS.length];
+
+const LANE_W = 14;      // horizontal distance between lanes
+const ROW_H = 52;       // must equal .git-commit's height, or the lanes break at each join
+
+/* One row's slice of the graph, drawn as its own SVG: the lanes passing
+   straight through, the diagonals joining a fork or a merge to this commit, and
+   the dot itself. Drawing per row rather than one tall SVG keeps the rail
+   aligned with its text however the subject wraps. */
+function commitRail(row, width) {
+  const x = (lane) => lane * LANE_W + LANE_W / 2;
+  const mid = ROW_H / 2;
+  const parts = [];
+  const line = (x1, y1, x2, y2, lane) =>
+    `<path d="M${x1} ${y1}${x1 === x2 ? `V${y2}` : ` C${x1} ${(y1 + y2) / 2} ${x2} ${(y1 + y2) / 2} ${x2} ${y2}`}"
+       fill="none" stroke="${laneColour(lane)}" stroke-width="2" stroke-linecap="round"/>`;
+
+  // Lanes that neither start nor stop here pass straight through behind it.
+  const span = Math.max(row.before.length, row.after.length);
+  for (let i = 0; i < span; i++) {
+    if (i === row.lane || row.merged.includes(i) || row.forks.includes(i)) continue;
+    if (row.before[i] && row.after[i]) parts.push(line(x(i), 0, x(i), ROW_H, i));
+  }
+  // This commit's own lane: up to whatever pointed at it, down to its parent.
+  if (row.before[row.lane]) parts.push(line(x(row.lane), 0, x(row.lane), mid, row.lane));
+  if (row.after[row.lane]) parts.push(line(x(row.lane), mid, x(row.lane), ROW_H, row.lane));
+  // A second child arriving from another lane, and a merge parent leaving for one.
+  for (const i of row.merged) parts.push(line(x(i), 0, x(row.lane), mid, i));
+  for (const i of row.forks) parts.push(line(x(row.lane), mid, x(i), ROW_H, i));
+
+  return `<svg class="git-commit__rail" width="${width}" height="${ROW_H}" viewBox="0 0 ${width} ${ROW_H}" aria-hidden="true">
+    ${parts.join("")}
+    <circle cx="${x(row.lane)}" cy="${mid}" r="4" fill="${laneColour(row.lane)}"/>
+  </svg>`;
+}
+
+/* The two status letters, as git itself writes them: staged on the left,
+   unstaged on the right. */
+function fileMark(file) {
+  if (file.conflicted) return { xy: "UU", mark: "U", label: "conflicted" };
+  if (file.untracked) return { xy: "??", mark: "A", label: "untracked" };
+  const staged = file.staged ?? ".";
+  const unstaged = file.unstaged ?? ".";
+  const mark = file.staged === "A" || file.unstaged === "A" ? "A"
+    : file.staged === "D" || file.unstaged === "D" ? "D" : "M";
+  return { xy: `${staged}${unstaged}`, mark, label: `${staged}${unstaged}` };
+}
+
+function fileRow(file) {
+  const { xy, mark, label } = fileMark(file);
+  const cut = file.path.lastIndexOf("/");
+  const dir = cut === -1 ? "" : file.path.slice(0, cut + 1);
+  const base = cut === -1 ? file.path : file.path.slice(cut + 1);
+  return `<div class="git-file" data-mark="${mark}" data-path="${escapeHtml(file.path)}">
+    <span class="git-file__xy md-mono md-body-small" title="${escapeHtml(label)}">${escapeHtml(xy)}</span>
+    <span class="git-file__path md-body-small" title="${escapeHtml(file.path)}"><bdi><span class="git-file__dir">${escapeHtml(dir)}</span>${escapeHtml(base)}</bdi></span>
+    ${file.origPath ? `<span class="git-file__from md-body-small md-mono">← ${escapeHtml(file.origPath)}</span>` : ""}
+  </div>`;
+}
+
+/* Changes and history are two tabs rather than one scroll, because the history
+   is the longer of the two by far and having it below the file list put the
+   thing you check most often above a graph you have to scroll past. Both read
+   the same fetch, so switching between them costs nothing. */
+
+/* Neither tab is worth showing without knowing which branch it is describing,
+   so the same header opens both. */
+function gitHead(git) {
+  return `
+    <div class="git-head">
+      <span class="git-badge md-label-large">${ICON.branch}<span class="md-mono">${escapeHtml(git.branch || (git.head ? git.head.slice(0, 7) : "no commits"))}</span></span>
+      ${git.detached ? `<span class="git-badge git-badge--quiet md-body-small">detached HEAD</span>` : ""}
+      ${git.upstream ? `<span class="git-badge git-badge--quiet md-body-small md-mono">${escapeHtml(git.upstream)}</span>` : ""}
+      ${git.ahead ? `<span class="git-badge git-badge--quiet md-body-small" title="commits to push">↑${git.ahead}</span>` : ""}
+      ${git.behind ? `<span class="git-badge git-badge--quiet md-body-small" title="commits to pull">↓${git.behind}</span>` : ""}
+      ${git.stashes ? `<span class="git-badge git-badge--quiet md-body-small">${git.stashes} stashed</span>` : ""}
+    </div>`;
+}
+
+/* Whatever both git tabs should show instead of themselves — still loading, not
+   readable — or null when there is real data to draw. */
+function gitNotice(session) {
+  if (!git || gitFor !== session.sessionId) {
+    return `<p class="git-empty md-body-medium">Reading the repository…</p>`;
+  }
+  if (!git.ok) {
+    return `<p class="git-empty md-body-medium">${escapeHtml(git.message || "Could not read this repository")}</p>`;
+  }
+  return null;
+}
+
+function gitPanel(session) {
+  const notice = gitNotice(session);
+  if (notice) return notice;
+
+  const staged = git.files.filter((f) => f.staged && !f.untracked && !f.conflicted);
+  const unstaged = git.files.filter((f) => f.unstaged && !f.untracked && !f.conflicted);
+  const untracked = git.files.filter((f) => f.untracked);
+  const conflicted = git.files.filter((f) => f.conflicted);
+
+  const group = (title, files) => files.length ? `
+    <section class="section">
+      <h3 class="section__title md-title-small">${escapeHtml(title)} · ${files.length}</h3>
+      <div class="git-files">${files.map(fileRow).join("")}</div>
+    </section>` : "";
+
+  return `
+    ${gitHead(git)}
+    ${git.files.length ? "" : `<p class="git-empty md-body-medium">Nothing changed — the working tree is clean.</p>`}
+    ${group("Conflicted", conflicted)}
+    ${group("Staged", staged)}
+    ${group("Changed", unstaged)}
+    ${group("Untracked", untracked)}`;
+}
+
+function historyPanel(session) {
+  const notice = gitNotice(session);
+  if (notice) return notice;
+
+  const rows = layoutGraph(git.commits || []);
+  const width = Math.max(1, rows.reduce((w, r) => Math.max(w, r.before.length, r.after.length), 1)) * LANE_W;
+  const now = Date.now() / 1000 + skew;
+
+  return `
+    ${gitHead(git)}
+    ${rows.length ? `<div class="git-graph" style="grid-template-columns: ${width}px 1fr;">
+      ${rows.map((row) => `
+        <div class="git-commit">
+          ${commitRail(row, width)}
+          <div class="git-commit__body">
+            <div class="git-commit__subject md-body-medium">${escapeHtml(row.commit.subject || "(no message)")}</div>
+            <div class="git-commit__meta md-body-small">
+              ${row.commit.refs.map((ref) => {
+                const head = ref.startsWith("HEAD");
+                const name = ref.replace(/^HEAD -> /, "");
+                return `<span class="git-ref${head ? " git-ref--head" : ""} md-mono">${escapeHtml(name)}</span>`;
+              }).join("")}
+              <span class="md-mono">${escapeHtml(row.commit.short)}</span>
+              <span class="meta-sep">·</span>${escapeHtml(row.commit.author)}
+              <span class="meta-sep">·</span>${escapeHtml(ago(now - row.commit.at))}
+            </div>
+          </div>
+        </div>`).join("")}
+    </div>` : `<p class="git-empty md-body-medium">No commits yet.</p>`}`;
+}
+
+function aboutPanel(session, host) {
+  const win = session.window;
+  const muted = mutedSessions.has(session.sessionId);
+  const started = new Date(session.startedAt * 1000);
+  const facts = [
+    ["Working folder", `<span class="md-mono">${escapeHtml(session.cwd)}</span>`],
+    ["Git branch", session.branch ? `<span class="md-mono">${escapeHtml(session.branch)}</span>` : "—"],
+    ["Runs in", escapeHtml(host.label)],
+    // Said in full here, where there is room for the caveat the pill can only
+    // carry as a tooltip.
+    ["Permission mode", session.permissionMode
+      ? `${escapeHtml(MODE_LABELS[session.permissionMode] || session.permissionMode)}
+         <span class="meta-sep">·</span> <span class="fact-note">${session.status === "stopped"
+           ? "the last one it wrote down" : "as of the last time it wrote its mode down"}</span>`
+      : "not written down yet"],
+    ["Process", session.pid ? `<span class="md-mono">pid ${session.pid}</span>` : "not running"],
+    ["Claude Code", escapeHtml(session.version || "—")],
+    ["Session id", `<span class="md-mono">${escapeHtml(session.sessionId)}</span>`],
+    ["Started", `${started.toLocaleString()} <span class="meta-sep">·</span> up ${duration(Date.now() / 1000 + skew - session.startedAt)}`],
+    ["Transcript", transcript?.path ? `<span class="md-mono">${escapeHtml(shorten(transcript.path, 2))}</span>` : "—"],
+  ];
+  // A stopped session owns no window, so that section would only mislead.
+  const windowSection = session.status === "stopped" ? "" : `
+    <section class="section">
+      <h3 class="section__title md-title-small">Window</h3>
+      <div class="row">
+        <div class="row__grow">
+          <p class="md-body-medium">${isAmbiguous(win)
+            ? `${win.candidates?.length || 2} windows look equally likely — ${windowSays(win, "long")}, so the panel will not guess. Identify it and the terminal will say which one it is.`
+            : win
+              ? `Paired with <span class="md-mono">${escapeHtml(win.title || win.id)}</span> — ${windowSays(win, "long")}.`
+              : "No window is paired yet. Pair one and a single click brings it to the front."}</p>
+          ${isAmbiguous(win) && win.candidates?.length
+            ? `<ul class="hint md-label-small">${win.candidates
+                .map((c) => `<li><span class="md-mono">${escapeHtml(c.title || c.id)}</span></li>`).join("")}</ul>`
+            : ""}
+        </div>
+        <div class="detail-window-actions">${session.tty && !isRemembered(win)
+            ? `<button class="button button--tonal md-state" data-act="identify">${ICON.pair} Identify window</button>`
+            : ""}${win
+          ? `<button class="button button--outlined md-state" data-act="${isRemembered(win) ? "unpair" : "pair"}">${isRemembered(win) ? "Clear pairing" : "Pick the window"}</button>`
+          : `<button class="button button--tonal md-state" data-act="pair">${ICON.pair} Pair window</button>`}</div>
+      </div>
+    </section>`;
+  return `
+    ${windowSection}
+    <section class="section">
+      <h3 class="section__title md-title-small">Keeping it</h3>
+      <label class="switch">
+        <input type="checkbox" id="stickyToggle" ${session.sticky ? "checked" : ""}>
+        <span class="switch__track"><span class="switch__thumb">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+        </span></span>
+        <span class="switch__label md-body-medium">Keep this one in the dashboard after it closes, so the
+          conversation stays here and can be started up again</span>
+      </label>
+    </section>
+    <section class="section">
+      <h3 class="section__title md-title-small">Notifications</h3>
+      <label class="switch">
+        <input type="checkbox" id="muteToggle" ${muted ? "" : "checked"}>
+        <span class="switch__track"><span class="switch__thumb">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+        </span></span>
+        <span class="switch__label md-body-medium">Notify me when this session waits for an answer</span>
+      </label>
+    </section>
+    <section class="section">
+      <h3 class="section__title md-title-small">Facts</h3>
+      <dl class="facts md-body-small">
+        ${facts.map(([key, value]) => `<dt>${escapeHtml(key)}</dt><dd>${value}</dd>`).join("")}
+      </dl>
+    </section>
+    <section class="section">
+      <h3 class="section__title md-title-small">End session</h3>
+      <div class="row">
+        <div class="row__grow">
+          <p class="md-body-medium">${session.alive
+            ? `Closes this Claude Code the way <span class="md-mono">/exit</span> would, leaving ${escapeHtml(host.label)} open. The transcript stays on disk.`
+            : "This session's process has already gone; it will drop off the list shortly."}</p>
+        </div>
+        <div><button class="button button--danger-outlined md-state" data-act="end"${session.alive ? "" : " disabled"}>${ICON.power} End session</button></div>
+      </div>
+    </section>
+    <section class="section">
+      <button class="button button--text md-state" id="openAppearance">Appearance settings</button>
+    </section>`;
+}
+
+/* ------------------------------------------------------------ notifications */
+if ("Notification" in window && Notification.permission === "default") {
+  document.addEventListener("click", () => Notification.requestPermission(), { once: true });
+}
+function notifyWaiting(sessions) {
+  const seen = new Set();
+  for (const session of sessions) {
+    seen.add(session.sessionId);
+    const before = lastStatuses.get(session.sessionId);
+    if (before && before !== "waiting" && session.status === "waiting"
+        && !mutedSessions.has(session.sessionId)
+        && "Notification" in window && Notification.permission === "granted") {
+      new Notification(`${session.name} needs you`, {
+        body: `${shorten(session.cwd)} is waiting for an answer.`, tag: session.sessionId,
+      });
+    }
+    lastStatuses.set(session.sessionId, session.status);
+  }
+  for (const key of [...lastStatuses.keys()]) if (!seen.has(key)) lastStatuses.delete(key);
+}
+
+function paintFavicon(counts) {
+  const read = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const dot = counts?.waiting ? read("--md-extended-color-waiting-color")
+    : counts?.busy ? read("--md-sys-color-primary") : read("--md-extended-color-idle-color");
+  const back = read("--md-sys-color-surface-container-highest");
+  if (!dot || !back) return;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+    <rect width="32" height="32" rx="9" fill="${back}"/><circle cx="16" cy="16" r="7" fill="${dot}"/></svg>`;
+  let link = document.querySelector("link[rel='icon']");
+  if (!link) { link = document.createElement("link"); link.rel = "icon"; document.head.appendChild(link); }
+  link.href = "data:image/svg+xml," + encodeURIComponent(svg);
+}
+
+/* ---------------------------------------------------------------- snackbar */
+let snackTimer;
+function showSnackbar(message, life = 3400) {
+  snackbar.textContent = message;
+  snackbar.dataset.open = "true";
+  clearTimeout(snackTimer);
+  snackTimer = setTimeout(() => { snackbar.dataset.open = "false"; }, life);
+}
+
+/* ------------------------------------------------------------- settings UI */
+function renderSwatches() {
+  swatchRow.innerHTML = "";
+  for (const preset of SEED_PRESETS) {
+    const button = document.createElement("button");
+    button.className = "swatch md-state";
+    button.type = "button";
+    button.title = preset.name;
+    button.setAttribute("aria-label", `Base colour ${preset.name}`);
+    button.setAttribute("aria-pressed", String(preset.hex.toLowerCase() === settings.seed.toLowerCase()));
+    button.style.setProperty("--swatch", preset.hex);
+    button.style.setProperty("--swatch-on", hexFromArgb(TonalPalette.fromInt(argbFromHex(preset.hex)).tone(100)));
+    button.innerHTML = ICON.check;
+    button.addEventListener("click", () => setSeed(preset.hex));
+    swatchRow.appendChild(button);
+  }
+  const custom = document.createElement("label");
+  custom.className = "swatch swatch--custom md-state";
+  custom.title = "Any colour";
+  custom.innerHTML = `${ICON.plus}<input type="color" value="${settings.seed}" aria-label="Custom base colour">`;
+  custom.querySelector("input").addEventListener("input", (event) => setSeed(event.target.value));
+  swatchRow.appendChild(custom);
+  const hct = Hct.fromInt(argbFromHex(settings.seed));
+  seedReadout.innerHTML = `Base <span class="code">${escapeHtml(settings.seed.toUpperCase())}</span> · hue ${Math.round(hct.hue)}° · chroma ${Math.round(hct.chroma)}`;
+}
+function renderContrast() {
+  contrastGroup.innerHTML = "";
+  for (const level of CONTRAST_LEVELS) {
+    const button = document.createElement("button");
+    button.className = "segmented__item md-state";
+    button.type = "button";
+    button.setAttribute("aria-pressed", String(level.key === settings.contrast));
+    button.innerHTML = `${ICON.check}<span>${level.label}</span>`;
+    button.addEventListener("click", () => {
+      settings.contrast = level.key; persist(); applyScheme(); renderContrast();
+    });
+    contrastGroup.appendChild(button);
+  }
+}
+function setSeed(hex) { settings.seed = hex; persist(); applyScheme(); renderSwatches(); }
+/* ------------------------------------------------------- ending a session */
+let endTarget = null;
+function openEndDialog(session) {
+  endTarget = session;
+  const waiting = session.status === "waiting" || session.status === "busy" || session.status === "shell";
+  document.getElementById("endSupporting").innerHTML =
+    `<span class="md-mono">${escapeHtml(session.name)}</span> in
+     <span class="md-mono">${escapeHtml(shorten(session.cwd, 2))}</span>, pid
+     <span class="md-mono">${session.pid}</span>.
+     ${waiting ? "It is mid-turn — anything it is doing right now stops. " : ""}The transcript is kept.
+     Force quit only if it will not close on its own.`;
+  endScrim.dataset.open = "true";
+  document.getElementById("endCancel").focus();
+}
+function closeEndDialog() {
+  endScrim.dataset.open = "false";
+  endTarget = null;
+  detailPane.querySelector("[data-act='end']")?.focus();
+}
+document.getElementById("endCancel").addEventListener("click", closeEndDialog);
+endScrim.addEventListener("click", (event) => { if (event.target === endScrim) closeEndDialog(); });
+for (const [id, force] of [["endConfirm", false], ["endForce", true]]) {
+  document.getElementById(id).addEventListener("click", async (event) => {
+    const session = endTarget;
+    if (!session) return;
+    await run("/api/end", session, event.currentTarget, null, { force });
+    closeEndDialog();
+  });
+}
+
+function openSettings(open) {
+  settingsScrim.dataset.open = String(open);
+  if (open) { renderSwatches(); renderContrast(); document.getElementById("closeSettings").focus(); }
+  else { document.getElementById("settingsButton").focus(); }
+}
+document.getElementById("settingsButton").addEventListener("click", () => openSettings(true));
+document.getElementById("closeSettings").addEventListener("click", () => openSettings(false));
+settingsScrim.addEventListener("click", (event) => { if (event.target === settingsScrim) openSettings(false); });
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  if (endScrim.dataset.open === "true") closeEndDialog();
+  else if (settingsScrim.dataset.open === "true") openSettings(false);
+  // Nothing modal is open, so Escape drops whatever rows are picked.
+  else clearPicked();
+});
+document.getElementById("resetTheme").addEventListener("click", () => {
+  settings = { seed: DEFAULT_SEED, dark: matchMedia("(prefers-color-scheme: dark)").matches, contrast: "standard" };
+  persist(); applyScheme(); renderSwatches(); renderContrast(); showSnackbar("Appearance reset");
+});
+themeToggle.addEventListener("change", () => { settings.dark = themeToggle.checked; persist(); applyScheme(); });
+backButton.addEventListener("click", () => { panes.dataset.view = "list"; });
+pickGroup.addEventListener("click", () => groupPicked());
+pickClear.addEventListener("click", () => clearPicked());
+
+/* ----------------------------------------------------------- interactions */
+document.addEventListener("pointerdown", (event) => {
+  const target = event.target.closest(".md-state");
+  if (!target || target.disabled) return;
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const box = target.getBoundingClientRect();
+  const size = Math.max(box.width, box.height);
+  const ripple = document.createElement("span");
+  ripple.className = "md-ripple";
+  ripple.style.width = ripple.style.height = `${size}px`;
+  ripple.style.left = `${event.clientX - box.left - size / 2}px`;
+  ripple.style.top = `${event.clientY - box.top - size / 2}px`;
+  target.appendChild(ripple);
+  ripple.addEventListener("animationend", () => ripple.remove());
+});
+
+/* -------------------------------------------------------------------- boot */
+loadSettings();
+applyScheme();
+if (selectedId) panes.dataset.view = "detail";
+poll();
+setInterval(poll, 1000);
+setInterval(() => {
+  const now = Date.now() / 1000 + skew;
+  for (const node of document.querySelectorAll("[data-since]")) {
+    node.textContent = duration(now - Number(node.dataset.since));
+  }
+}, 1000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
+</script>
+</body>
+</html>
