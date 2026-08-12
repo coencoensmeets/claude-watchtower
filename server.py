@@ -723,6 +723,38 @@ def read_permission_mode(session_id: str, cwd: str) -> str | None:
     return None
 
 
+# ------------------------------------------------------------------ the subject
+
+
+def read_ai_title(session_id: str, cwd: str) -> str | None:
+    """The line Claude wrote about what this session is doing.
+
+    Claude Code names the conversation itself a few turns in and re-writes the
+    name as the subject moves, in an `ai-title` entry of its own. It is the one
+    thing on disk that says what a session is *for* — the name in the list says
+    what it is called — so the index shows both.
+
+    Read from the tail like the permission mode, and for the same reason: the
+    entry recurs often enough that the end of the transcript almost always has
+    one, and a session too young to have been named yet reads as nothing, which
+    is the truth.
+    """
+    for path in transcript_paths(session_id, cwd):
+        for line in reversed(tail_bytes(path).splitlines()):
+            if '"ai-title"' not in line:
+                continue
+            try:
+                entry = json.loads(line.strip())
+            except ValueError:
+                continue
+            if entry.get("type") != "ai-title":
+                continue
+            title = entry.get("aiTitle")
+            if isinstance(title, str) and title.strip():
+                return title.strip()[:120]
+    return None
+
+
 TOOL_DETAIL_KEYS = ("description", "command", "file_path", "pattern", "path", "prompt", "url", "query")
 
 # Entry types that are plumbing rather than conversation.
@@ -743,28 +775,47 @@ def tool_detail(args: object) -> str:
 
 
 # A message that arrives over a session's socket — from this panel's composer or
-# from another session — is wrapped in an envelope before it reaches the model.
+# from another session — may be wrapped in an envelope naming its sender. Another
+# session writes one; this panel sends the text bare, and neither has to.
 CROSS_SESSION = re.compile(
     r"^<cross-session-message(?P<attrs>[^>]*)>\n(?P<body>.*)\n</cross-session-message>$",
     re.DOTALL,
 )
 FROM_NAME = re.compile(r'from-name="([^"]*)"')
+# How the same message reads once it has been handed to the model: the body with
+# a preamble in front and a paragraph of standing instructions behind it.
+PEER_DELIVERY = re.compile(
+    r"^Another Claude session sent a message:\n(?P<body>.*?)"
+    r"\n\nThis came from another Claude session",
+    re.DOTALL,
+)
 
 
 def unwrap_sent(text: str) -> dict | None:
-    """The message inside a socket envelope, and who put it there.
+    """The message inside a socket delivery, and who put it there.
 
-    Claude Code never writes such a message down as a plain turn: it records the
-    envelope on the queue and hands the body to the model as an attachment. Left
-    alone, everything typed into this panel's composer would therefore be missing
-    from the conversation it was typed into — which is precisely the half of the
-    conversation the panel is responsible for.
+    Claude Code never writes such a message down as a plain turn: it records it
+    on the queue and hands it to the model wrapped in a preamble, on a turn
+    marked as meta. Left alone, everything typed into this panel's composer would
+    therefore be missing from the conversation it was typed into — which is
+    precisely the half of the conversation the panel is responsible for.
+
+    Both wrappings are peeled here, and both are optional: a peer names itself
+    with an envelope, this panel sends the text bare, and the queue records
+    whichever arrived.
     """
-    found = CROSS_SESSION.match(text.strip())
-    if not found:
-        return None
-    who = FROM_NAME.search(found.group("attrs") or "")
-    return {"text": found.group("body").strip(), "from": (who.group(1) if who else "") or None}
+    text = text.strip()
+    delivered = PEER_DELIVERY.match(text)
+    if delivered:
+        text = delivered.group("body").strip()
+    found = CROSS_SESSION.match(text)
+    if found:
+        who = FROM_NAME.search(found.group("attrs") or "")
+        return {"text": found.group("body").strip(),
+                "from": (who.group(1) if who else "") or None}
+    if delivered:
+        return {"text": text, "from": None}
+    return None
 
 
 def reverse_lines(path: Path, cap: int = 3_000_000, block: int = 262_144):
@@ -818,9 +869,26 @@ def read_transcript(session_id: str, cwd: str, limit: int = 60) -> dict:
             continue
         title = None
         entries: list[dict] = []
-        sent: set[str] = set()
+        sent: dict[str, dict] = {}
         more = False
         seen = 0
+
+        def keep(came: dict, at: object) -> None:
+            """Show a socket message once, under the name of whoever sent it.
+
+            The same message is written down twice — going on the queue and
+            coming off it — and only one of the two still carries the sender's
+            name, which is not always the one read first.
+            """
+            already = sent.get(came["text"])
+            if already is not None:
+                if came["from"] and not already["from"]:
+                    already["from"] = came["from"]
+                return
+            shown = {"role": "user", "at": at, "text": came["text"][:4000],
+                     "tools": [], "from": came["from"] or ""}
+            sent[came["text"]] = shown
+            entries.append(shown)
         for line in reverse_lines(path):
             line = line.strip()
             if not line.startswith("{"):
@@ -845,17 +913,26 @@ def read_transcript(session_id: str, cwd: str, limit: int = 60) -> dict:
             if kind == "queue-operation":
                 if entry.get("operation") != "enqueue":
                     continue
-                came = unwrap_sent(str(entry.get("content") or ""))
-                if came and came["text"] and came["text"] not in sent:
-                    sent.add(came["text"])
-                    entries.append({
-                        "role": "user", "at": entry.get("timestamp"),
-                        "text": came["text"][:4000], "tools": [], "from": came["from"] or "",
-                    })
+                queued = str(entry.get("content") or "").strip()
+                # A peer names itself with an envelope; this panel sends the text
+                # bare, and bare is then indistinguishable from what it is — a
+                # message. Only the tagged plumbing (task notifications and the
+                # like) is left out.
+                came = unwrap_sent(queued)
+                if came is None and queued and not queued.startswith("<"):
+                    came = {"text": queued, "from": None}
+                if came and came["text"]:
+                    keep(came, entry.get("timestamp"))
                 continue
             if kind in SKIP_ENTRY_TYPES or kind not in ("user", "assistant"):
                 continue
-            if entry.get("isMeta") or entry.get("isSidechain"):
+            if entry.get("isSidechain"):
+                continue
+            # A message that came in over the socket is written down as meta —
+            # it was not typed at this terminal. It is still the conversation.
+            origin = entry.get("origin")
+            from_peer = isinstance(origin, dict) and origin.get("kind") == "peer"
+            if entry.get("isMeta") and not from_peer:
                 continue
             message = entry.get("message")
             if not isinstance(message, dict):
@@ -865,14 +942,14 @@ def read_transcript(session_id: str, cwd: str, limit: int = 60) -> dict:
 
             if isinstance(content, str):
                 text = content.strip()
-                # A message delivered rather than queued arrives with its
-                # envelope on; the same message must not be shown twice.
-                came = unwrap_sent(text) if text.startswith("<cross-session-message") else None
+                # A message delivered rather than queued arrives wrapped; the
+                # same message must not be shown twice.
+                came = unwrap_sent(text)
+                if came is None and from_peer and text:
+                    came = {"text": text, "from": None}
                 if came:
-                    if came["text"] and came["text"] not in sent:
-                        sent.add(came["text"])
-                        entries.append({"role": "user", "at": at, "text": came["text"][:4000],
-                                        "tools": [], "from": came["from"] or ""})
+                    if came["text"]:
+                        keep(came, at)
                 elif text and not text.startswith("<"):
                     entries.append({"role": kind, "at": at, "text": text[:4000], "tools": []})
                 continue
@@ -1417,6 +1494,7 @@ class SessionStore:
         self._root_cache: dict[str, tuple[float, str | None]] = {}
         self._activity_cache: dict[str, tuple[float, dict | None]] = {}
         self._mode_cache: dict[str, tuple[float, str | None]] = {}
+        self._title_cache: dict[str, tuple[float, str | None]] = {}
         self._first_seen: dict[str, float] = {}
         # pid -> (sampled at, cpu seconds then, was it working)
         self._cpu: dict[int, tuple[float, float, bool]] = {}
@@ -1490,6 +1568,18 @@ class SessionStore:
         self._mode_cache[session_id] = (now, value)
         return value
 
+    def _title(self, session_id: str, cwd: str) -> str | None:
+        # Rarer still than the mode: Claude renames a conversation when its
+        # subject moves, which is minutes apart at best, and the reading costs
+        # the same walk back through the tail.
+        now = time.time()
+        hit = self._title_cache.get(session_id)
+        if hit and now - hit[0] < 20:
+            return hit[1]
+        value = read_ai_title(session_id, cwd)
+        self._title_cache[session_id] = (now, value)
+        return value
+
     def _burning_cpu(self, pid: int, now: float) -> bool:
         """Is this process actually doing something, judged over a few seconds?"""
         current = cpu_seconds(pid)
@@ -1554,6 +1644,7 @@ class SessionStore:
                         self._first_seen.pop(session_id, None)
                         self._transcript_cache.pop(session_id, None)
                         self._mode_cache.pop(session_id, None)
+                        self._title_cache.pop(session_id, None)
                         self._cpu.pop(gone.get("pid"), None)
 
     def run_forever(self) -> None:
@@ -1610,6 +1701,9 @@ class SessionStore:
                 # at the panel since — see read_permission_mode for why the two
                 # can disagree for a while.
                 "permissionMode": self._mode(session_id, cwd) if cwd else None,
+                # What Claude says this session is about, for the line under its
+                # name — the detail pane reads the same thing off the transcript.
+                "title": self._title(session_id, cwd) if cwd else None,
                 "trace": self._trace(history.get(session_id), now),
                 "alive": alive,
                 "canSay": bool(
@@ -1681,8 +1775,10 @@ class SessionStore:
                 "branch": self._branch(cwd) if cwd else None,
                 "repoRoot": self._repo_root(cwd) if cwd else None,
                 "activity": self._activity(session_id, cwd) if cwd else None,
-                # For a stopped session this is the mode it was last in.
+                # For a stopped session these are the mode it was last in and
+                # the last thing it was working on.
                 "permissionMode": self._mode(session_id, cwd) if cwd else None,
+                "title": self._title(session_id, cwd) if cwd else None,
                 "trace": [],
                 "alive": False,
                 "canSay": False,

@@ -233,7 +233,13 @@
     color: var(--md-sys-color-on-surface);
   }
   .app-bar__headline { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: var(--md-sys-spacing-3); }
-  .app-bar__title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* Echoes the wordmark: heavy uppercase, tightly tracked. The logo's roughened
+     edges are outlines in the SVG rather than a typeface, so this is as close as
+     text can get with the bundled Roboto. */
+  .app-bar__title {
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    font-weight: 900; text-transform: uppercase; letter-spacing: -0.01em;
+  }
   .app-bar__supporting { color: var(--md-sys-color-on-surface-variant); white-space: nowrap; }
   .app-bar__actions { display: flex; align-items: center; gap: var(--md-sys-spacing-2); flex: none; }
 
@@ -338,6 +344,13 @@
   .session-item[aria-current="true"] .session-item__headline { color: var(--md-sys-color-on-secondary-container); }
   .session-item__pin svg { width: 13px; height: 13px; vertical-align: -1px; margin-inline-end: 4px; opacity: 0.75; }
   .session-item__supporting { display: block; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* What the session is about, between the name and the state. It is the line
+     that tells two Claudes in one repository apart, so it gets the darker of
+     the two supporting colours and the state line below it gets dimmed. */
+  .session-item__subject { display: block; min-width: 0; white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; color: var(--md-sys-color-on-surface-variant); }
+  .session-item[aria-current="true"] .session-item__subject { color: var(--md-sys-color-on-secondary-container); }
+  .session-item__subject + .session-item__supporting { opacity: 0.75; }
   .session-item__trailing { flex: none; text-align: right; }
 
   .list-empty { padding: var(--md-sys-spacing-6) var(--md-sys-spacing-4); color: var(--md-sys-color-on-surface-variant); text-align: center; }
@@ -933,7 +946,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
     </button>
     <div class="app-bar__headline">
-      <h1 class="app-bar__title md-title-large">Claude sessions</h1>
+      <h1 class="app-bar__title md-title-large">Claude Watchtower</h1>
       <span class="app-bar__supporting md-label-medium" id="barSupporting"></span>
     </div>
     <div class="app-bar__actions">
@@ -1929,8 +1942,13 @@ function paintListItem(item, session) {
   // Picking is deliberately out of the signature: it is an attribute on a row
   // that already exists, and rebuilding the row would take the keyboard focus
   // away from it just as you were picking the next one.
+  // What Claude calls the work, which is not what the row is called: a session
+  // named "watchtower-55" says where you are, and "Fix browser input not
+  // displaying" says what it is doing. Dropped when it only repeats the name.
+  const subject = session.title && session.title.toLowerCase() !== session.name.toLowerCase()
+    ? session.title : "";
   const signature = [stateKeyOf(session.status), session.name, session.folder, host.label,
-                     isSelected, session.sticky].join(" ");
+                     isSelected, session.sticky, subject].join(" ");
   if (item.dataset.signature !== signature) {
     item.dataset.signature = signature;
     item.innerHTML = `
@@ -1941,6 +1959,7 @@ function paintListItem(item, session) {
           <span class="session-item__headline md-title-small">${
             session.sticky ? `<span class="session-item__pin" title="Kept in the dashboard">${ICON.pin}</span>` : ""
           }${escapeHtml(session.name)}</span>
+          ${subject ? `<span class="session-item__subject md-body-small">${escapeHtml(subject)}</span>` : ""}
           <span class="session-item__supporting md-body-small">${escapeHtml(state.short)} · ${escapeHtml(session.folder || "")}</span>
         </span>
         <span class="session-item__trailing md-label-small md-mono" data-since="${displaySince(session)}"></span>
@@ -2367,7 +2386,7 @@ function renderDetail(force) {
     host.label, tab, transcript?.messages?.length ?? -1, transcript?.title ?? "",
     session.repoRoot ?? "", gitFor === session.sessionId ? gitStamp(git) : "",
     mutedSessions.has(session.sessionId), feed.canFocus, feed.canSend, session.canSay, session.sticky,
-    session.permissionMode ?? "",
+    session.permissionMode ?? "", session.title ?? "",
   ].join(" ");
   if (!force && detailPane.dataset.signature === signature) {
     const clock = detailPane.querySelector("[data-since]");
@@ -2694,7 +2713,10 @@ function detailHeader(session, state, host) {
     : `<span class="meta-sep">·</span><span class="md-body-small">up ${duration(Date.now() / 1000 + skew - session.startedAt)}</span>`);
   const mode = modeTag(session);
   if (mode) meta.push(`<span class="meta-sep">·</span>${mode}`);
-  const title = transcriptFor === session.sessionId && transcript?.title ? transcript.title : null;
+  // The transcript's own reading first — it is the fresher of the two — and the
+  // one that came with the session behind it, so the subject is there on the
+  // first paint rather than a moment after it.
+  const title = (transcriptFor === session.sessionId && transcript?.title) || session.title || null;
   return `<header class="detail-header">
       <div class="detail-header__top">
         <div class="detail-header__text">
