@@ -677,6 +677,28 @@
     background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container);
   }
   .git-badge svg { width: 15px; height: 15px; }
+  /* A badge that does something. Same pill, but it takes a press: the branch
+     opens the branch list, the drift counts push and pull what they are counting. */
+  .git-badge--button { border: 0; cursor: pointer; font: inherit; letter-spacing: inherit;
+    position: relative; }
+  .git-badge--button::after { content: ""; position: absolute; inset: -6px; }
+  .git-badge--button[data-git="branch-menu"] svg:last-child { width: 13px; height: 13px; opacity: 0.7; }
+  /* The drift counts, filled so they read as work waiting rather than as another
+     line of description. Amber for the one that is yours to do — the same colour
+     this panel uses for a session that needs an answer — and the primary tone for
+     what is arriving from the remote. */
+  .git-badge--drift { gap: 5px; }
+  .git-badge--drift[data-way="push"] {
+    background: var(--md-extended-color-waiting-container, var(--md-sys-color-tertiary-container));
+    color: var(--md-extended-color-waiting-on-container, var(--md-sys-color-on-tertiary-container));
+  }
+  .git-badge--drift[data-way="pull"] {
+    background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);
+  }
+  /* The word is the part that says what to do about it. It stays: the header
+     wraps, so a narrow pane puts the badges on their own line rather than
+     squeezing them, and "↑1" alone is exactly the thing that was too quiet. */
+  .git-badge__verb { opacity: 0.85; }
   .git-badge--quiet { background: transparent; color: var(--md-sys-color-on-surface-variant);
     padding-inline: 0; }
 
@@ -966,6 +988,16 @@
   .scrim[data-open="true"] .dialog { transform: scale(1); opacity: 1; }
   .dialog__headline { margin-bottom: var(--md-sys-spacing-2); }
   .dialog__supporting { color: var(--md-sys-color-on-surface-variant); margin-bottom: var(--md-sys-spacing-6); }
+  /* Shown only by the questions that need something typed — naming a branch. */
+  .dialog__field {
+    width: 100%; box-sizing: border-box; height: 44px;
+    margin: calc(-1 * var(--md-sys-spacing-3)) 0 var(--md-sys-spacing-6);
+    padding: 0 var(--md-sys-spacing-3);
+    border: 1px solid var(--md-sys-color-outline); border-radius: var(--md-sys-shape-corner-small);
+    background: var(--md-sys-color-surface-container-lowest); color: var(--md-sys-color-on-surface);
+    font: inherit;
+  }
+  .dialog__field:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: -1px; border-color: transparent; }
   .dialog__actions { display: flex; justify-content: flex-end; gap: var(--md-sys-spacing-2); }
   /* Keeps the last-resort action away from the one people mean to press. */
   .dialog__actions-start { margin-right: auto; color: var(--md-sys-color-on-surface-variant); }
@@ -1114,6 +1146,8 @@
   <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="askHeadline" aria-describedby="askSupporting">
     <h2 class="dialog__headline md-headline-small" id="askHeadline"></h2>
     <p class="dialog__supporting md-body-medium" id="askSupporting"></p>
+    <input class="dialog__field md-body-medium md-mono" id="askField" type="text" hidden
+      autocomplete="off" spellcheck="false">
     <div class="dialog__actions">
       <button class="button button--text md-state" id="askCancel">Cancel</button>
       <button class="button button--danger md-state" id="askConfirm">Confirm</button>
@@ -1848,6 +1882,10 @@ function gitStamp(g) {
   return [g?.ok, g?.isRepo, g?.canWrite, g?.head ?? "", g?.branch ?? "", g?.upstream ?? "",
           g?.detached, g?.ahead ?? 0, g?.behind ?? 0,
           g?.stashes ?? 0, g?.commits?.[0]?.sha ?? "", g?.commits?.length ?? -1,
+          // The branch menu is built when it opens, from whatever this holds, so a
+          // branch appearing or going has to reach the pane.
+          (g?.branches?.local ?? []).map((b) => `${b.name}${b.current ? "*" : ""}`).join(","),
+          (g?.branches?.remote ?? []).map((b) => b.name).join(","),
           // Each side keeps its own column, filled with a dot when it is empty.
           // Run them together and staging a modified file reads the same either
           // way — "M" and "M" — so the pane would never notice it had moved.
@@ -3473,16 +3511,51 @@ function diffPane() {
 /* Neither tab is worth showing without knowing which branch it is describing,
    so the same header opens both. */
 function gitHead(git) {
+  const here = git.branch || (git.head ? git.head.slice(0, 7) : "no commits");
+  // The branch is a button when there is somewhere to go: the editor's status-bar
+  // branch works this way, and a repository with one branch and no remote has
+  // nothing to offer but the new-branch line, which is still worth offering.
+  const badge = git.canWrite
+    ? `<button class="git-badge git-badge--button md-state md-label-large" type="button" data-git="branch-menu"
+         title="Switch branch, or start a new one" aria-haspopup="menu">
+        ${ICON.branch}<span class="md-mono">${escapeHtml(here)}</span>${ICON.chevron}
+       </button>`
+    : `<span class="git-badge md-label-large">${ICON.branch}<span class="md-mono">${escapeHtml(here)}</span></span>`;
+  // The counts say what they would do, and do it: the arrow you are looking at
+  // when you think "push that" is the arrow itself.
+  // Filled, not quiet: an unpushed commit is something to do, and a transparent
+  // arrow beside a row of transparent arrows reads as one more fact about the
+  // repository. Push borrows the colour this panel already uses for "this one
+  // needs you"; pull is work coming the other way, so it takes the primary tone.
+  const drift = (key, arrow, count, verb, title) => {
+    if (!count) return "";
+    const label = `<span class="md-mono">${arrow}${count}</span>`;
+    return git.canWrite
+      ? `<button class="git-badge git-badge--button git-badge--drift md-state md-label-medium"
+           type="button" data-way="${key}" data-git="${key}" title="${escapeHtml(title)}">
+          ${label}<span class="git-badge__verb">${verb}</span>
+         </button>`
+      : `<span class="git-badge git-badge--drift md-label-medium" data-way="${key}"
+           title="${escapeHtml(title)}">${label}<span class="git-badge__verb">${verb}</span></span>`;
+  };
   return `
     <div class="git-head">
-      <span class="git-badge md-label-large">${ICON.branch}<span class="md-mono">${escapeHtml(git.branch || (git.head ? git.head.slice(0, 7) : "no commits"))}</span></span>
+      ${badge}
       ${git.detached ? `<span class="git-badge git-badge--quiet md-body-small">detached HEAD</span>` : ""}
       ${git.upstream ? `<span class="git-badge git-badge--quiet md-body-small md-mono">${escapeHtml(git.upstream)}</span>` : ""}
-      ${git.ahead ? `<span class="git-badge git-badge--quiet md-body-small" title="commits to push">↑${git.ahead}</span>` : ""}
-      ${git.behind ? `<span class="git-badge git-badge--quiet md-body-small" title="commits to pull">↓${git.behind}</span>` : ""}
+      ${drift("push", "↑", git.ahead, "to push",
+        `Push ${plural(git.ahead, "commit")} to ${git.upstream || "the remote"}`)}
+      ${drift("pull", "↓", git.behind, "to pull",
+        `Pull ${plural(git.behind, "commit")} from ${git.upstream || "the remote"}`)}
       ${git.stashes ? `<span class="git-badge git-badge--quiet md-body-small">${git.stashes} stashed</span>` : ""}
       ${gitHeadActions(git)}
     </div>`;
+}
+
+/* Plural agreement, for the handful of places that count something. Named away
+   from `count` because two functions here already use that for a local. */
+function plural(n, noun) {
+  return `${n} ${noun}${n === 1 ? "" : "s"}`;
 }
 
 /* The header's own buttons: sync, and the overflow that holds everything a
@@ -3729,6 +3802,95 @@ function commitMenuItems(session) {
   ];
 }
 
+/* The branch list, in the editor's order: the two ways to start a branch, then
+   the branches themselves — local ones by how recently they were committed to,
+   because that is the handful you are actually moving between, then the remote
+   ones nobody here has a local copy of yet. */
+function branchMenuItems(session) {
+  const local = git?.branches?.local || [];
+  const remote = git?.branches?.remote || [];
+  const items = [
+    { key: "new", icon: ICON.plus, label: "Create new branch…", hint: "from here",
+      run: () => createBranch(session, null) },
+    // No hint on this one: with one, the label is what gets ellipsised, and
+    // "Create new branch …" reads like the line above it.
+    { key: "new-from", icon: ICON.branch, label: "Create new branch from…",
+      disabled: !local.length && !remote.length,
+      // Anchored to the badge, not to the item that was just clicked: that item
+      // belongs to a menu which is already closing, and a hidden element has no
+      // position to hang the next menu off.
+      run: () => openGitMenu(detailPane.querySelector("[data-git='branch-menu']"),
+                             "Start the branch from", startPointItems(session)) },
+  ];
+  const now = Date.now() / 1000 + skew;
+  if (local.length) {
+    items.push({ divider: true });
+    for (const branch of local.slice(0, 40)) {
+      items.push({
+        key: `local:${branch.name}`, icon: branch.current ? ICON.check : ICON.branch,
+        label: branch.name,
+        hint: branch.current ? "you are here" : ago(now - branch.at),
+        disabled: branch.current,
+        run: (el) => switchTo(session, branch.name, el),
+      });
+    }
+  }
+  if (remote.length) {
+    items.push({ divider: true });
+    for (const branch of remote.slice(0, 40)) {
+      items.push({
+        key: `remote:${branch.name}`, icon: ICON.download, label: branch.name,
+        hint: "check out and track",
+        run: (el) => switchTo(session, branch.name, el),
+      });
+    }
+  }
+  return items;
+}
+
+/* The same list again, but picking one names where a new branch starts rather
+   than where HEAD goes. */
+function startPointItems(session) {
+  const local = git?.branches?.local || [];
+  const remote = git?.branches?.remote || [];
+  return [...local, ...remote].slice(0, 60).map((branch) => ({
+    key: `from:${branch.name}`, icon: ICON.branch, label: branch.name,
+    hint: branch.current ? "where you are" : "",
+    run: () => createBranch(session, branch.name),
+  }));
+}
+
+async function createBranch(session, from) {
+  const name = await askText({
+    headline: "Name the branch",
+    body: from
+      ? `It starts from <span class="md-mono">${escapeHtml(from)}</span>.`
+      : "It starts from where you are now.",
+    placeholder: "feature/something",
+    confirmLabel: "Create branch",
+  });
+  if (!name) return;
+  await gitDo("switch", { branch: name, create: true, ...(from ? { from } : {}) },
+    detailPane.querySelector("[data-git='branch-menu']"));
+}
+
+/* Switching branches rewrites the files a session is working in, so a session
+   that is mid-turn gets a word first — the panel knows that much, and the editor
+   never did. git's own refusals (uncommitted work in the way, the branch held by
+   another worktree) come back as they are. */
+async function switchTo(session, branch, button) {
+  if (session.status === "busy") {
+    const go = await askConfirm({
+      headline: "This session is working right now",
+      body: `Switching to <span class="md-mono">${escapeHtml(branch)}</span> changes the files
+             <span class="md-mono">${escapeHtml(session.name)}</span> is editing underneath it.`,
+      confirmLabel: "Switch anyway",
+    });
+    if (!go) return;
+  }
+  await gitDo("switch", { branch }, button);
+}
+
 /* And what the header's overflow opens: everything about the repository rather
    than about one file. */
 function gitMenuItems(session) {
@@ -3814,6 +3976,9 @@ function onGitAction(session, button) {
     case "unstage-group": return gitDo("unstage", { paths: groupPaths }, button);
     case "discard-group": return discardWithConfirm(groupPaths, groupFiles, button);
     case "sync": return gitDo(git?.upstream ? "sync" : "push", {}, button);
+    case "push": return gitDo("push", {}, button);
+    case "pull": return gitDo("pull", {}, button);
+    case "branch-menu": return openGitMenu(button, git?.branch || "Branches", branchMenuItems(session));
     case "suggest": return suggestMessage(session, button);
     case "commit": return doCommit(session, button);
     case "commit-menu": return openGitMenu(button, "Commit", commitMenuItems(session));
@@ -4103,6 +4268,23 @@ for (const [id, force] of [["endConfirm", false], ["endForce", true]]) {
 const askScrim = document.getElementById("askScrim");
 let askResolve = null;
 
+/* The same dialog with a field in it, for the one question that needs a word
+   back rather than a yes: what to call a new branch. Resolves to the trimmed
+   text, or null if it was dismissed. */
+function askText({ headline, body, placeholder = "", value = "", confirmLabel = "Create" }) {
+  // The dialog goes up first: opening one closes whatever stood before it, and
+  // that closing is what puts the field away — reveal it before, and it is
+  // hidden again by the time anyone could type in it.
+  const answer = askConfirm({ headline, body, confirmLabel, danger: false });
+  const field = document.getElementById("askField");
+  field.hidden = false;
+  field.placeholder = placeholder;
+  field.value = value;
+  field.focus();
+  field.select();
+  return answer.then((ok) => (ok ? field.value.trim() || null : null));
+}
+
 function askConfirm({ headline, body, confirmLabel = "Confirm", danger = true }) {
   closeAsk(false);
   document.getElementById("askHeadline").textContent = headline;
@@ -4120,10 +4302,20 @@ function askConfirm({ headline, body, confirmLabel = "Confirm", danger = true })
 
 function closeAsk(answer) {
   askScrim.dataset.open = "false";
+  // The field belongs to whichever question asked for it, so it goes away with
+  // that question rather than lingering into the next one.
+  document.getElementById("askField").hidden = true;
   const resolve = askResolve;
   askResolve = null;
   if (resolve) resolve(answer);
 }
+
+// Enter in the field is the same as pressing the confirming button beside it.
+document.getElementById("askField").addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  closeAsk(true);
+});
 
 document.getElementById("askCancel").addEventListener("click", () => closeAsk(false));
 document.getElementById("askConfirm").addEventListener("click", () => closeAsk(true));

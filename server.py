@@ -429,7 +429,8 @@ def git_branch(cwd: str) -> str | None:
 # Only these reach the git binary. The panel builds every argument itself — the
 # allowlist is here so that a later write path has to add itself deliberately
 # rather than inheriting the ability to run anything.
-GIT_READ_COMMANDS = frozenset({"status", "log", "rev-parse", "stash", "diff", "remote"})
+GIT_READ_COMMANDS = frozenset({"status", "log", "rev-parse", "stash", "diff", "remote",
+                               "for-each-ref", "check-ref-format"})
 
 
 def git_run(root: str, args: list[str], timeout: float = 6.0) -> tuple[bool, str]:
@@ -549,6 +550,61 @@ def parse_log(text: str) -> list[dict]:
     return commits
 
 
+# One record per ref: where it is, what it tracks, and when it last moved.
+REF_FORMAT = "%(refname:short)%1f%(upstream:short)%1f%(committerdate:unix)%1f%(HEAD)"
+
+
+def read_branches(root: str) -> dict:
+    """The branches this repository could be switched to.
+
+    Local ones first, most recently committed first — the order that matters when
+    you are moving between two or three branches all week. Then the remote ones
+    with no local branch of their own, which is what "check this out" means for a
+    branch somebody else pushed.
+    """
+    out: dict = {"local": [], "remote": []}
+    ok, text = git_run(root, ["for-each-ref", "--sort=-committerdate",
+                             f"--format={REF_FORMAT}", "refs/heads", "refs/remotes"])
+    if not ok:
+        return out
+
+    local_names = set()
+    remotes = []
+    # Read once, not per ref: telling refs/remotes from a local branch with a
+    # slash in its name means knowing what the remotes are called.
+    known = remote_names(root)
+    for line in text.splitlines():
+        parts = line.split("\x1f")
+        if len(parts) < 4:
+            continue
+        name, upstream, when, head = parts[0], parts[1], parts[2], parts[3]
+        if not name or name.endswith("/HEAD"):
+            continue          # the remote's default-branch pointer, not a branch
+        try:
+            at = int(when)
+        except ValueError:
+            at = 0
+        if "/" in name and name.split("/", 1)[0] in known:
+            remotes.append({"name": name, "at": at})
+        else:
+            local_names.add(name)
+            out["local"].append({"name": name, "upstream": upstream or None,
+                                 "at": at, "current": head == "*"})
+
+    for entry in remotes:
+        # A remote branch that already has a local counterpart is reachable by
+        # that name; listing it twice would only ask which one you meant.
+        short = entry["name"].split("/", 1)[1]
+        if short not in local_names:
+            out["remote"].append({**entry, "short": short})
+    return out
+
+
+def remote_names(root: str) -> list[str]:
+    ok, text = git_run(root, ["remote"])
+    return [line.strip() for line in text.splitlines() if line.strip()] if ok else []
+
+
 def read_git(root: str, log_limit: int = 60) -> dict:
     """Everything the Git tab reads, in one pass over the repository."""
     out: dict = {
@@ -600,6 +656,11 @@ def read_git(root: str, log_limit: int = 60) -> dict:
 
     ok, stash = git_run(root, ["stash", "list"])
     out["stashes"] = len([line for line in stash.splitlines() if line]) if ok else 0
+
+    # Cheap enough to come along with every reading — one for-each-ref — and the
+    # branch menu has to open on the branches that exist now, not the ones that
+    # existed when the tab was opened.
+    out["branches"] = read_branches(root)
     return out
 
 
@@ -647,7 +708,7 @@ def read_diff(root: str, path: str, staged: bool) -> dict:
 # nothing here runs unless an action below names it, and the panel builds every
 # argument itself, so a path from the browser can only ever land after `--`.
 GIT_WRITE_COMMANDS = frozenset({"add", "reset", "rm", "restore", "clean", "commit",
-                                "push", "pull", "fetch", "stash"})
+                                "push", "pull", "fetch", "stash", "switch"})
 
 # Anything reaching the network gets the long one; an index write is local and
 # should never take this long unless a hook is doing the work.
@@ -866,6 +927,70 @@ def git_pull(root: str, state: dict) -> tuple[bool, str]:
     return False, said or "Could not pull"
 
 
+def switch_branch(root: str, payload: dict) -> tuple[bool, str]:
+    """Move HEAD to another branch, or to a new one.
+
+    `switch` rather than `checkout`: it only ever moves branches, so a branch name
+    that happens to match a path cannot turn this into a file operation. git
+    refuses on its own when the move would drop uncommitted work, and that refusal
+    is the message that comes back.
+    """
+    name = str(payload.get("branch") or "").strip()
+    if not name:
+        return False, "No branch named"
+
+    if payload.get("create"):
+        ok, why = usable_branch_name(root, name)
+        if not ok:
+            return False, why
+        start = str(payload.get("from") or "").strip()
+        args = ["switch", "--create", name]
+        if start:
+            known = read_branches(root)
+            if start not in {b["name"] for b in known["local"]} | {b["name"] for b in known["remote"]}:
+                return False, "There is no such branch to start from"
+            args.append(start)
+        ok, said = git_write(root, args)
+        return ok, (f"On a new branch, {name}" if ok else said or "Could not create that branch")
+
+    # An existing branch is only switched to by a name the repository is currently
+    # reporting — which is also what keeps a leading dash out of the argument list.
+    known = read_branches(root)
+    if name in {b["name"] for b in known["local"]}:
+        ok, said = git_write(root, ["switch", name])
+        return ok, (f"On {name}" if ok else said or "Could not switch")
+
+    remote = next((b for b in known["remote"] if b["name"] == name), None)
+    if remote:
+        # Checking out somebody else's branch means making a local one that
+        # follows it, which is what the editor does with the same click.
+        ok, said = git_write(root, ["switch", "--track", name])
+        return ok, (f"On {remote['short']}, tracking {name}" if ok
+                    else said or "Could not check that branch out")
+
+    return False, "That branch is not in this repository any more"
+
+
+# A name git would take but the panel should not: one that could be read as an
+# option, or that names nothing at all.
+BRANCH_NAME_LIMIT = 200
+
+
+def usable_branch_name(root: str, name: str) -> tuple[bool, str]:
+    if name.startswith("-"):
+        return False, "A branch name cannot start with a dash"
+    if len(name) > BRANCH_NAME_LIMIT:
+        return False, f"That name is longer than {BRANCH_NAME_LIMIT} characters"
+    if any(ch.isspace() for ch in name):
+        return False, "A branch name cannot contain spaces"
+    # git's own rules are longer than anything worth restating here, so they are
+    # the ones that decide.
+    ok, _ = git_run(root, ["check-ref-format", "--branch", name])
+    if not ok:
+        return False, f"git will not accept “{name}” as a branch name"
+    return True, ""
+
+
 def default_remote(root: str) -> str | None:
     ok, text = git_run(root, ["remote"])
     if not ok:
@@ -1075,6 +1200,10 @@ def git_action(root: str, action: str, payload: dict) -> tuple[bool, str, int]:
         if not paths:
             return False, "Nothing to discard", 409
         ok, said = discard_paths(root, paths, entries)
+        return ok, said, 200 if ok else 409
+
+    if action == "switch":
+        ok, said = switch_branch(root, payload)
         return ok, said, 200 if ok else 409
 
     if action == "commit":

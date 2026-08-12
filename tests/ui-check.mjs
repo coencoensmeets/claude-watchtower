@@ -294,6 +294,18 @@ if (!gitSession) {
             && parseFloat(getComputedStyle(f).paddingRight) >= b.width;
         })(),
         headButtons: [...document.querySelectorAll('.git-head [data-git]')].map((b) => b.dataset.git).join(','),
+        // A drift count is a button when there is drift to act on, and says which
+        // upstream it means.
+        driftActs: [...document.querySelectorAll('.git-head [data-git="push"], .git-head [data-git="pull"]')]
+          .every((b) => /^(Push|Pull) \\d+ commits? (to|from) /.test(b.title)),
+        // And it has to look like work waiting: a filled pill, saying what to do
+        // about it, not another transparent line of description.
+        driftFilled: [...document.querySelectorAll('.git-badge--drift')].every((b) => {
+          const bg = getComputedStyle(b).backgroundColor;
+          return bg && bg !== 'rgba(0, 0, 0, 0)' && !bg.endsWith(', 0)')
+            && /to (push|pull)/.test(b.textContent);
+        }),
+        driftCount: document.querySelectorAll('.git-badge--drift').length,
         readOnlyBadge: Boolean([...document.querySelectorAll('.git-head span')].some((s) => s.textContent.trim() === 'read-only')),
         groupActions: [...document.querySelectorAll('.scm-group__head [data-git]')].map((b) => b.dataset.git).join(','),
         rowActions: row ? [...row.querySelectorAll(".scm-actions [data-git]")].map((b) => b.dataset.git).join(',') : "",
@@ -305,8 +317,42 @@ if (!gitSession) {
         scm.commitField && scm.splitButton);
       check("the sparkle sits inside the message box, with room kept for it",
         scm.sparkleInside);
+      check("any drift count on show is a button that says what it would do",
+        scm.driftActs, scm.headButtons);
+      check("a drift count is a filled pill, not a quiet annotation",
+        scm.driftFilled, scm.driftCount ? `${scm.driftCount} on show` : "none to show");
       check("the header offers sync and an overflow",
         scm.headButtons.includes("sync") && scm.headButtons.includes("menu"), scm.headButtons);
+
+      /* The branch badge opens the branch list. It is opened and read, never
+         picked from: switching a branch under a real session to prove a menu
+         works is not this suite's business. */
+      const branches = JSON.parse(await evaluate(`(async () => {
+        const reading = await (await fetch('/api/git?sessionId=' + encodeURIComponent(${JSON.stringify(gitSession)}), { cache: 'no-store' })).json();
+        document.querySelector("[data-git='branch-menu']").click();
+        await new Promise((r) => setTimeout(r, 250));
+        const items = [...document.querySelectorAll('#sessionMenu .menu__item')];
+        const answer = {
+          open: document.getElementById('sessionMenu').dataset.open,
+          creates: items.filter((b) => b.dataset.key === 'new' || b.dataset.key === 'new-from').length,
+          listed: items.filter((b) => b.dataset.key?.startsWith('local:')).length,
+          current: items.filter((b) => b.dataset.key?.startsWith('local:') && b.disabled).length,
+          fromGit: (reading.branches?.local ?? []).length,
+          onABranch: Boolean(reading.branch),
+        };
+        // Put it away, so the checks after this one are not measuring a menu.
+        // Dispatched on an element, not on document: listeners here reasonably
+        // expect a pointer event to have an Element for a target.
+        document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+        return JSON.stringify(answer);
+      })()`));
+      check("the branch badge opens the branch list",
+        branches.open === "true" && branches.creates === 2
+        && branches.listed === branches.fromGit,
+        `${branches.listed} branches, ${branches.creates} ways to make one`);
+      // Detached HEAD has no current branch to mark, which is not a failure.
+      check("the branch you are on is marked, not offered",
+        branches.current === (branches.onABranch ? 1 : 0));
       if (scm.hasRow) {
         check("a file row carries stage or unstage",
           /(^|,)(stage|unstage)(,|$)/.test(scm.rowActions), scm.rowActions);
@@ -389,6 +435,8 @@ if (!gitSession) {
       measure('file name', document.querySelector('.git-file__name'));
       measure('file folder', document.querySelector('.git-file__dir'));
       measure('group title', document.querySelector('.scm-group__title'));
+      measure('drift count', document.querySelector('.git-badge--drift'));
+      measure('drift verb', document.querySelector('.git-badge__verb'));
       measure('row action', document.querySelector('.scm-actions .scm-icon'));
       return out;
     })())`));

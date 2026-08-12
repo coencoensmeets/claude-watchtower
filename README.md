@@ -179,6 +179,12 @@ Among the facts in the detail header is a pill for how much rope the session has
 
 A session is nearly always working inside a repository, and the question you actually have while watching one work is what it has done to the tree. **Git** answers it, and then lets you act on the answer: the branch, how far it has drifted from its upstream, and every changed file in the three groups the editor uses — **merge changes**, **staged changes**, **changes** — with a message box and a commit button above them.
 
+**The branch in the header is a button.** Pressing it opens the branch list, as the editor's status-bar branch does: *Create new branch…*, *Create new branch from…*, then the local branches most-recently-committed-first — the two or three you are actually moving between all week, rather than an alphabet — and then any remote branch with no local copy yet, which checks out as a branch tracking it. The one you are on is marked and cannot be picked again. It runs `switch` rather than `checkout`, so a branch name that also happens to be a path can never turn the click into a file operation, and a new name is refused before it reaches git if it starts with a dash or carries a space, then refused by `check-ref-format` if git would not have it either.
+
+Switching branches rewrites the files underneath whoever is working in them, and the panel knows something the editor never did: whether a session is mid-turn in that folder. So a switch under a **working** session asks first. Everything else is git's own refusal, passed through as it stands — uncommitted work that would be overwritten, or a branch already checked out in another worktree.
+
+**The drift counts are buttons too**, and they are filled rather than quiet, because an unpushed commit is something to do and a transparent arrow in a row of transparent arrows reads as one more fact about the repository. `↑2 to push` pushes those two commits; `↓1 to pull` pulls that one. Push takes the amber this panel already uses for a session that needs you; pull takes the primary tone, being work arriving rather than work owed. The arrow you are looking at when you think "push that" is the arrow you press, and its tooltip names the upstream it means.
+
 **The interface is VS Code's Source Control view, deliberately.** Not as flattery: it is the one arrangement of these controls that everybody who would open this panel already knows, so nothing about staging a file needs explaining. The message box sits at the top with a split button under it — **Commit**, and an arrow holding *Commit & push*, *Commit & sync* and *Commit (amend)*. Each group header carries the actions that apply to the whole group, each row the ones that apply to it, and the row itself opens that file's diff in place. With nothing staged the button says **Commit all 3** rather than quietly committing something else, which is the same offer the editor makes and the same answer, said earlier. `Ctrl+Enter` in the box commits, as it does there.
 
 **The sparkle in the corner of the message box writes the message for you.** It runs a headless `claude --print` in the repository with the diff that is about to be committed on stdin — the index if anything is staged, the whole working tree otherwise, so the message describes the commit the button would actually make — along with the last ten commit subjects, so what comes back looks like the messages already in that history rather than a house style from somewhere else. It goes to Haiku, because a commit message is a small closed job and a cheap one; it is given no tools, so there is no permission prompt to answer and nothing it can do to the tree; and it takes ten or twenty seconds, which the button says by pulsing while it waits.
@@ -207,6 +213,7 @@ Each row reads name first, then the folder it sits in, then one letter for what 
 | Discard changes | `restore --worktree --` for a tracked file; `clean -f --` for one that was never committed, because deleting it is the only way to discard it |
 | Commit, commit all, amend | `commit -m`, with `add -A` first when nothing was staged, `--amend --no-edit` when the box is empty |
 | Push, publish, pull, fetch, sync | `push`, `push --set-upstream` for a branch that has none, `pull --ff-only`, `fetch --prune`; sync pulls and then pushes |
+| Switch branch, start one | `switch <branch>`, `switch --track <remote>/<branch>` for a remote-only one, `switch --create <name> [<start>]` |
 | Stash, restore the latest stash | `stash push --include-untracked`, `stash pop` |
 | Write the commit message | `claude --print --model haiku --allowed-tools ""`, the diff and the recent subjects on stdin |
 
@@ -366,9 +373,9 @@ PANEL_URL=http://127.0.0.1:8787 node tests/ui-check.mjs
 |---|---|
 | `GET /api/state` | Every live session, with status, trace, and window match |
 | `GET /api/transcript` | `?sessionId=…&limit=…` — the recent conversation |
-| `GET /api/git` | `?sessionId=…` — that session's repository: branch, upstream drift, changed files, recent commits with their parents |
+| `GET /api/git` | `?sessionId=…` — that session's repository: branch, upstream drift, changed files, recent commits with their parents, and the branches it could switch to |
 | `GET /api/git/diff` | `?sessionId=…&path=…&staged=1` — one changed file's unified diff, one side at a time |
-| `POST /api/git` | `{"sessionId": "...", "action": "...", …}` — one source-control action: `stage`, `unstage`, `discard` (each with `paths`), `stageAll`, `unstageAll`, `discardAll`, `commit` (`message`, `amend`, `stageAll`), `push` (`force` uses a lease), `pull`, `fetch`, `sync`, `stash`, `stashPop`, `suggestMessage` (answers with `text`, the message it wrote); loopback only |
+| `POST /api/git` | `{"sessionId": "...", "action": "...", …}` — one source-control action: `stage`, `unstage`, `discard` (each with `paths`), `stageAll`, `unstageAll`, `discardAll`, `commit` (`message`, `amend`, `stageAll`), `push` (`force` uses a lease), `pull`, `fetch`, `sync`, `stash`, `stashPop`, `switch` (`branch`, `create`, `from`), `suggestMessage` (answers with `text`, the message it wrote); loopback only |
 | `POST /api/focus` | `{"sessionId": "..."}` — raise that session's window |
 | `POST /api/identify` | Ask a session's terminal which window it is showing, and remember it |
 | `POST /api/pair` | Click a window to bind it to a session |
