@@ -250,14 +250,96 @@ if (!gitSession) {
       selected: document.querySelector('[data-tab="git"]').getAttribute('aria-selected'),
       branch: (document.querySelector('.git-badge')?.textContent || '').trim(),
       files: document.querySelectorAll('.git-file').length,
-      marked: [...document.querySelectorAll('.git-file')].every((f) => (f.querySelector('.git-file__xy')?.textContent || '').length === 2),
+      // One letter per row, for the side of the file that row stands for.
+      marked: [...document.querySelectorAll('.git-file')].every((f) => (f.querySelector('.git-file__xy')?.textContent || '').length === 1),
+      // Every row names a file and opens it.
+      named: [...document.querySelectorAll('.git-file')].every((f) =>
+        f.dataset.path && f.querySelector('.git-file__name')?.textContent.trim()
+        && f.querySelector('[data-git="diff"]')),
+      // The groups the editor uses, in its order.
+      groups: [...document.querySelectorAll('.scm-group')].map((s) => s.dataset.group).join(','),
       // The graph belongs to the other tab now; finding it here means the split
       // did not take.
       graph: document.querySelectorAll('.git-commit').length,
     })`));
     check("git tab switches and reads the repository", git.selected === "true" && !!git.branch, git.branch);
-    check("every changed file shows two status letters", git.marked, `${git.files} files`);
+    check("every changed file shows its status letter and opens", git.marked && git.named, `${git.files} files`);
+    check("files are grouped the way the editor groups them",
+      git.groups.split(',').filter(Boolean).every((g) => ["merge", "staged", "changes"].includes(g)),
+      git.groups || "clean tree");
     check("the git tab carries no history", git.graph === 0);
+
+    /* --- Source control: the controls, and what they are wired to ---
+
+       Nothing here presses stage or commit. This suite runs against whatever
+       real sessions are on the machine, and a test that commits in somebody's
+       checkout to prove a button works has done more than it was asked. What is
+       checked is that the controls are there when writing is on, gone when it is
+       off, and that the one read-only action — opening a diff — actually reads. */
+    const scm = JSON.parse(await evaluate(`(async () => {
+      const canWrite = (await (await fetch('/api/git?sessionId=' + encodeURIComponent(${JSON.stringify(gitSession)}), { cache: 'no-store' })).json()).canWrite;
+      const row = document.querySelector('.git-file');
+      return JSON.stringify({
+        canWrite,
+        commitField: Boolean(document.querySelector('#commitField')),
+        splitButton: Boolean(document.querySelector("[data-git='commit']") && document.querySelector("[data-git='commit-menu']")),
+        // The sparkle has to sit inside the field it fills in. It is only ever
+        // measured here — pressing it would spend tokens to test a layout.
+        sparkleInside: (() => {
+          const f = document.querySelector('#commitField');
+          const s = document.querySelector("[data-git='suggest']");
+          if (!f || !s) return false;
+          const a = f.getBoundingClientRect(), b = s.getBoundingClientRect();
+          return b.left >= a.left && b.right <= a.right + 1 && b.top >= a.top
+            && parseFloat(getComputedStyle(f).paddingRight) >= b.width;
+        })(),
+        headButtons: [...document.querySelectorAll('.git-head [data-git]')].map((b) => b.dataset.git).join(','),
+        readOnlyBadge: Boolean([...document.querySelectorAll('.git-head span')].some((s) => s.textContent.trim() === 'read-only')),
+        groupActions: [...document.querySelectorAll('.scm-group__head [data-git]')].map((b) => b.dataset.git).join(','),
+        rowActions: row ? [...row.querySelectorAll(".scm-actions [data-git]")].map((b) => b.dataset.git).join(',') : "",
+        hasRow: Boolean(row),
+      });
+    })()`));
+    if (scm.canWrite) {
+      check("the commit box and its split button are there when writing is on",
+        scm.commitField && scm.splitButton);
+      check("the sparkle sits inside the message box, with room kept for it",
+        scm.sparkleInside);
+      check("the header offers sync and an overflow",
+        scm.headButtons.includes("sync") && scm.headButtons.includes("menu"), scm.headButtons);
+      if (scm.hasRow) {
+        check("a file row carries stage or unstage",
+          /(^|,)(stage|unstage)(,|$)/.test(scm.rowActions), scm.rowActions);
+        check("a group header carries its own actions", scm.groupActions.length > 0, scm.groupActions);
+      } else {
+        console.log("SKIP  row and group actions — the tree is clean");
+      }
+    } else {
+      check("a read-only panel says so and offers no actions",
+        scm.readOnlyBadge && !scm.commitField && scm.headButtons === "");
+      check("a read-only panel offers no sparkle either",
+        await evaluate(`!document.querySelector("[data-git='suggest']")`));
+    }
+
+    // Clicking a row opens that file's diff underneath it, and only that one.
+    if (scm.hasRow) {
+      await evaluate(`document.querySelector('.git-file [data-git="diff"]').click()`);
+      await sleep(1400);
+      const diff = JSON.parse(await evaluate(`JSON.stringify({
+        open: document.querySelectorAll('.git-file[data-open="1"]').length,
+        // Either real lines, or the one line saying why there are none.
+        lines: document.querySelectorAll('.scm-diff__line').length,
+        note: document.querySelector('.scm-diff') ? "" : (document.querySelector('.git-empty')?.textContent.trim() || "nothing at all"),
+      })`));
+      check("a row opens one diff, and only its own", diff.open === 1, `${diff.open} open`);
+      check("the diff reads something back", diff.lines > 0 || diff.note.length > 0,
+        diff.lines ? `${diff.lines} lines` : diff.note);
+      // Put it away again, so the checks below measure the list and not a patch.
+      await evaluate(`document.querySelector('.git-file[data-open="1"] [data-git="diff"]').click()`);
+      await sleep(700);
+      check("clicking the same row again closes it",
+        await evaluate(`document.querySelectorAll('.git-file[data-open="1"]').length === 0`));
+    }
 
     /* --- History: the graph --- */
     await evaluate(`document.querySelector('[data-tab="history"]').click()`);
@@ -304,11 +386,15 @@ if (!gitSession) {
       const measure = (label, el) => { if (!el) return;
         out.push({ label, ratio: +window.__ratio(window.__hex(getComputedStyle(el).color), window.__bgOf(el)).toFixed(2) }); };
       measure('file status', document.querySelector('.git-file__xy'));
-      measure('file path', document.querySelector('.git-file__path'));
+      measure('file name', document.querySelector('.git-file__name'));
+      measure('file folder', document.querySelector('.git-file__dir'));
+      measure('group title', document.querySelector('.scm-group__title'));
+      measure('row action', document.querySelector('.scm-actions .scm-icon'));
       return out;
     })())`));
     const fileWorst = fileContrast.length ? Math.min(...fileContrast.map((r) => r.ratio)) : 99;
-    check("git file rows clear 4.5:1", fileWorst >= 4.5, `worst ${fileWorst}:1`);
+    check("git file rows clear 4.5:1", fileWorst >= 4.5,
+      `worst ${fileWorst}:1 over ${fileContrast.length} spots`);
 
     // Every tab has to stay reachable once there are four of them.
     const reach = JSON.parse(await evaluate(`JSON.stringify((() => {
@@ -400,7 +486,7 @@ check("theme switch flips the scheme", await evaluate(`localStorage.getItem('cbu
 /* ---------------------------------------------------------- touch targets */
 const smallTargets = JSON.parse(await evaluate(`(() => {
   const small = [];
-  for (const el of document.querySelectorAll('.chip, .icon-button, .button, .swatch, .session-item, .tab')) {
+  for (const el of document.querySelectorAll('.chip, .icon-button, .button, .swatch, .session-item, .tab, .scm-icon')) {
     if (el.closest('.scrim[data-open="false"]')) continue;   // scaled down while closed
     const r = el.getBoundingClientRect();
     if (!r.height) continue;

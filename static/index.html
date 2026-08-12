@@ -450,16 +450,6 @@
   .detail-header__meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--md-sys-spacing-1) var(--md-sys-spacing-2); margin-top: var(--md-sys-spacing-3); opacity: 0.9; }
   .detail-header__actions { flex: none; display: flex; flex-direction: column; gap: var(--md-sys-spacing-1); align-items: stretch; }
   .meta-sep { opacity: 0.45; }
-  /* The permission mode, sitting with the other facts and reading like one: the
-     same outlined pill as the host, filled in only for the two modes that mean
-     the session may act on its own. */
-  .mode-tag {
-    display: inline-flex; align-items: center;
-    height: 24px; padding: 0 var(--md-sys-spacing-2);
-    border-radius: var(--md-sys-shape-corner-small);
-    border: 1px solid currentColor;
-  }
-  .mode-tag[data-loose="1"] { background: var(--state-on-container); color: var(--state-container); border-color: transparent; }
   /* A caveat that belongs to the fact beside it, so it stays on its line. */
   .fact-note { opacity: 0.75; }
   .host {
@@ -690,25 +680,122 @@
   .git-badge--quiet { background: transparent; color: var(--md-sys-color-on-surface-variant);
     padding-inline: 0; }
 
-  /* One row per changed file. The status letters keep a fixed column so the
-     paths line up down the list and a glance reads the shape of the change. */
+  /* The commit box, laid out as the editor lays it out: the message above, the
+     one filled button below, and the rest of the commit's variants folded into
+     the arrow beside it. */
+  .scm-commit { display: flex; flex-direction: column; gap: var(--md-sys-spacing-3);
+    margin-bottom: var(--md-sys-spacing-4); }
+  /* The box holds the sparkle in its own corner, which is where the editors that
+     have this put it — inside the field it fills in, not beside the button that
+     uses it. The field keeps room for it so a long message never runs underneath. */
+  .scm-commit__box { position: relative; display: flex; }
+  /* Named through its parent so it outranks .scm-icon's own `position: relative`
+     below: lose that and the button rejoins the flow, taking its width out of the
+     field it is supposed to be sitting inside. */
+  .scm-commit__box .scm-commit__ai { position: absolute; top: 6px; right: 6px; }
+  .scm-commit__ai[data-busy="1"] { color: var(--md-sys-color-primary); }
+  .scm-commit__ai[data-busy="1"] svg { animation: scm-thinking 1.4s var(--md-sys-motion-easing-standard) infinite; }
+  @keyframes scm-thinking { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.45; transform: scale(0.88); } }
+  .scm-commit__field {
+    width: 100%; box-sizing: border-box; resize: none; overflow: hidden;
+    min-height: 56px; padding: var(--md-sys-spacing-3);
+    padding-right: 44px;
+    border: 1px solid var(--md-sys-color-outline); border-radius: var(--md-sys-shape-corner-small);
+    background: var(--md-sys-color-surface-container-lowest); color: var(--md-sys-color-on-surface);
+    font: inherit;
+  }
+  .scm-commit__field:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: -1px; border-color: transparent; }
+  .scm-commit__field:disabled { opacity: 0.6; cursor: not-allowed; }
+  /* Split button: one target for the common case, a narrow one for the rest.
+     The two halves meet flat so they read as the one control they are. */
+  .scm-commit__go { flex: 1 1 auto; border-radius: var(--md-sys-shape-corner-full) 0 0 var(--md-sys-shape-corner-full); }
+  .scm-commit__more { flex: none; width: 44px; padding: 0;
+    border-radius: 0 var(--md-sys-shape-corner-full) var(--md-sys-shape-corner-full) 0;
+    border-left: 1px solid color-mix(in srgb, var(--md-sys-color-on-primary) 30%, transparent); }
+  .scm-commit__row { display: flex; align-items: stretch; gap: 1px; }
+  .scm-commit__row .button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* A group of changed files — Merge, Staged, Changes — each with the actions
+     that apply to the whole group in its header. */
+  .scm-group { margin-bottom: var(--md-sys-spacing-4); }
+  .scm-group__head { display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+    min-height: 32px; }
+  .scm-group__title { flex: 1 1 auto; min-width: 0; color: var(--md-sys-color-on-surface-variant);
+    text-transform: uppercase; letter-spacing: 0.06em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .scm-count { display: inline-grid; place-items: center; min-width: 20px; height: 18px;
+    padding: 0 5px; margin-inline-start: var(--md-sys-spacing-2);
+    border-radius: var(--md-sys-shape-corner-full);
+    background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container);
+    letter-spacing: 0; }
+  .scm-actions { flex: none; display: flex; align-items: center; gap: 2px; }
+
+  /* Row actions appear on hover, as they do in the editor — but they stay put on
+     a touch screen and for anyone moving through the list by keyboard, where
+     there is no hover to reveal them. */
+  .scm-icon {
+    width: 30px; height: 30px; flex: none; position: relative;
+    display: grid; place-items: center; border: 0; border-radius: var(--md-sys-shape-corner-full);
+    background: transparent; color: var(--md-sys-color-on-surface-variant); cursor: pointer;
+  }
+  .scm-icon svg { width: 17px; height: 17px; }
+  /* Drawn at the editor's density, but reaching 44px like every other target
+     here. The extra 7px spills into the gap between rows, so two neighbouring
+     icons overlap slightly at their edges — a tap anywhere on the icon itself
+     still lands on its own row, which is the part that matters. */
+  .scm-icon::after { content: ""; position: absolute; inset: -7px; }
+  .scm-icon:disabled { opacity: 0.4; cursor: not-allowed; }
+  .scm-icon--danger:hover { color: var(--md-sys-color-error); }
+
+  /* One row per changed file: name, then the folder it sits in, then what
+     happened to it — the editor's order, which reads name-first down the list. */
   .git-files { display: flex; flex-direction: column; }
   .git-file {
-    display: flex; align-items: center; gap: var(--md-sys-spacing-3);
-    padding: var(--md-sys-spacing-2) 0;
-    border-top: 1px solid var(--md-sys-color-outline-variant);
+    display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+    padding: 2px var(--md-sys-spacing-2) 2px 0;
+    border-radius: var(--md-sys-shape-corner-extra-small);
+    min-height: 34px;
   }
-  .git-file__xy { flex: none; width: 2ch; letter-spacing: 1px; text-align: center;
-    color: var(--md-sys-color-on-surface-variant); }
-  .git-file__path { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
-    white-space: nowrap; direction: rtl; text-align: left; }
-  .git-file__dir { color: var(--md-sys-color-on-surface-variant); }
+  .git-file__open { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: var(--md-sys-spacing-2);
+    background: none; border: 0; padding: var(--md-sys-spacing-1) var(--md-sys-spacing-2);
+    color: inherit; font: inherit; text-align: left; cursor: pointer; border-radius: inherit; }
+  .git-file__name { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .git-file__dir { flex: 1 1 auto; min-width: 0; color: var(--md-sys-color-on-surface-variant);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
   .git-file__from { flex: none; color: var(--md-sys-color-on-surface-variant); }
+  .git-file__xy { flex: none; width: 1.6ch; text-align: center; font-weight: 700;
+    color: var(--md-sys-color-on-surface-variant); }
+  .git-file[data-open="1"] { background: var(--md-sys-color-surface-container-high); }
+  .git-file:hover { background: var(--md-sys-color-surface-container-high); }
+  /* Hidden until the row is under the pointer or holds the focus — but never
+     hidden where hover does not exist, or they could not be reached at all. */
+  .git-file .scm-actions { opacity: 0; transition: opacity 90ms linear; }
+  .git-file:hover .scm-actions, .git-file:focus-within .scm-actions, .git-file[data-open="1"] .scm-actions { opacity: 1; }
+  @media (hover: none) { .git-file .scm-actions { opacity: 1; } }
   /* Added, modified, removed and conflicted each get a colour that is already in
      the scheme, so they follow the base colour like everything else. */
-  .git-file[data-mark="A"] .git-file__xy { color: var(--md-extended-color-idle-color, var(--md-sys-color-primary)); }
+  .git-file[data-mark="A"] .git-file__xy,
+  .git-file[data-mark="U"] .git-file__xy { color: var(--md-extended-color-idle-color, var(--md-sys-color-primary)); }
+  .git-file[data-mark="M"] .git-file__xy,
+  .git-file[data-mark="R"] .git-file__xy { color: var(--md-extended-color-waiting-color, var(--md-sys-color-tertiary)); }
   .git-file[data-mark="D"] .git-file__xy { color: var(--md-sys-color-error); }
-  .git-file[data-mark="U"] .git-file__xy { color: var(--md-sys-color-error); font-weight: 700; }
+  .git-file[data-mark="!"] .git-file__xy { color: var(--md-sys-color-error); }
+
+  /* The diff a row opens, in place rather than in a second pane: the panel is one
+     column wide and side-by-side would leave neither side readable. */
+  .scm-diff {
+    margin: 0 0 var(--md-sys-spacing-2) var(--md-sys-spacing-2);
+    padding: var(--md-sys-spacing-3);
+    max-height: 420px; overflow: auto; overscroll-behavior: contain;
+    border-radius: var(--md-sys-shape-corner-small);
+    border: 1px solid var(--md-sys-color-outline-variant);
+    background: var(--md-sys-color-surface-container-lowest);
+    white-space: pre; tab-size: 4;
+  }
+  .scm-diff__line { display: block; }
+  .scm-diff__line--add { color: var(--md-extended-color-idle-color, var(--md-sys-color-primary)); }
+  .scm-diff__line--del { color: var(--md-sys-color-error); }
+  .scm-diff__line--hunk { color: var(--md-sys-color-primary); }
+  .scm-diff__line--meta { color: var(--md-sys-color-on-surface-variant); }
 
   /* The graph: one lane per concurrent line of history, drawn beside the log. */
   .git-graph { display: grid; grid-template-columns: auto 1fr; }
@@ -1020,6 +1107,20 @@
   </div>
 </div>
 
+<!-- Asked before anything that loses work: discarding a change, deleting a file
+     that was never committed. Everything else on the Git tab can be undone with
+     git itself, so nothing else stops to ask. -->
+<div class="scrim" id="askScrim" data-open="false">
+  <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="askHeadline" aria-describedby="askSupporting">
+    <h2 class="dialog__headline md-headline-small" id="askHeadline"></h2>
+    <p class="dialog__supporting md-body-medium" id="askSupporting"></p>
+    <div class="dialog__actions">
+      <button class="button button--text md-state" id="askCancel">Cancel</button>
+      <button class="button button--danger md-state" id="askConfirm">Confirm</button>
+    </div>
+  </div>
+</div>
+
 <div class="menu" id="sessionMenu" role="menu" data-open="false" hidden></div>
 
 <div class="snackbar md-body-medium" id="snackbar" role="status" aria-live="polite" data-open="false"></div>
@@ -1192,6 +1293,17 @@ const ICON = {
   group: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/></svg>',
   ungroup: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="m2 2 20 20"/></svg>',
   folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h3.6l2 2H19a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+  // Source-control actions, in the shapes the editor uses for them: stage is a
+  // plus, unstage a minus, discard the undo arrow, sync the two chasing arrows.
+  minus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 12h14"/></svg>',
+  discard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h11a5 5 0 0 1 0 10H8"/><path d="m7 4-4 4 4 4"/></svg>',
+  sync: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 0 1-13.7 5.6L4 15.4"/><path d="M4 12a8 8 0 0 1 13.7-5.6L20 8.6"/><path d="M20 4v4.6h-4.6M4 20v-4.6h4.6"/></svg>',
+  download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 11l5 5 5-5"/><path d="M4 20h16"/></svg>',
+  upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V9M7 13l5-5 5 5"/><path d="M4 4h16"/></svg>',
+  stash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 12h14M7 16h10M9 20h6"/></svg>',
+  more: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>',
+  // Two stars, the mark every editor now uses for "a model did this".
+  sparkle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3.5 11.7 8 16 9.8 11.7 11.5 10 16l-1.7-4.5L4 9.8 8.3 8z"/><path d="m17.5 15 .8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></svg>',
 };
 const HOST_KIND = {
   editor: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 7-5 5 5 5M15 7l5 5-5 5"/></svg>',
@@ -1251,6 +1363,18 @@ let transcriptBusy = false;
 let git = null;
 let gitFor = null;
 let gitBusy = false;
+/* The writing side of the Git tab. The message being typed is kept per session
+   rather than in the DOM, because the pane is rebuilt whenever the repository
+   moves — which is exactly while a commit message is being written. */
+const commitDrafts = new Map();
+let diffOpen = null;      // { path, staged } — the one row showing its diff
+let diffText = null;      // null while it is being read, "" when there is none
+let diffNote = "";        // why there is none, when there is none
+let gitActing = false;    // one git action at a time, whatever the pane offers
+/* Held apart from gitActing because it outlives a repaint: writing a message
+   takes long enough for a poll to rebuild the pane underneath it, and the new
+   sparkle has to come back still spinning. */
+let suggesting = false;
 let lastStatuses = new Map();
 let inFlight = null;
 let mutedSessions = new Set(JSON.parse(localStorage.getItem("cbu-muted") || "[]"));
@@ -1484,6 +1608,11 @@ function shorten(path, keep = 2) {
   const parts = home.split("/");
   return parts.length > keep + 2 ? `${parts[0]}/…/${parts.slice(-keep).join("/")}` : home;
 }
+/* A one-line hint has room for a phrase, not a paragraph. Cut on the character
+   rather than the path segment — a commit subject has no segments. */
+function clip(text, max) {
+  return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
+}
 function clockOf(iso) {
   if (!iso) return "";
   const date = new Date(iso);
@@ -1714,9 +1843,17 @@ const GIT_POLL_MS = 2500;
 const isGitTab = (name) => name === "git" || name === "history";
 
 function gitStamp(g) {
-  return [g?.ok, g?.isRepo, g?.head ?? "", g?.branch ?? "", g?.ahead ?? 0, g?.behind ?? 0,
+  // upstream belongs here: publishing a branch changes nothing else about the
+  // repository, and without it the header would go on saying "no upstream".
+  return [g?.ok, g?.isRepo, g?.canWrite, g?.head ?? "", g?.branch ?? "", g?.upstream ?? "",
+          g?.detached, g?.ahead ?? 0, g?.behind ?? 0,
           g?.stashes ?? 0, g?.commits?.[0]?.sha ?? "", g?.commits?.length ?? -1,
-          (g?.files ?? []).map((f) => `${f.path}:${f.staged ?? ""}${f.unstaged ?? ""}${f.untracked ? "?" : ""}`).join(",")].join("|");
+          // Each side keeps its own column, filled with a dot when it is empty.
+          // Run them together and staging a modified file reads the same either
+          // way — "M" and "M" — so the pane would never notice it had moved.
+          (g?.files ?? []).map((f) =>
+            `${f.path}:${f.staged ?? "."}${f.unstaged ?? "."}${f.untracked ? "?" : ""}${f.conflicted ? "!" : ""}`
+          ).join(",")].join("|");
 }
 
 async function fetchGit(force) {
@@ -1733,12 +1870,89 @@ async function fetchGit(force) {
     const changed = gitStamp(data) !== gitStamp(git) || gitFor !== id;
     git = data;
     gitFor = id;
-    if (changed) renderDetail(true);
+    if (changed) {
+      renderDetail(true);
+      // An open diff describes a file that has just moved, so it is read again
+      // rather than left showing what the file used to say.
+      if (diffOpen) fetchDiff();
+    }
   } catch (error) {
     /* leave the previous reading on screen */
   } finally {
     gitBusy = false;
   }
+}
+
+/* ------------------------------------------------- git: opening and acting */
+
+function closeDiff() {
+  diffOpen = null;
+  diffText = null;
+  diffNote = "";
+}
+
+/* Clicking a row shows its diff under it, and clicking the same row again puts
+   it away — one open at a time, because the pane is one column wide. */
+function toggleDiff(path, staged) {
+  if (diffOpen && diffOpen.path === path && diffOpen.staged === staged) {
+    closeDiff();
+    renderDetail(true);
+    return;
+  }
+  diffOpen = { path, staged };
+  diffText = null;
+  diffNote = "";
+  renderDetail(true);
+  fetchDiff();
+}
+
+async function fetchDiff() {
+  const id = selectedId;
+  const want = diffOpen;
+  if (!id || !want) return;
+  const query = new URLSearchParams({ sessionId: id, path: want.path, staged: want.staged ? "1" : "0" });
+  try {
+    const response = await fetch(`/api/git/diff?${query}`, { cache: "no-store" });
+    const data = await response.json().catch(() => ({}));
+    // The row may have been closed, or another one opened, while this was in the air.
+    if (selectedId !== id || diffOpen !== want) return;
+    diffText = data.text || "";
+    diffNote = data.message || (data.ok ? "No line changes to show" : "Could not read that diff");
+  } catch (error) {
+    if (diffOpen !== want) return;
+    diffText = "";
+    diffNote = "Could not reach the server";
+  }
+  renderDetail(true);
+}
+
+/* Every writing git action goes through here: one at a time, the answer in a
+   snackbar, and a fresh reading afterwards so the list matches the repository
+   again without waiting for the next poll. */
+async function gitDo(action, extra, button) {
+  const id = selectedId;
+  if (!id || gitActing) return false;
+  gitActing = true;
+  if (button) button.disabled = true;
+  let ok = false;
+  try {
+    const response = await fetch("/api/git", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: id, action, ...extra }),
+    });
+    const data = await response.json().catch(() => ({}));
+    ok = Boolean(data.ok);
+    showSnackbar(data.message || (ok ? "Done" : "That did not work"), ok ? 4000 : 8000);
+  } catch (error) {
+    showSnackbar("Could not reach the server");
+  } finally {
+    gitActing = false;
+    if (button) button.disabled = false;
+    // The reading is stale the moment anything above succeeded — and after a
+    // failure it is worth confirming that nothing moved.
+    fetchGit(true);
+  }
+  return ok;
 }
 
 async function run(url, session, button, waitingMessage, extra) {
@@ -1988,6 +2202,7 @@ function selectSession(id) {
   transcriptFor = null;
   git = null;
   gitFor = null;
+  closeDiff();
   panes.dataset.view = "detail";
   render();
   fetchTranscript();
@@ -2011,6 +2226,11 @@ function setTab(next) {
 const sessionMenu = document.getElementById("sessionMenu");
 let menuFor = null;     // sessionId the open menu belongs to
 let menuGroup = null;   // or the key of the group it belongs to, for a header menu
+/* Whether a menu is standing at all, which is not the same question as what it
+   points at: a menu opened from a toolbar button — the Git tab's overflow, the
+   commit split button — belongs to neither a row nor a group, and asking after
+   those two left it with nothing to dismiss it. The DOM is the honest answer. */
+const menuIsOpen = () => sessionMenu.dataset.open === "true";
 /* The row to hand focus back to, held as an id rather than the element: the list
    repaints on every status change, which detaches the button we were given. */
 let menuReturn = null;
@@ -2284,7 +2504,7 @@ function startGroupRename(block) {
 }
 
 function closeSessionMenu({ restoreFocus = true } = {}) {
-  if (!menuFor && !menuGroup) return;
+  if (!menuIsOpen()) return;
   for (const row of sessionList.querySelectorAll('[data-menu="open"]')) delete row.dataset.menu;
   sessionMenu.dataset.open = "false";
   sessionMenu.hidden = true;
@@ -2356,7 +2576,7 @@ sessionList.addEventListener("keydown", (event) => {
 
 // Anything that moves the menu away from what it points at closes it.
 document.addEventListener("pointerdown", (event) => {
-  if ((menuFor || menuGroup) && !sessionMenu.contains(event.target)) closeSessionMenu({ restoreFocus: false });
+  if (menuIsOpen() && !sessionMenu.contains(event.target)) closeSessionMenu({ restoreFocus: false });
 }, true);
 window.addEventListener("blur", () => closeSessionMenu({ restoreFocus: false }));
 window.addEventListener("resize", () => closeSessionMenu({ restoreFocus: false }));
@@ -2364,7 +2584,7 @@ window.addEventListener("resize", () => closeSessionMenu({ restoreFocus: false }
 // or the list itself depending on the breakpoint. Scrolling within the menu is
 // the reader working through a long one, not moving away from it.
 document.addEventListener("scroll", (event) => {
-  if ((menuFor || menuGroup) && !sessionMenu.contains(event.target)) closeSessionMenu({ restoreFocus: false });
+  if (menuIsOpen() && !sessionMenu.contains(event.target)) closeSessionMenu({ restoreFocus: false });
 }, true);
 
 function renderDetail(force) {
@@ -2421,9 +2641,21 @@ function renderDetail(force) {
     end: fieldBefore.selectionEnd,
     focused: document.activeElement === fieldBefore,
   } : null;
+  // Same for a commit message: its text lives in commitDrafts, but where the
+  // caret was does not, and a poll landing mid-word would otherwise move it.
+  const commitBefore = detailPane.querySelector("#commitField");
+  commitCaret = commitBefore ? {
+    start: commitBefore.selectionStart,
+    end: commitBefore.selectionEnd,
+    focused: document.activeElement === commitBefore,
+  } : null;
 
   // Whatever was being typed is gone with the rebuild below.
   renamingId = null;
+  // A menu opened from a button in this pane — the Git tab's overflow, the
+  // commit split button — is about to be pointing at an element that no longer
+  // exists, so it goes with the rebuild rather than floating over the new one.
+  if (menuIsOpen() && !menuFor && !menuGroup) closeSessionMenu({ restoreFocus: false });
   detailPane.dataset.signature = signature;
   detailPane.innerHTML = `
     ${detailHeader(session, state, host)}
@@ -2497,6 +2729,9 @@ function renderDetail(force) {
     });
   }
   detailPane.querySelector("[data-act='say']")?.addEventListener("click", (e) => sendMessage(session, e.currentTarget));
+
+  // Both git tabs carry the same header, and the header has buttons in it.
+  if (isGitTab(tab)) wireGit(session);
 
   const chatAfter = detailPane.querySelector("#chatScroll");
   if (chatAfter && tab === "chat" && wasAtBottom) chatAfter.scrollTop = chatAfter.scrollHeight;
@@ -2711,8 +2946,6 @@ function detailHeader(session, state, host) {
   meta.push(stopped
     ? `<span class="meta-sep">·</span><span class="md-body-small">kept here</span>`
     : `<span class="meta-sep">·</span><span class="md-body-small">up ${duration(Date.now() / 1000 + skew - session.startedAt)}</span>`);
-  const mode = modeTag(session);
-  if (mode) meta.push(`<span class="meta-sep">·</span>${mode}`);
   // The transcript's own reading first — it is the fresher of the two — and the
   // one that came with the session behind it, so the subject is there on the
   // first paint rather than a moment after it.
@@ -2740,9 +2973,10 @@ function detailHeader(session, state, host) {
 /* How much rope a session has: the permission mode, read and not set.
 
    Read, because a session writes the mode into its transcript only when the
-   metadata block is re-appended — never when the mode changes. A working session
-   therefore says where it is within seconds, and one sitting at its prompt keeps
-   saying whatever it last said, so the pill carries when it was true.
+   metadata block is re-appended — never when the mode changes. One sitting at
+   its prompt keeps saying whatever it last said, which is stale often enough
+   that the mode is no longer a pill among the header facts, where it read as
+   current. It survives only as a fact in About, next to the caveat.
 
    Not set, because the panel cannot aim a keypress at a session. There is no
    external setter — Shift+Tab is the only way in — and X11 pairs windows, while
@@ -2758,32 +2992,6 @@ const MODE_LABELS = {
   auto: "Auto",
   dontAsk: "Don't ask",
 };
-const MODE_NOTES = {
-  default: "Asks before it edits or runs anything",
-  acceptEdits: "Edits without asking, still asks before it runs a command",
-  plan: "Plans only — nothing changes until you approve it",
-  bypassPermissions: "Asks for nothing at all",
-  auto: "Routine work goes through, the rest still comes to you",
-  dontAsk: "Never asks; set outside the session",
-};
-// The modes where the session may act without coming back to you. Worth seeing
-// across a list of sessions at a glance, so they are the filled ones.
-const LOOSE_MODES = new Set(["bypassPermissions", "auto", "acceptEdits", "dontAsk"]);
-
-/* The mode as a pill among the facts, or nothing at all when the session has
-   never written one down — an empty pill would be a fact about the panel, not
-   about the session. */
-function modeTag(session) {
-  const mode = session.permissionMode;
-  if (!mode) return "";
-  const note = MODE_NOTES[mode] || "";
-  const when = session.status === "stopped"
-    ? "the mode it was last in"
-    : "as of the last time this session wrote its mode down — it records it now and then, not the moment it changes";
-  return `<span class="mode-tag md-label-small" data-loose="${LOOSE_MODES.has(mode) ? "1" : "0"}"
-      title="${escapeHtml(note ? `${note} · ${when}` : when)}">${escapeHtml(MODE_LABELS[mode] || mode)}</span>`;
-}
-
 /* How sure the panel is about a window, said the same way everywhere. An
    ambiguous match is not a match: several windows scored alike — the usual
    cause being one terminal process behind all of them — and the honest move is
@@ -3065,9 +3273,17 @@ function chatPanel(session) {
 /* ==========================================================================
    Git — what the repository this session works in looks like right now.
 
-   Read-only on purpose for now. Staging or committing underneath a session that
-   is halfway through editing the same worktree is a race with no upside, so the
-   panel reports and leaves the writing to the session.
+   The same shape as the editor's Source Control view, because that is the one
+   every reader already knows: the message box and its split button, then the
+   groups — merge, staged, changes — each row opening its own diff and carrying
+   the actions that apply to it.
+
+   It writes as well as reads. A session may be editing the same worktree while
+   you stage or commit here, and git's own index lock is what settles that: a
+   write that loses the race says so, and the list is read again after every
+   action either way. What the panel will not do is choose for you — a pull that
+   cannot fast-forward, a rebase, a merge — because those belong to whoever can
+   see the conflict.
    ========================================================================== */
 
 /* Commit ages run to days and weeks, which duration() — built for how long a
@@ -3172,26 +3388,81 @@ function commitRail(row, width) {
 
 /* The two status letters, as git itself writes them: staged on the left,
    unstaged on the right. */
-function fileMark(file) {
-  if (file.conflicted) return { xy: "UU", mark: "U", label: "conflicted" };
-  if (file.untracked) return { xy: "??", mark: "A", label: "untracked" };
-  const staged = file.staged ?? ".";
-  const unstaged = file.unstaged ?? ".";
-  const mark = file.staged === "A" || file.unstaged === "A" ? "A"
-    : file.staged === "D" || file.unstaged === "D" ? "D" : "M";
-  return { xy: `${staged}${unstaged}`, mark, label: `${staged}${unstaged}` };
+/* One letter for what happened to a file, as the editor labels it: the side of
+   the status pair that this group is showing, not both at once. A file changed
+   in the index and again in the tree appears in both groups, and each row then
+   says what its own group is holding. */
+const MARK_LABELS = {
+  M: "modified", A: "added", D: "deleted", R: "renamed", C: "copied",
+  U: "untracked", T: "type changed",
+};
+
+function fileMark(file, staged) {
+  // The editor marks a conflict apart from every ordinary letter, and so does
+  // this: it is the one row that has to be dealt with before anything else can
+  // happen. C stays what git means by it, a copy.
+  if (file.conflicted) return { mark: "!", label: "conflicted" };
+  if (file.untracked) return { mark: "U", label: "untracked" };
+  const letter = (staged ? file.staged : file.unstaged) || "M";
+  return { mark: letter, label: MARK_LABELS[letter] || letter };
 }
 
-function fileRow(file) {
-  const { xy, mark, label } = fileMark(file);
-  const cut = file.path.lastIndexOf("/");
-  const dir = cut === -1 ? "" : file.path.slice(0, cut + 1);
-  const base = cut === -1 ? file.path : file.path.slice(cut + 1);
-  return `<div class="git-file" data-mark="${mark}" data-path="${escapeHtml(file.path)}">
-    <span class="git-file__xy md-mono md-body-small" title="${escapeHtml(label)}">${escapeHtml(xy)}</span>
-    <span class="git-file__path md-body-small" title="${escapeHtml(file.path)}"><bdi><span class="git-file__dir">${escapeHtml(dir)}</span>${escapeHtml(base)}</bdi></span>
-    ${file.origPath ? `<span class="git-file__from md-body-small md-mono">← ${escapeHtml(file.origPath)}</span>` : ""}
-  </div>`;
+/* A row, and under it the diff if this is the row that is open. `staged` says
+   which side of the file this row stands for, so its actions and its diff both
+   act on the right one. */
+function fileRow(file, staged) {
+  const { mark, label } = fileMark(file, staged);
+  // git reports a directory it will not look inside — a nested repository, a
+  // worktree — as one entry with a trailing slash. Split on the segment before
+  // it, and keep the slash on the name so the row still reads as a folder.
+  const folder = file.path.endsWith("/");
+  const trimmed = folder ? file.path.slice(0, -1) : file.path;
+  const cut = trimmed.lastIndexOf("/");
+  const dir = cut === -1 ? "" : trimmed.slice(0, cut);
+  const base = (cut === -1 ? trimmed : trimmed.slice(cut + 1)) + (folder ? "/" : "");
+  const open = diffOpen && diffOpen.path === file.path && diffOpen.staged === staged;
+  const can = git?.canWrite;
+  const act = (action, icon, title, danger) =>
+    `<button class="scm-icon md-state${danger ? " scm-icon--danger" : ""}" type="button"
+       data-git="${action}" title="${escapeHtml(title)}" aria-label="${escapeHtml(`${title} — ${file.path}`)}">${icon}</button>`;
+
+  return `<div class="git-file" data-mark="${mark}" data-path="${escapeHtml(file.path)}"
+      data-staged="${staged ? "1" : "0"}"${open ? ` data-open="1"` : ""}>
+      <button class="git-file__open md-state" type="button" data-git="diff"
+        title="${escapeHtml(`${file.path} — ${label}`)}" aria-expanded="${open}">
+        <span class="git-file__name md-body-medium">${escapeHtml(base)}</span>
+        <span class="git-file__dir md-body-small"><bdi>${escapeHtml(dir)}</bdi></span>
+        ${file.origPath ? `<span class="git-file__from md-body-small md-mono">← ${escapeHtml(file.origPath)}</span>` : ""}
+      </button>
+      ${can ? `<div class="scm-actions">
+        ${staged ? act("unstage", ICON.minus, "Unstage changes")
+          // Staging a conflicted file is how the resolution is recorded; git will
+          // not restore an unmerged path, so discard is not offered on one.
+          : file.conflicted ? act("stage", ICON.plus, "Stage — marks this conflict resolved")
+          : `${act("discard", ICON.discard, "Discard changes", true)}${act("stage", ICON.plus, "Stage changes")}`}
+      </div>` : ""}
+      <span class="git-file__xy md-mono md-body-small" title="${escapeHtml(label)}">${escapeHtml(mark)}</span>
+    </div>
+    ${open ? diffPane() : ""}`;
+}
+
+/* The open diff, coloured by what each line does to the file. */
+function diffPane() {
+  if (diffText === null) return `<p class="git-empty md-body-small">Reading the diff…</p>`;
+  if (!diffText) return `<p class="git-empty md-body-small">${escapeHtml(diffNote || "No line changes to show")}</p>`;
+  const lines = diffText.split("\n");
+  // The last line of a patch is the newline before EOF, not a line of its own.
+  if (lines[lines.length - 1] === "") lines.pop();
+  const body = lines.map((line) => {
+    const kind = line.startsWith("+++") || line.startsWith("---") || line.startsWith("diff ")
+        || line.startsWith("index ") || line.startsWith("new file") || line.startsWith("deleted file")
+        || line.startsWith("rename ") || line.startsWith("similarity ") ? "meta"
+      : line.startsWith("@@") ? "hunk"
+      : line.startsWith("+") ? "add"
+      : line.startsWith("-") ? "del" : "";
+    return `<span class="scm-diff__line${kind ? ` scm-diff__line--${kind}` : ""}">${escapeHtml(line) || " "}</span>`;
+  }).join("");
+  return `<pre class="scm-diff md-mono md-body-small" tabindex="0">${body}</pre>`;
 }
 
 /* Changes and history are two tabs rather than one scroll, because the history
@@ -3210,6 +3481,27 @@ function gitHead(git) {
       ${git.ahead ? `<span class="git-badge git-badge--quiet md-body-small" title="commits to push">↑${git.ahead}</span>` : ""}
       ${git.behind ? `<span class="git-badge git-badge--quiet md-body-small" title="commits to pull">↓${git.behind}</span>` : ""}
       ${git.stashes ? `<span class="git-badge git-badge--quiet md-body-small">${git.stashes} stashed</span>` : ""}
+      ${gitHeadActions(git)}
+    </div>`;
+}
+
+/* The header's own buttons: sync, and the overflow that holds everything a
+   repository can be told to do that is not about one file. Sync is the editor's
+   one button for "catch up, then hand over" — pull what is waiting, push what is
+   not there yet — and it says which way the traffic is going. */
+function gitHeadActions(git) {
+  if (!git.canWrite) {
+    return `<span class="git-badge git-badge--quiet md-body-small scm-actions" style="opacity:1;margin-inline-start:auto"
+      title="This panel is serving read-only, so it can show the repository but not change it">read-only</span>`;
+  }
+  const sync = !git.detached && (git.upstream
+    ? (git.ahead || git.behind
+        ? `Sync — pull ${git.behind || 0}, push ${git.ahead || 0}`
+        : "Sync — nothing waiting either way")
+    : "Publish this branch — it has no upstream yet");
+  return `<div class="scm-actions" style="opacity:1;margin-inline-start:auto">
+      ${sync ? `<button class="scm-icon md-state" type="button" data-git="sync" title="${escapeHtml(sync)}" aria-label="${escapeHtml(sync)}">${ICON.sync}</button>` : ""}
+      <button class="scm-icon md-state" type="button" data-git="menu" title="More git actions" aria-label="More git actions" aria-haspopup="menu">${ICON.more}</button>
     </div>`;
 }
 
@@ -3225,28 +3517,350 @@ function gitNotice(session) {
   return null;
 }
 
+/* The groups the editor shows, in its order: what still has to be resolved
+   first, then what is going into the next commit, then everything else. A file
+   with changes on both sides is in two of them, once per side. */
+function gitGroups(files) {
+  return {
+    merge: files.filter((f) => f.conflicted),
+    staged: files.filter((f) => f.staged && !f.conflicted),
+    changes: files.filter((f) => (f.unstaged || f.untracked) && !f.conflicted),
+  };
+}
+
 function gitPanel(session) {
   const notice = gitNotice(session);
   if (notice) return notice;
 
-  const staged = git.files.filter((f) => f.staged && !f.untracked && !f.conflicted);
-  const unstaged = git.files.filter((f) => f.unstaged && !f.untracked && !f.conflicted);
-  const untracked = git.files.filter((f) => f.untracked);
-  const conflicted = git.files.filter((f) => f.conflicted);
+  const groups = gitGroups(git.files);
+  const can = git.canWrite;
+  const act = (action, icon, title, danger) =>
+    `<button class="scm-icon md-state${danger ? " scm-icon--danger" : ""}" type="button"
+       data-git="${action}" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">${icon}</button>`;
 
-  const group = (title, files) => files.length ? `
-    <section class="section">
-      <h3 class="section__title md-title-small">${escapeHtml(title)} · ${files.length}</h3>
-      <div class="git-files">${files.map(fileRow).join("")}</div>
+  // A group's buttons carry no paths of their own: the handler reads the group
+  // back out of the same split, so what a click acts on is whatever the list is
+  // showing at the moment of the click rather than whatever it showed at paint.
+  const group = (key, title, files, staged, actions) => files.length ? `
+    <section class="scm-group" data-group="${key}">
+      <header class="scm-group__head">
+        <h3 class="scm-group__title md-label-medium">${escapeHtml(title)}<span class="scm-count md-label-small">${files.length}</span></h3>
+        ${can ? `<div class="scm-actions">${actions}</div>` : ""}
+      </header>
+      <div class="git-files">${files.map((f) => fileRow(f, staged)).join("")}</div>
     </section>` : "";
 
   return `
     ${gitHead(git)}
-    ${git.files.length ? "" : `<p class="git-empty md-body-medium">Nothing changed — the working tree is clean.</p>`}
-    ${group("Conflicted", conflicted)}
-    ${group("Staged", staged)}
-    ${group("Changed", unstaged)}
-    ${group("Untracked", untracked)}`;
+    ${can ? commitBox(session, groups) : ""}
+    ${group("merge", "Merge changes", groups.merge, false,
+      act("stage-group", ICON.plus, "Stage all — marks these conflicts resolved"))}
+    ${group("staged", "Staged changes", groups.staged, true,
+      act("unstage-group", ICON.minus, "Unstage all"))}
+    ${group("changes", "Changes", groups.changes, false,
+      act("discard-group", ICON.discard, "Discard all changes", true) + act("stage-group", ICON.plus, "Stage all changes"))}
+    ${git.files.length ? "" : `<p class="git-empty md-body-medium">Nothing changed — the working tree is clean.</p>`}`;
+}
+
+/* Why the commit button cannot be pressed, or null when it can. One answer, in
+   one place: it is needed once when the pane is painted and again on every
+   keystroke, and two copies of it would eventually disagree. */
+function commitBlocker(session, groups) {
+  if (groups.merge.length) return "Resolve the conflicts first";
+  if (!groups.staged.length && !groups.changes.length) return "Nothing to commit";
+  if (!(commitDrafts.get(session.sessionId) || "").trim()) return "A commit needs a message";
+  return null;
+}
+
+/* The message and the button that uses it.
+
+   The button says what it will actually do, which depends on what is staged:
+   with nothing staged the editor offers to stage everything and commit that in
+   one go, and saying so on the button is better than a dialog after the click. */
+function commitBox(session, groups) {
+  const message = commitDrafts.get(session.sessionId) || "";
+  const blocked = commitBlocker(session, groups);
+  const label = groups.staged.length ? "Commit"
+    : groups.changes.length ? `Commit all ${groups.changes.length}`
+    : "Commit";
+  const where = git.branch ? ` on ${git.branch}` : "";
+  return `
+    <div class="scm-commit">
+      <div class="scm-commit__box">
+        <textarea class="scm-commit__field md-body-medium" id="commitField" rows="2"
+          placeholder="Message — ${escapeHtml(`Ctrl+Enter to commit${where}`)}"
+          aria-label="Commit message">${escapeHtml(message)}</textarea>
+        <button class="scm-icon md-state scm-commit__ai" type="button" data-git="suggest"
+          ${suggesting ? `data-busy="1" disabled title="Writing a message…"`
+            : `title="Let Claude write the message from the diff"`}
+          aria-label="Let Claude write the commit message">${ICON.sparkle}</button>
+      </div>
+      <div class="scm-commit__row">
+        <button class="button button--filled md-state scm-commit__go" type="button" data-git="commit"
+          ${blocked ? `disabled title="${escapeHtml(blocked)}"` : `title="${escapeHtml(`Commit${where}`)}"`}>
+          ${ICON.check}${escapeHtml(label)}
+        </button>
+        <button class="button button--filled md-state scm-commit__more" type="button" data-git="commit-menu"
+          title="Other ways to commit" aria-label="Other ways to commit" aria-haspopup="menu">${ICON.chevron}</button>
+      </div>
+    </div>`;
+}
+
+/* The message box grows with what is typed, up to the point where the file list
+   below it would be pushed off screen. */
+const COMMIT_MAX = 180;
+function growCommit(field) {
+  field.style.height = "auto";
+  field.style.height = `${Math.min(COMMIT_MAX, Math.max(56, field.scrollHeight))}px`;
+  field.style.overflowY = field.scrollHeight > COMMIT_MAX ? "auto" : "hidden";
+}
+
+/* Whether the commit button can be pressed changes as the message is typed,
+   which is far too often to rebuild the pane for. */
+function syncCommitButton(session) {
+  const button = detailPane.querySelector("[data-git='commit']");
+  if (!button || !git) return;
+  const blocked = commitBlocker(session, gitGroups(git.files || []));
+  button.disabled = Boolean(blocked);
+  button.title = blocked || `Commit${git.branch ? ` on ${git.branch}` : ""}`;
+}
+
+/* Commit, and then — for the split button's other entries — push or sync what
+   was just committed. The message is only forgotten once git has taken it. */
+async function doCommit(session, button, { amend = false, then = null } = {}) {
+  const message = (commitDrafts.get(session.sessionId) || "").trim();
+  const groups = gitGroups(git?.files || []);
+  if (groups.merge.length) {
+    showSnackbar("Resolve the conflicts first, then commit");
+    return;
+  }
+  if (!message && !amend) {
+    showSnackbar("A commit needs a message");
+    detailPane.querySelector("#commitField")?.focus();
+    return;
+  }
+  // Nothing staged is the editor's "commit all": the Changes group goes in as it
+  // stands, which is what the button already said it would do.
+  const stageAll = !groups.staged.length && groups.changes.length > 0;
+  const ok = await gitDo("commit", { message, amend, stageAll }, button);
+  if (!ok) return;
+  commitDrafts.delete(session.sessionId);
+  const field = detailPane.querySelector("#commitField");
+  if (field) { field.value = ""; growCommit(field); }
+  if (then) await gitDo(then, {}, button);
+}
+
+/* The sparkle: a headless Claude reads the diff and writes the message.
+
+   It takes ten or twenty seconds, which is long enough that the button has to
+   say it is working — and long enough that the answer may land after the pane
+   has been rebuilt underneath it, so the message goes into the draft first and
+   into the field only if the field is still there. */
+async function suggestMessage(session, button) {
+  if (gitActing) return;
+  const typed = (commitDrafts.get(session.sessionId) || "").trim();
+  if (typed) {
+    const replace = await askConfirm({
+      headline: "Replace the message?",
+      body: "What Claude writes goes into the box instead of what you have typed.",
+      confirmLabel: "Replace", danger: false,
+    });
+    if (!replace) return;
+  }
+
+  gitActing = true;
+  suggesting = true;
+  button.disabled = true;
+  button.dataset.busy = "1";
+  showSnackbar("Reading the diff and writing a message…", 90000);
+  try {
+    const response = await fetch("/api/git", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: session.sessionId, action: "suggestMessage" }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!data.ok || !data.text) {
+      showSnackbar(data.message || "Could not write a message", 8000);
+      return;
+    }
+    commitDrafts.set(session.sessionId, data.text);
+    const field = detailPane.querySelector("#commitField");
+    if (field) {
+      field.value = data.text;
+      growCommit(field);
+      field.focus();
+      // The caret at the end, because the next thing anyone does with a written
+      // message is edit it.
+      field.setSelectionRange(data.text.length, data.text.length);
+    }
+    syncCommitButton(session);
+    showSnackbar("Message written — read it before you commit", 5000);
+  } catch (error) {
+    showSnackbar("Could not reach the server");
+  } finally {
+    gitActing = false;
+    suggesting = false;
+    const live = detailPane.querySelector("[data-git='suggest']");
+    if (live) {
+      live.disabled = false;
+      delete live.dataset.busy;
+      live.title = "Let Claude write the message from the diff";
+    }
+  }
+}
+
+/* What the arrow beside Commit opens: the same list the editor keeps there. */
+function commitMenuItems(session) {
+  const upstream = git?.upstream;
+  return [
+    { key: "commit", icon: ICON.check, label: "Commit",
+      run: (el) => doCommit(session, el) },
+    { key: "commit-push", icon: ICON.upload, label: "Commit & push",
+      hint: upstream || "publishes the branch",
+      run: (el) => doCommit(session, el, { then: "push" }) },
+    { key: "commit-sync", icon: ICON.sync, label: "Commit & sync",
+      hint: "pulls first, then pushes",
+      run: (el) => doCommit(session, el, { then: "sync" }) },
+    { divider: true },
+    { key: "amend", icon: ICON.pencil, label: "Commit (amend)",
+      hint: git?.commits?.[0]?.subject ? clip(git.commits[0].subject, 34) : "rewrites the last commit",
+      disabled: !git?.commits?.length,
+      run: (el) => doCommit(session, el, { amend: true }) },
+  ];
+}
+
+/* And what the header's overflow opens: everything about the repository rather
+   than about one file. */
+function gitMenuItems(session) {
+  const files = git?.files || [];
+  return [
+    { key: "pull", icon: ICON.download, label: "Pull", hint: git?.behind ? `${git.behind} waiting` : git?.upstream || "no upstream",
+      disabled: !git?.upstream,
+      run: (el) => gitDo("pull", {}, el) },
+    { key: "push", icon: ICON.upload, label: git?.upstream ? "Push" : "Publish branch",
+      hint: git?.ahead ? `${git.ahead} to push` : git?.upstream || "sets the upstream",
+      disabled: git?.detached,
+      run: (el) => gitDo("push", {}, el) },
+    { key: "sync", icon: ICON.sync, label: "Sync", hint: "pull, then push", disabled: git?.detached,
+      run: (el) => gitDo("sync", {}, el) },
+    { key: "fetch", icon: ICON.download, label: "Fetch", hint: "just look",
+      run: (el) => gitDo("fetch", {}, el) },
+    { divider: true },
+    { key: "stage-all", icon: ICON.plus, label: "Stage all changes", disabled: !files.length,
+      run: (el) => gitDo("stageAll", {}, el) },
+    { key: "unstage-all", icon: ICON.minus, label: "Unstage everything",
+      disabled: !files.some((f) => f.staged),
+      run: (el) => gitDo("unstageAll", {}, el) },
+    { key: "discard-all", icon: ICON.discard, label: "Discard all changes…", danger: true,
+      disabled: !files.length,
+      run: (el) => discardWithConfirm(files.map((f) => f.path), files, el, { all: true }) },
+    { divider: true },
+    { key: "stash", icon: ICON.stash, label: "Stash all changes", disabled: !files.length,
+      hint: "including new files",
+      run: (el) => gitDo("stash", { message: commitDrafts.get(session.sessionId) || "" }, el) },
+    { key: "stash-pop", icon: ICON.stash, label: "Restore latest stash",
+      disabled: !git?.stashes, hint: git?.stashes ? `${git.stashes} stashed` : "nothing stashed",
+      run: (el) => gitDo("stashPop", {}, el) },
+  ];
+}
+
+/* Discarding is the one thing here that git cannot give back, so it says exactly
+   what it is about to lose before it does it — and says "delete" rather than
+   "discard" for a file that has never been committed, because that is what
+   happens to it. */
+async function discardWithConfirm(paths, files, button, { all = false } = {}) {
+  const byPath = new Map((files || []).map((f) => [f.path, f]));
+  const untracked = paths.filter((p) => byPath.get(p)?.untracked);
+  const tracked = paths.filter((p) => !byPath.get(p)?.untracked);
+  const one = paths.length === 1;
+  const name = (p) => `<span class="md-mono">${escapeHtml(p)}</span>`;
+  const parts = [];
+  if (tracked.length) {
+    parts.push(one ? `Changes in ${name(tracked[0])} go back to the last staged version.`
+      : `Changes in ${tracked.length} file${tracked.length === 1 ? "" : "s"} go back to the last staged version.`);
+  }
+  if (untracked.length) {
+    parts.push(one ? `${name(untracked[0])} has never been committed, so discarding it deletes it.`
+      : `${untracked.length} file${untracked.length === 1 ? "" : "s"} that were never committed are deleted.`);
+  }
+  parts.push("This cannot be undone.");
+  const ok = await askConfirm({
+    headline: one ? "Discard this change?" : `Discard ${paths.length} changes?`,
+    body: parts.join(" "),
+    confirmLabel: untracked.length && !tracked.length ? "Delete" : "Discard",
+  });
+  if (!ok) return;
+  if (all) return gitDo("discardAll", { includeUntracked: true }, button);
+  return gitDo("discard", { paths }, button);
+}
+
+/* Where the pointer went, translated into one of the actions above. Delegated
+   from the buttons the panel just drew, so a rebuild carries no listeners over. */
+function onGitAction(session, button) {
+  const action = button.dataset.git;
+  const row = button.closest(".git-file");
+  const path = row?.dataset.path;
+  const staged = row?.dataset.staged === "1";
+  const groupKey = button.closest(".scm-group")?.dataset.group;
+  const groupFiles = groupKey ? gitGroups(git?.files || [])[groupKey] || [] : [];
+  const groupPaths = groupFiles.map((f) => f.path);
+
+  switch (action) {
+    case "diff": return toggleDiff(path, staged);
+    case "stage": return gitDo("stage", { paths: [path] }, button);
+    case "unstage": return gitDo("unstage", { paths: [path] }, button);
+    case "discard": return discardWithConfirm([path], git?.files || [], button);
+    case "stage-group": return gitDo("stage", { paths: groupPaths }, button);
+    case "unstage-group": return gitDo("unstage", { paths: groupPaths }, button);
+    case "discard-group": return discardWithConfirm(groupPaths, groupFiles, button);
+    case "sync": return gitDo(git?.upstream ? "sync" : "push", {}, button);
+    case "suggest": return suggestMessage(session, button);
+    case "commit": return doCommit(session, button);
+    case "commit-menu": return openGitMenu(button, "Commit", commitMenuItems(session));
+    case "menu": return openGitMenu(button, git?.branch || "This repository", gitMenuItems(session));
+    default: return undefined;
+  }
+}
+
+/* Both git menus hang off their own button rather than the pointer, which is
+   where a menu opened from a toolbar belongs. */
+function openGitMenu(button, title, items) {
+  const box = button.getBoundingClientRect();
+  openMenu({ title, label: `${title} actions`, items }, box.left, box.bottom + 4);
+}
+
+/* Kept between renders so the caret does not jump to the end of a message that
+   is still being written when the repository moves underneath it. */
+let commitCaret = null;
+
+function wireGit(session) {
+  const field = detailPane.querySelector("#commitField");
+  if (field) {
+    growCommit(field);
+    if (commitCaret) {
+      if (commitCaret.focused) {
+        field.focus();
+        field.setSelectionRange(commitCaret.start, commitCaret.end);
+      }
+      commitCaret = null;
+    }
+    field.addEventListener("input", () => {
+      commitDrafts.set(session.sessionId, field.value);
+      growCommit(field);
+      syncCommitButton(session);
+    });
+    field.addEventListener("keydown", (event) => {
+      // Ctrl+Enter commits, as it does in the editor. Plain Enter is a newline:
+      // a commit message has a body, and this box is where it gets written.
+      if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+        event.preventDefault();
+        doCommit(session, detailPane.querySelector("[data-git='commit']"));
+      }
+    });
+  }
+  for (const button of detailPane.querySelectorAll("[data-git]")) {
+    button.addEventListener("click", () => onGitAction(session, button));
+  }
 }
 
 function historyPanel(session) {
@@ -3288,8 +3902,8 @@ function aboutPanel(session, host) {
     ["Working folder", `<span class="md-mono">${escapeHtml(session.cwd)}</span>`],
     ["Git branch", session.branch ? `<span class="md-mono">${escapeHtml(session.branch)}</span>` : "—"],
     ["Runs in", escapeHtml(host.label)],
-    // Said in full here, where there is room for the caveat the pill can only
-    // carry as a tooltip.
+    // The only place the mode is said, and said in full: there is room here for
+    // the caveat that it is a reading, and possibly an old one.
     ["Permission mode", session.permissionMode
       ? `${escapeHtml(MODE_LABELS[session.permissionMode] || session.permissionMode)}
          <span class="meta-sep">·</span> <span class="fact-note">${session.status === "stopped"
@@ -3482,6 +4096,39 @@ for (const [id, force] of [["endConfirm", false], ["endForce", true]]) {
   });
 }
 
+/* ------------------------------------------------------- asking first */
+
+/* One dialog, awaited rather than called back into: the caller reads like the
+   sentence it is — ask, and if the answer is yes, do the thing. */
+const askScrim = document.getElementById("askScrim");
+let askResolve = null;
+
+function askConfirm({ headline, body, confirmLabel = "Confirm", danger = true }) {
+  closeAsk(false);
+  document.getElementById("askHeadline").textContent = headline;
+  document.getElementById("askSupporting").innerHTML = body;
+  const confirm = document.getElementById("askConfirm");
+  confirm.textContent = confirmLabel;
+  // Red is for the answers that lose something. A question that only asks before
+  // overwriting a box you can retype is not one of them.
+  confirm.classList.toggle("button--danger", danger);
+  confirm.classList.toggle("button--filled", !danger);
+  askScrim.dataset.open = "true";
+  document.getElementById("askCancel").focus();
+  return new Promise((resolve) => { askResolve = resolve; });
+}
+
+function closeAsk(answer) {
+  askScrim.dataset.open = "false";
+  const resolve = askResolve;
+  askResolve = null;
+  if (resolve) resolve(answer);
+}
+
+document.getElementById("askCancel").addEventListener("click", () => closeAsk(false));
+document.getElementById("askConfirm").addEventListener("click", () => closeAsk(true));
+askScrim.addEventListener("click", (event) => { if (event.target === askScrim) closeAsk(false); });
+
 function openSettings(open) {
   settingsScrim.dataset.open = String(open);
   if (open) { renderSwatches(); renderContrast(); document.getElementById("closeSettings").focus(); }
@@ -3492,7 +4139,8 @@ document.getElementById("closeSettings").addEventListener("click", () => openSet
 settingsScrim.addEventListener("click", (event) => { if (event.target === settingsScrim) openSettings(false); });
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
-  if (endScrim.dataset.open === "true") closeEndDialog();
+  if (askScrim.dataset.open === "true") closeAsk(false);
+  else if (endScrim.dataset.open === "true") closeEndDialog();
   else if (settingsScrim.dataset.open === "true") openSettings(false);
   // Nothing modal is open, so Escape drops whatever rows are picked.
   else clearPicked();

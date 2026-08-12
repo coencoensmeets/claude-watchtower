@@ -429,7 +429,7 @@ def git_branch(cwd: str) -> str | None:
 # Only these reach the git binary. The panel builds every argument itself — the
 # allowlist is here so that a later write path has to add itself deliberately
 # rather than inheriting the ability to run anything.
-GIT_READ_COMMANDS = frozenset({"status", "log", "rev-parse", "stash", "diff"})
+GIT_READ_COMMANDS = frozenset({"status", "log", "rev-parse", "stash", "diff", "remote"})
 
 
 def git_run(root: str, args: list[str], timeout: float = 6.0) -> tuple[bool, str]:
@@ -601,6 +601,529 @@ def read_git(root: str, log_limit: int = 60) -> dict:
     ok, stash = git_run(root, ["stash", "list"])
     out["stashes"] = len([line for line in stash.splitlines() if line]) if ok else 0
     return out
+
+
+def read_diff(root: str, path: str, staged: bool) -> dict:
+    """One file's diff, as unified text, for the pane the file rows open.
+
+    Untracked files have nothing to diff against, so they are read from disk and
+    presented as an all-added patch — which is what the editor shows too.
+    """
+    out = {"ok": True, "path": path, "staged": bool(staged), "text": "", "binary": False}
+    entry = next((f for f in read_status(root) if f["path"] == path), None)
+    if entry is None:
+        return {**out, "ok": False, "message": "That file no longer has changes"}
+
+    if entry["untracked"]:
+        full = Path(root) / path
+        # A trailing slash is git reporting a directory it will not look inside —
+        # a nested repository or a worktree. There is no patch to draw for one.
+        if path.endswith("/") or full.is_dir():
+            return {**out, "binary": True,
+                    "message": "A directory git reports whole — it does not look inside this one"}
+        try:
+            body = full.read_text(errors="strict")
+        except (OSError, UnicodeDecodeError):
+            return {**out, "binary": True, "message": "New file — not text, so there is nothing to show"}
+        lines = body.splitlines()
+        head = f"+++ b/{path}\n@@ -0,0 +1,{len(lines)} @@\n"
+        return {**out, "text": head + "".join(f"+{line}\n" for line in lines)}
+
+    args = ["diff", "--no-color", "--no-ext-diff", "--find-renames"]
+    if staged:
+        args.append("--cached")
+    ok, text = git_run(root, [*args, "--", path], timeout=10.0)
+    if not ok:
+        return {**out, "ok": False, "message": "Could not read that diff"}
+    if "Binary files" in text.split("@@", 1)[0]:
+        return {**out, "binary": True, "message": "Binary file — nothing to show line by line"}
+    return {**out, "text": text}
+
+
+# --------------------------------------------------------------- git writes
+
+
+# The writing half of the allowlist above. Split from the readers on purpose:
+# nothing here runs unless an action below names it, and the panel builds every
+# argument itself, so a path from the browser can only ever land after `--`.
+GIT_WRITE_COMMANDS = frozenset({"add", "reset", "rm", "restore", "clean", "commit",
+                                "push", "pull", "fetch", "stash"})
+
+# Anything reaching the network gets the long one; an index write is local and
+# should never take this long unless a hook is doing the work.
+GIT_WRITE_TIMEOUT = 25.0
+GIT_NETWORK_TIMEOUT = 180.0
+
+# Two writes at once would race for index.lock and one would fail for a reason
+# that has nothing to do with what was asked. The panel's own writes queue up
+# here; a session writing at the same time is still git's own lock to report.
+GIT_WRITE_LOCK = threading.Lock()
+
+
+def git_write(root: str, args: list[str], timeout: float = GIT_WRITE_TIMEOUT) -> tuple[bool, str]:
+    """Run one writing git command in root and return (ok, what git said).
+
+    Unlike git_run this wants the index lock — that is the point of it — so the
+    optional-locks flags are gone. Every interactive door git might open is shut:
+    no terminal prompt, no askpass helper, no editor. A push that needs a
+    passphrase nobody can type therefore fails with a message instead of hanging
+    until the timeout.
+    """
+    if not args or args[0] not in GIT_WRITE_COMMANDS:
+        return False, "That is not something this panel runs"
+    if not shutil.which("git"):
+        return False, "git is not installed"
+    try:
+        with GIT_WRITE_LOCK:
+            result = subprocess.run(
+                ["git", "-C", root, *args],
+                capture_output=True, text=True, timeout=timeout,
+                env={**os.environ, "GIT_PAGER": "cat", "GIT_TERMINAL_PROMPT": "0",
+                     "GIT_ASKPASS": "", "SSH_ASKPASS": "", "GIT_EDITOR": "true",
+                     "LC_ALL": "C.UTF-8"},
+            )
+    except subprocess.TimeoutExpired:
+        return False, f"git {args[0]} gave up after {int(timeout)}s"
+    except (OSError, subprocess.SubprocessError) as error:
+        return False, f"Could not run git: {error}"
+    # A failure keeps the remote's own words: a hook that rejected a push says why
+    # on `remote:` lines, and dropping them as noise would drop the reason with
+    # them. On the way through they are noise, and the tail is what matters.
+    failed = result.returncode != 0
+    said = git_said(result.stderr, remote=failed) or git_said(result.stdout, remote=failed)
+    return not failed, said
+
+
+def git_said(text: str, lines: int = 4, remote: bool = False) -> str:
+    """The last few meaningful lines of git's output, for a snackbar.
+
+    Progress lines are carriage-return rewrites of one line and would otherwise
+    arrive as one very long string; the tail is where the reason lives anyway.
+    """
+    kept = [part.strip() for chunk in text.splitlines()
+            for part in chunk.split("\r") if part.strip()]
+    if not remote:
+        kept = [line for line in kept
+                if not line.startswith(("remote:", "Everything up-to-date"))] or kept
+    return " · ".join(kept[-lines:])[:500]
+
+
+def read_status(root: str) -> list[dict]:
+    ok, text = git_run(root, ["status", "--porcelain=v2", "--untracked-files=all", "-z"])
+    return parse_status(text) if ok else []
+
+
+def known_paths(root: str, wanted: list[str]) -> tuple[list[str], list[dict]]:
+    """Keep only the paths git itself is currently reporting as changed.
+
+    The browser is not trusted to name a file: an action can only touch
+    something the panel just showed, which rules out absolute paths, `..`,
+    and anything outside this working tree by construction rather than by
+    checking for those shapes one at a time.
+    """
+    entries = read_status(root)
+    live = {}
+    for entry in entries:
+        live[entry["path"]] = entry
+        if entry["origPath"]:
+            live[entry["origPath"]] = entry
+    return [p for p in wanted if p in live], entries
+
+
+def has_commits(root: str) -> bool:
+    ok, _ = git_run(root, ["rev-parse", "--verify", "HEAD"])
+    return ok
+
+
+def stage_paths(root: str, paths: list[str]) -> tuple[bool, str]:
+    # `add` covers a deletion too — it records "this path is gone" in the index —
+    # so one command serves modified, new and deleted alike.
+    ok, said = git_write(root, ["add", "--", *paths])
+    return ok, said or f"Staged {count(len(paths), 'file')}"
+
+
+def unstage_paths(root: str, paths: list[str]) -> tuple[bool, str]:
+    # Before the first commit there is no HEAD to reset back to, so the only way
+    # out of the index is to drop the entry.
+    args = (["reset", "-q", "HEAD", "--", *paths] if has_commits(root)
+            else ["rm", "-q", "--cached", "-r", "--", *paths])
+    ok, said = git_write(root, args)
+    return ok, said or f"Unstaged {count(len(paths), 'file')}"
+
+
+def discard_paths(root: str, paths: list[str], entries: list[dict]) -> tuple[bool, str]:
+    """Throw away working-tree changes — the one action here that loses work.
+
+    A tracked file goes back to what the index holds; an untracked one has no
+    earlier version to go back to, so discarding it means deleting it. The two
+    need different commands, hence the split.
+    """
+    by_path = {e["path"]: e for e in entries}
+    untracked = [p for p in paths if by_path.get(p, {}).get("untracked")]
+    tracked = [p for p in paths if p not in untracked]
+    trouble = []
+    if tracked:
+        ok, said = git_write(root, ["restore", "--worktree", "--", *tracked])
+        if not ok:
+            trouble.append(said or "could not restore some files")
+    if untracked:
+        ok, said = git_write(root, ["clean", "-q", "-f", "--", *untracked])
+        if not ok:
+            trouble.append(said or "could not delete some new files")
+    if trouble:
+        return False, " · ".join(trouble)
+    # Only say what actually happened: "0 files" alongside a deletion reads as a
+    # failure when it is nothing of the sort.
+    said = []
+    if tracked:
+        said.append(f"Discarded changes in {count(len(tracked), 'file')}")
+    if untracked:
+        said.append(f"{'d' if said else 'D'}eleted {count(len(untracked), 'new file')}")
+    return True, ", ".join(said) or "Nothing to discard"
+
+
+def count(n: int, noun: str) -> str:
+    return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
+
+
+def git_commit(root: str, message: str, amend: bool, stage_all: bool) -> tuple[bool, str]:
+    """Commit what is staged, optionally staging everything first.
+
+    `stage_all` is the panel's version of the editor's "there is nothing staged —
+    commit all your changes?": the answer arrives as this flag rather than the
+    panel deciding for you.
+    """
+    if stage_all:
+        ok, said = git_write(root, ["add", "-A"])
+        if not ok:
+            return False, said or "Could not stage the changes"
+
+    args = ["commit", "--no-status", "--cleanup=strip"]
+    # An amend can keep the message it already has; a fresh commit cannot.
+    if amend and not message:
+        args += ["--amend", "--no-edit"]
+    elif amend:
+        args += ["--amend", "-m", message]
+    elif message:
+        args += ["-m", message]
+    else:
+        return False, "A commit needs a message"
+
+    ok, said = git_write(root, args)
+    if ok:
+        head = read_git(root, log_limit=1)["commits"]
+        subject = head[0]["subject"] if head else message
+        return True, f"Committed — {subject}"
+    if "nothing to commit" in said or "no changes added to commit" in said:
+        return False, "Nothing staged to commit"
+    if "Please tell me who you are" in said or "empty ident name" in said:
+        return False, "git has no name and email set yet — git config user.name and user.email"
+    return False, said or "Could not commit"
+
+
+def git_push(root: str, state: dict, force: bool = False) -> tuple[bool, str]:
+    """Push the current branch, publishing it if it has no upstream yet."""
+    branch = state.get("branch")
+    if state.get("detached") or not branch:
+        return False, "HEAD is detached, so there is no branch to push"
+    if state.get("upstream"):
+        args = ["push"]
+    else:
+        remote = default_remote(root)
+        if not remote:
+            return False, "This repository has no remote to push to"
+        # The editor calls this publishing, and it is the only push that decides
+        # where a branch belongs — hence --set-upstream, once.
+        args = ["push", "--set-upstream", remote, branch]
+    if force:
+        # Never plain --force: this refuses if someone else pushed in the meantime.
+        args.append("--force-with-lease")
+    ok, said = git_write(root, args, GIT_NETWORK_TIMEOUT)
+    if ok:
+        if not state.get("upstream"):
+            return True, f"Published {branch} — it now tracks its remote"
+        return True, f"Pushed {count(state.get('ahead') or 0, 'commit')} to {state['upstream']}"
+    if "rejected" in said and "fetch first" in said:
+        return False, "Rejected — the remote has commits you do not have yet. Pull first."
+    return False, said or "Could not push"
+
+
+def git_pull(root: str, state: dict) -> tuple[bool, str]:
+    if state.get("detached"):
+        return False, "HEAD is detached, so there is nothing to pull into"
+    if not state.get("upstream"):
+        return False, "This branch has no upstream yet, so there is nothing to pull"
+    ok, said = git_write(root, ["pull", "--ff-only"], GIT_NETWORK_TIMEOUT)
+    if ok:
+        # A pull prints a diffstat across several lines; how many commits arrived
+        # is the part worth saying, and the file list redraws either way.
+        return True, f"Pulled {count(state.get('behind') or 0, 'commit')} from {state['upstream']}"
+    # A pull that cannot fast-forward wants a merge or a rebase, and choosing
+    # between those under a session that is editing the same tree is not the
+    # panel's call to make.
+    if "Not possible to fast-forward" in said or "diverging" in said or "divergent" in said:
+        return False, "The branch and its upstream have diverged — merge or rebase in the terminal"
+    return False, said or "Could not pull"
+
+
+def default_remote(root: str) -> str | None:
+    ok, text = git_run(root, ["remote"])
+    if not ok:
+        return None
+    remotes = [line.strip() for line in text.splitlines() if line.strip()]
+    if not remotes:
+        return None
+    return "origin" if "origin" in remotes else remotes[0]
+
+
+# ------------------------------------------------------- writing the message
+
+
+# A commit message is a small, closed job, so it goes to the quick model rather
+# than whatever the session in that folder happens to be using. It runs headless
+# — no terminal, no session — so a stopped session's repository can still have a
+# message written for it, and the session's own conversation is never disturbed.
+MESSAGE_MODEL = "haiku"
+MESSAGE_TIMEOUT = 90.0
+
+# A headless claude writes a session file like any other, so for the twenty
+# seconds it runs the panel would list it — a row that appears, says nothing and
+# vanishes, for a job the panel itself asked for and is about to throw away.
+# Every claude somebody else started still belongs in the list; these are the
+# panel's own errands, held by pid only while they run.
+OWN_ERRANDS: set[int] = set()
+OWN_ERRANDS_LOCK = threading.Lock()
+
+
+def own_errand(pid: int, running: bool) -> None:
+    with OWN_ERRANDS_LOCK:
+        OWN_ERRANDS.add(pid) if running else OWN_ERRANDS.discard(pid)
+
+
+def is_own_errand(pid: int) -> bool:
+    with OWN_ERRANDS_LOCK:
+        return pid in OWN_ERRANDS
+# Enough patch to describe a real change. Past this the subject would be a guess
+# either way, and the diff is only there to be summarised.
+MESSAGE_DIFF_LIMIT = 40_000
+
+MESSAGE_TASK = """Write a git commit message for the change below.
+
+Rules:
+- One subject line, imperative mood ("Add", not "Added"), no trailing full stop,
+  72 characters at the outside.
+- Follow the style of the recent commits shown, if they have one.
+- Add a body only if the change needs explaining, after one blank line, wrapped
+  at 72 characters. Say why, not what — the diff already says what.
+- Output the message and nothing else: no preamble, no code fences, no quotes
+  around it, no "here is".
+"""
+
+
+def message_context(root: str) -> tuple[bool, str]:
+    """What the model is shown: the patch that is about to be committed.
+
+    The same scope the commit button would use — the index if anything is in it,
+    the whole working tree otherwise — so the message describes the commit that
+    is actually going to happen.
+    """
+    entries = read_status(root)
+    staged = [e for e in entries if e["staged"]]
+    parts = []
+
+    if staged:
+        ok, patch = git_run(root, ["diff", "--cached", "--no-color", "--no-ext-diff",
+                                   "--find-renames"], timeout=15.0)
+        new_files = [e["path"] for e in entries if e["staged"] == "A"]
+    else:
+        args = ["diff", "--no-color", "--no-ext-diff", "--find-renames"]
+        # Before the first commit there is no HEAD to diff against, and nothing
+        # is tracked yet either, so the file list below is the whole story.
+        ok, patch = git_run(root, [*args, "HEAD"] if has_commits(root) else args, timeout=15.0)
+        new_files = [e["path"] for e in entries if e["untracked"]]
+
+    if not ok:
+        patch = ""
+    if new_files:
+        parts.append("New files:\n" + "\n".join(f"  {p}" for p in new_files[:40]))
+    if patch.strip():
+        clipped = patch[:MESSAGE_DIFF_LIMIT]
+        if len(patch) > MESSAGE_DIFF_LIMIT:
+            clipped += "\n[diff truncated]"
+        parts.append(f"Diff:\n{clipped}")
+    if not parts:
+        return False, "There is nothing staged or changed to describe yet"
+
+    # The repository's own habits, so the message it gets back looks like the
+    # ones around it rather than like a house style from somewhere else.
+    ok, log = git_run(root, ["log", "--max-count=10", "--pretty=format:%s"])
+    if ok and log.strip():
+        parts.insert(0, "Recent commit subjects in this repository:\n"
+                        + "\n".join(f"  {line}" for line in log.splitlines() if line.strip()))
+    return True, "\n\n".join(parts)
+
+
+def clean_message(text: str) -> str:
+    """Take the model at its word, but not at its formatting.
+
+    Asked for a bare message it usually gives one; a fenced block or a lead-in
+    sentence is common enough that stripping them is cheaper than a retry.
+    """
+    lines = [line.rstrip() for line in text.strip().splitlines()]
+    if lines and lines[0].startswith("```"):
+        lines = lines[1:]
+        while lines and not lines[-1].startswith("```"):
+            lines.pop()
+        if lines:
+            lines.pop()
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return "\n".join(lines).strip()
+
+
+def suggest_message(root: str) -> tuple[bool, str]:
+    """Ask a headless Claude for a commit message. Returns (ok, message or why)."""
+    claude = shutil.which("claude")
+    if not claude:
+        return False, "Cannot find the claude command on PATH"
+
+    ok, context = message_context(root)
+    if not ok:
+        return False, context
+
+    # Popen rather than run, only so the pid is known while it is alive: that is
+    # what keeps this errand out of the session list. See OWN_ERRANDS.
+    try:
+        process = subprocess.Popen(
+            [claude, "--print", "--model", MESSAGE_MODEL,
+             # It is handed everything it needs on stdin. No tools means no
+             # permission prompt to answer and nothing it can do to the tree.
+             "--allowed-tools", "", "--output-format", "text"],
+            cwd=root, text=True,
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        return False, f"Could not run claude: {error}"
+
+    own_errand(process.pid, True)
+    try:
+        out, err = process.communicate(f"{MESSAGE_TASK}\n{context}\n", timeout=MESSAGE_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.communicate()
+        return False, f"Claude did not answer within {int(MESSAGE_TIMEOUT)}s"
+    except (OSError, subprocess.SubprocessError) as error:
+        process.kill()
+        return False, f"Could not run claude: {error}"
+    finally:
+        # Held only for the life of the process, so a recycled pid can never
+        # inherit the hiding.
+        own_errand(process.pid, False)
+
+    if process.returncode != 0:
+        return False, git_said(err) or "Claude could not write a message"
+    message = clean_message(out)
+    if not message:
+        return False, "Claude answered with nothing"
+    return True, message
+
+
+def git_action(root: str, action: str, payload: dict) -> tuple[bool, str, int]:
+    """One Source-Control action, named by the browser, run against one repo.
+
+    Returns (ok, message, http status). Everything the browser sends is either a
+    fixed action name, a message string, or a path that git is already reporting
+    as changed — see known_paths.
+    """
+    if not shutil.which("git"):
+        return False, "git is not installed", 409
+
+    wanted = [p for p in (payload.get("paths") or []) if isinstance(p, str) and p]
+
+    if action in ("stage", "unstage", "discard"):
+        paths, entries = known_paths(root, wanted)
+        if not paths:
+            return False, "Those files have no changes any more", 409
+        if action == "stage":
+            ok, said = stage_paths(root, paths)
+        elif action == "unstage":
+            ok, said = unstage_paths(root, paths)
+        else:
+            ok, said = discard_paths(root, paths, entries)
+        return ok, said, 200 if ok else 409
+
+    if action == "stageAll":
+        entries = read_status(root)
+        if not entries:
+            return False, "Nothing to stage", 409
+        ok, said = git_write(root, ["add", "-A"])
+        return ok, said or f"Staged {count(len(entries), 'file')}", 200 if ok else 409
+
+    if action == "unstageAll":
+        # A bare mixed reset puts the whole index back to HEAD, which is exactly
+        # "unstage everything" and needs no path list.
+        ok, said = (git_write(root, ["reset", "-q"]) if has_commits(root)
+                    else git_write(root, ["rm", "-q", "--cached", "-r", "--", "."]))
+        return ok, said or "Unstaged everything", 200 if ok else 409
+
+    if action == "discardAll":
+        entries = read_status(root)
+        keep_new = not payload.get("includeUntracked")
+        paths = [e["path"] for e in entries if not (keep_new and e["untracked"])]
+        if not paths:
+            return False, "Nothing to discard", 409
+        ok, said = discard_paths(root, paths, entries)
+        return ok, said, 200 if ok else 409
+
+    if action == "commit":
+        ok, said = git_commit(root, str(payload.get("message") or "").strip(),
+                              bool(payload.get("amend")), bool(payload.get("stageAll")))
+        return ok, said, 200 if ok else 409
+
+    state = read_git(root, log_limit=0)
+
+    if action == "push":
+        ok, said = git_push(root, state, bool(payload.get("force")))
+        return ok, said, 200 if ok else 409
+
+    if action == "pull":
+        ok, said = git_pull(root, state)
+        return ok, said, 200 if ok else 409
+
+    if action == "fetch":
+        remote = default_remote(root)
+        if not remote:
+            return False, "This repository has no remote to fetch from", 409
+        ok, said = git_write(root, ["fetch", "--prune", remote], GIT_NETWORK_TIMEOUT)
+        return ok, said or f"Fetched {remote}", 200 if ok else 409
+
+    if action == "sync":
+        # Sync is the editor's one button for "catch up, then hand over": pull
+        # first so a push cannot be rejected for being behind.
+        if state.get("upstream") and state.get("behind"):
+            ok, said = git_pull(root, state)
+            if not ok:
+                return False, said, 409
+            state = read_git(root, log_limit=0)
+        if not state.get("upstream") or state.get("ahead"):
+            ok, said = git_push(root, state)
+            return ok, said, 200 if ok else 409
+        return True, "Already up to date", 200
+
+    if action == "stash":
+        ok, said = git_write(root, ["stash", "push", "--include-untracked",
+                                    *(["-m", str(payload["message"])] if payload.get("message") else [])])
+        return ok, said or "Stashed the changes", 200 if ok else 409
+
+    if action == "stashPop":
+        # A successful pop prints the whole working-tree status; the file list is
+        # about to be redrawn anyway, so only a failure is worth repeating.
+        ok, said = git_write(root, ["stash", "pop"])
+        return ok, "Restored the latest stash" if ok else (said or "Could not restore the stash"), 200 if ok else 409
+
+    return False, "Unknown action", 400
 
 
 # --------------------------------------------------------------- last activity
@@ -1518,6 +2041,8 @@ class SessionStore:
             pid = data.get("pid")
             if not isinstance(pid, int):
                 continue
+            if is_own_errand(pid):
+                continue  # the panel's own headless run, not a session to watch
             actual = proc_starttime(pid)
             recorded = data.get("procStart")
             if actual is None:
@@ -1863,6 +2388,16 @@ class Handler(BaseHTTPRequestHandler):
                 return session
         return None
 
+    def _session_repo(self, session_id: str) -> str | None:
+        """The working tree a git request may act in — the session's own, or none.
+
+        The root never comes from the request. Everything git runs against what
+        the panel already discovered for the session it was asked about, so no
+        request can point git at a repository the panel is not showing.
+        """
+        session = self._session_by_id(session_id)
+        return (session or {}).get("repoRoot") or None
+
     # --- routes
 
     def do_GET(self) -> None:
@@ -1895,7 +2430,19 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": False, "isRepo": False,
                             "message": "This session's folder is not in a git repository"})
                 return
-            self._json({**read_git(root), "isRepo": True})
+            self._json({**read_git(root), "isRepo": True, "canWrite": SAY_ENABLED})
+            return
+        if path == "/api/git/diff":
+            query = parse_qs(urlparse(self.path).query)
+            root = self._session_repo((query.get("sessionId") or [""])[0])
+            if not root:
+                self._json({"ok": False, "message": "That session is not in a git repository"}, 404)
+                return
+            file_path = (query.get("path") or [""])[0]
+            if not file_path:
+                self._json({"ok": False, "message": "No file asked for"}, 400)
+                return
+            self._json(read_diff(root, file_path, (query.get("staged") or [""])[0] == "1"))
             return
         if path in ("/", "/index.html"):
             self._serve_static("index.html", "text/html; charset=utf-8")
@@ -1987,6 +2534,29 @@ class Handler(BaseHTTPRequestHandler):
                 return
             ok, message = say_to_session(data, str(payload.get("text") or ""))
             self._json({"ok": ok, "message": message}, 200 if ok else 409)
+            return
+
+        if path == "/api/git":
+            # Committing, pushing and discarding change a checkout on this
+            # machine, which is the same order of risk as prompting the session
+            # that lives in it — so they sit behind the same loopback gate.
+            if not SAY_ENABLED:
+                self._json({"ok": False, "message": "Git actions are off — this panel is serving read-only"}, 403)
+                return
+            root = self._session_repo(session_id)
+            if not root:
+                self._json({"ok": False, "message": "That session is not in a git repository"}, 404)
+                return
+            action = str(payload.get("action") or "")
+            # The one action that answers with something other than a sentence
+            # about what it did: the message it wrote, for the box to hold.
+            if action == "suggestMessage":
+                ok, said = suggest_message(root)
+                self._json({"ok": ok, "text": said if ok else "",
+                            "message": "" if ok else said}, 200 if ok else 409)
+                return
+            ok, message, status = git_action(root, action, payload)
+            self._json({"ok": ok, "message": message}, status)
             return
 
         if path == "/api/sticky":

@@ -62,7 +62,7 @@ python3 server.py
 | [Layout](#layout-an-index-and-a-detail-pane) | The index, groups, the detail pane and its four tabs |
 | [Sending a message](#sending-a-message) | The composer, the unix socket behind it, and its three honest limits |
 | [Permission mode](#permission-mode) | How much rope a session has, when it was true, and why it is read-only |
-| [Git and History](#git-and-history) | Working tree, upstream drift, and a commit graph drawn from real ancestry |
+| [Git and History](#git-and-history) | Staging, committing and pushing in the editor's own Source Control layout, and a commit graph drawn from real ancestry |
 | [Naming a session](#naming-a-session) | Call a session what you are using it for |
 | [Focusing a window](#focusing-a-window) | Matching by pid, identifying over the pty, pairing by hand |
 | [Ending a session](#ending-a-session) | SIGTERM, force quit, and the stale-pid check |
@@ -177,19 +177,46 @@ Among the facts in the detail header is a pill for how much rope the session has
 
 ## Git and History
 
-A session is nearly always working inside a repository, and the question you actually have while watching one work is what it has done to the tree. **Git** answers it: the branch, how far it has drifted from its upstream, and every changed file grouped as git groups them — conflicted, staged, changed, untracked.
+A session is nearly always working inside a repository, and the question you actually have while watching one work is what it has done to the tree. **Git** answers it, and then lets you act on the answer: the branch, how far it has drifted from its upstream, and every changed file in the three groups the editor uses — **merge changes**, **staged changes**, **changes** — with a message box and a commit button above them.
+
+**The interface is VS Code's Source Control view, deliberately.** Not as flattery: it is the one arrangement of these controls that everybody who would open this panel already knows, so nothing about staging a file needs explaining. The message box sits at the top with a split button under it — **Commit**, and an arrow holding *Commit & push*, *Commit & sync* and *Commit (amend)*. Each group header carries the actions that apply to the whole group, each row the ones that apply to it, and the row itself opens that file's diff in place. With nothing staged the button says **Commit all 3** rather than quietly committing something else, which is the same offer the editor makes and the same answer, said earlier. `Ctrl+Enter` in the box commits, as it does there.
+
+**The sparkle in the corner of the message box writes the message for you.** It runs a headless `claude --print` in the repository with the diff that is about to be committed on stdin — the index if anything is staged, the whole working tree otherwise, so the message describes the commit the button would actually make — along with the last ten commit subjects, so what comes back looks like the messages already in that history rather than a house style from somewhere else. It goes to Haiku, because a commit message is a small closed job and a cheap one; it is given no tools, so there is no permission prompt to answer and nothing it can do to the tree; and it takes ten or twenty seconds, which the button says by pulsing while it waits.
+
+The message lands in the box rather than in a commit — reading it before pressing Commit is the point. With something already typed it asks before replacing it. Nothing about this touches the session working in that folder: no message goes down its socket, and its conversation is left alone, so a stopped session's repository can have a message written for it just as well as a live one's.
+
+**And it does not appear in the list.** A headless run writes a session file like any other, so the panel would otherwise show a row that arrives, says nothing and vanishes twenty seconds later — for an errand the panel itself asked for and is about to discard. Its pid is held in a set for exactly as long as the process lives, and the reader skips it. Only the panel's own errands: a headless `claude` you started yourself still shows up, because that one is a session you might want to watch.
+
+Clicking a row opens its diff below it — the staged side of a file for a row in *Staged changes*, the unstaged side for one in *Changes*, so a file changed twice over shows each half where that half lives. An untracked file has nothing to diff against, so it is read from disk and shown as the all-added patch it amounts to. Binary files say so instead.
 
 The commit graph is a **second tab** rather than the foot of the first. History is much the longer of the two, and putting it below the file list buried the thing you check most often above a graph you had to scroll past. Both tabs are drawn from one reading of the repository, so switching between them costs nothing, and both open with the same branch header — neither is worth much without knowing which branch it is describing.
 
 Both tabs only appear for a session whose folder is inside a repository. That is found by walking up from the session's working folder looking for `.git`, which also picks up worktrees and submodules, where `.git` is a file rather than a directory. Everything git then runs against that repository root, not the session's folder, so a session sitting three directories down still reports the whole tree.
 
-Files carry git's own two status letters — staged on the left, unstaged on the right — so a file modified in both shows `MM` and appears under both headings, which is the truth about what would be committed. A rename shows where it came from.
+Each row reads name first, then the folder it sits in, then one letter for what happened to it — `M`, `A`, `D`, `R`, `U` for untracked, `!` for a conflict — and the letter is the one that belongs to that row's own group rather than both of git's at once. A file modified in the index and again in the tree therefore appears twice, once per side, which is the truth about what would be committed. A rename shows where it came from.
 
 **The graph is drawn, not scraped.** `git log` is asked for each commit's parents, and the lanes are laid out in the browser from the real ancestry: a commit takes the lane that was waiting for it, hands that lane to its first parent, and a merge's remaining parents open lanes of their own. Each row's rail is its own small SVG the exact height of the row, which is what lets the lanes meet across the joins. Lane colours come from the same generated scheme as everything else, so the graph follows your base colour.
 
 > **Reading a repository never disturbs the session working in it.** Every command runs with `--no-optional-locks`, takes no lock and leaves no `index.lock` behind, and is passed as a list of arguments — never a shell string. The branch in the header and in the list is still read straight out of `.git/HEAD` without a subprocess, because that one runs for every session on every poll; the heavier read behind these two tabs happens only for the session you are looking at, and no more than once every two and a half seconds. A read of a real 42-commit repository measured 34ms.
 
-**It is read-only.** Staging or committing underneath a session that is halfway through editing the same worktree is a race with no upside, so for now the panel reports and leaves the writing to the session. When actions do arrive they will be gated the way sending a message already is — loopback only — and checked against the HEAD the reading was taken at, so a stale panel cannot commit against a tree that has moved.
+### What it can do to a repository
+
+| Action | What runs |
+| --- | --- |
+| Stage / unstage a file or a whole group | `add --`, `reset -q HEAD --` — or `rm --cached` before the first commit, where there is no HEAD to reset to |
+| Discard changes | `restore --worktree --` for a tracked file; `clean -f --` for one that was never committed, because deleting it is the only way to discard it |
+| Commit, commit all, amend | `commit -m`, with `add -A` first when nothing was staged, `--amend --no-edit` when the box is empty |
+| Push, publish, pull, fetch, sync | `push`, `push --set-upstream` for a branch that has none, `pull --ff-only`, `fetch --prune`; sync pulls and then pushes |
+| Stash, restore the latest stash | `stash push --include-untracked`, `stash pop` |
+| Write the commit message | `claude --print --model haiku --allowed-tools ""`, the diff and the recent subjects on stdin |
+
+**Writing is gated exactly the way sending a message is.** Both change something on this machine, so both need the panel bound to loopback; served to the network or started with `--no-send`, the Git tab says **read-only** in its header, drops every button, and the endpoint answers 403. Reading is untouched by that — diffs still open.
+
+**A path from the browser is never trusted.** Every action names files, and the panel keeps only the paths git is *currently* reporting as changed. Absolute paths, `..`, and anything else outside this working tree are ruled out by construction — git is asked what changed and the request is filtered against that answer — rather than by pattern-matching for the shapes of them one at a time, and the repository is always the one the panel already discovered for that session — never anything the request asks for. Arguments are a list, never a shell string, and a path only ever lands after `--`.
+
+**Nothing here opens a prompt you cannot answer.** Writes run with no terminal prompt, no askpass helper and no editor, so a push that needs a passphrase nobody can type fails with git's own message in a snackbar instead of hanging. Network commands get 180 seconds, local ones 25. The panel's own writes are serialised, so two clicks cannot race each other for `index.lock` — a session racing you for it is git's lock to report, and it does.
+
+**The panel does not choose for you.** A pull that cannot fast-forward, a merge, a rebase, a force-push without a lease: none of them happen here. `pull --ff-only` refuses and says the branch has diverged, because deciding between a merge and a rebase under a session that is editing the same tree belongs to whoever can see the conflict. Discarding is the one action that cannot be undone with git, so it is the one action that asks first — and it says *delete* rather than *discard* for a file that was never committed, because that is what happens to it.
 
 ## Naming a session
 
@@ -323,7 +350,9 @@ node tests/ui-check.mjs
 
 `tests/ui-check.mjs` drives a throwaway headless Chrome over the DevTools protocol and asserts the things a screenshot cannot: that every MD3 token resolves, that the four state containers are distinct and stay distinct after the base colour changes, that every piece of text on screen clears 4.5:1, that the index lists each session with a host icon and a state lamp, that clicking a row opens its detail and every tab renders, that the filter chips filter, that sessions sharing a folder group themselves and picked rows can be grouped, folded and ungrouped by hand, that the settings dialog changes the scheme and persists it, and that interactive targets reach 48dp. Node 24+, no dependencies. Override `PANEL_URL` / `CDP_URL` to point elsewhere.
 
-The Git checks want a session whose folder is in a repository: they find one from `/api/state`, then assert that both tabs appear, that Git reads the branch and marks every file with two status letters while carrying no graph, that History draws one node per commit and keeps no file list, that each rail is the same height as its row — a mismatch there is what leaves the lanes broken at every join — that both clear 4.5:1, and that all four tabs stay reachable at 48dp. With no such fixture they say so and skip rather than failing for a reason that has nothing to do with the panel.
+The Git checks want a session whose folder is in a repository: they find one from `/api/state`, then assert that both tabs appear, that Git reads the branch and marks every file with its status letter and a way to open it while carrying no graph, that the files land in the editor's three groups, that the commit box and its split button are there when writing is on — and that a read-only panel says so and offers nothing — that a row opens exactly one diff and closes it again, that History draws one node per commit and keeps no file list, that each rail is the same height as its row — a mismatch there is what leaves the lanes broken at every join — that both clear 4.5:1, and that all four tabs stay reachable at 48dp. With no such fixture they say so and skip rather than failing for a reason that has nothing to do with the panel.
+
+**No check stages or commits anything.** The suite runs against whatever real sessions are on the machine, and a test that commits in somebody's checkout to prove a button works has done more than it was asked. It asserts that the controls are there and wired; the one action it actually performs is opening a diff, which only reads.
 
 Point it at a real panel to measure the chat bubbles too, since fixture sessions have no transcript:
 
@@ -338,6 +367,8 @@ PANEL_URL=http://127.0.0.1:8787 node tests/ui-check.mjs
 | `GET /api/state` | Every live session, with status, trace, and window match |
 | `GET /api/transcript` | `?sessionId=…&limit=…` — the recent conversation |
 | `GET /api/git` | `?sessionId=…` — that session's repository: branch, upstream drift, changed files, recent commits with their parents |
+| `GET /api/git/diff` | `?sessionId=…&path=…&staged=1` — one changed file's unified diff, one side at a time |
+| `POST /api/git` | `{"sessionId": "...", "action": "...", …}` — one source-control action: `stage`, `unstage`, `discard` (each with `paths`), `stageAll`, `unstageAll`, `discardAll`, `commit` (`message`, `amend`, `stageAll`), `push` (`force` uses a lease), `pull`, `fetch`, `sync`, `stash`, `stashPop`, `suggestMessage` (answers with `text`, the message it wrote); loopback only |
 | `POST /api/focus` | `{"sessionId": "..."}` — raise that session's window |
 | `POST /api/identify` | Ask a session's terminal which window it is showing, and remember it |
 | `POST /api/pair` | Click a window to bind it to a session |
