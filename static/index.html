@@ -666,6 +666,88 @@
   .detail-window-actions { display: flex; gap: var(--md-sys-spacing-2); flex-wrap: wrap; }
   .row__grow { flex: 1 1 auto; min-width: 0; }
 
+  /* ================================ the plan =============================== */
+  /* What the subscription has left, in the app bar: the two figures you would
+     otherwise run /usage for, and a press for the rest of the report. */
+  .plan-chip {
+    display: inline-flex; align-items: center; gap: 6px; flex: none;
+    height: 32px; padding: 0 var(--md-sys-spacing-3);
+    border: 1px solid var(--md-sys-color-outline-variant); border-radius: var(--md-sys-shape-corner-full);
+    background: transparent; color: inherit; cursor: pointer; font: inherit; letter-spacing: inherit;
+    position: relative;
+  }
+  .plan-chip svg { width: 16px; height: 16px; }
+  /* Past three quarters of a limit the chip stops being a fact and starts being
+     a warning, in the same amber a session waiting on you takes. */
+  .plan-chip[data-tight="1"] {
+    border-color: transparent;
+    background: var(--md-extended-color-waiting-container, var(--md-sys-color-tertiary-container));
+    color: var(--md-extended-color-waiting-on-container, var(--md-sys-color-on-tertiary-container));
+  }
+  .plan-chip[data-tight="2"] {
+    border-color: transparent;
+    background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container);
+  }
+  /* A reading in flight, said the way the panel says it everywhere else. */
+  .plan-chip[data-reading="1"] svg { animation: plan-spin 1.4s linear infinite; }
+  @keyframes plan-spin { to { transform: rotate(360deg); } }
+
+  .plan-limit { margin-bottom: var(--md-sys-spacing-5); }
+  .plan-limit__head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--md-sys-spacing-3); }
+  .plan-limit__pct { font-variant-numeric: tabular-nums; }
+  .plan-limit__resets { color: var(--md-sys-color-on-surface-variant); }
+  .plan-block { margin-top: var(--md-sys-spacing-5); }
+  .plan-block__title { color: var(--md-sys-color-on-surface-variant); }
+  .plan-block ul { margin: var(--md-sys-spacing-2) 0 0; padding-left: var(--md-sys-spacing-5); }
+  .plan-block li { margin-bottom: 2px; overflow-wrap: anywhere; }
+  .plan-raw { white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--md-ref-typeface-mono); }
+  .plan-note { color: var(--md-sys-color-on-surface-variant); margin-top: var(--md-sys-spacing-4); }
+  .plan-age { align-self: center; }
+
+  /* ============================== detail: usage ============================ */
+  /* The figures that answer "what has this cost", big enough to read at a
+     glance and laid out so a narrow pane stacks them rather than shrinking. */
+  .use-tiles {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+    gap: var(--md-sys-spacing-3); margin-bottom: var(--md-sys-spacing-6);
+  }
+  .use-tile {
+    padding: var(--md-sys-spacing-4);
+    border-radius: var(--md-sys-shape-corner-large);
+    background: var(--md-sys-color-surface-container-low);
+  }
+  /* The money is the headline; the rest are supporting counts. */
+  .use-tile--lead { background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); }
+  .use-tile__label { color: var(--md-sys-color-on-surface-variant); }
+  .use-tile--lead .use-tile__label { color: inherit; opacity: 0.8; }
+  .use-tile__value { margin-top: var(--md-sys-spacing-1); overflow-wrap: anywhere; }
+  .use-tile__note { margin-top: 2px; opacity: 0.75; }
+
+  /* How full the context is. A bar rather than a number because the thing you
+     want to know is how close to the edge it is, not the figure itself. */
+  .use-bar {
+    height: 10px; border-radius: var(--md-sys-shape-corner-full); overflow: hidden;
+    background: var(--md-sys-color-surface-container-highest);
+    margin: var(--md-sys-spacing-3) 0 var(--md-sys-spacing-2);
+  }
+  .use-bar__fill { height: 100%; background: var(--md-sys-color-primary); border-radius: inherit; }
+  /* Past three quarters of the window, compaction is close enough to be worth
+     saying so in the same colour the panel uses for a session wanting attention. */
+  .use-bar__fill[data-tight="1"] { background: var(--md-extended-color-waiting-color, var(--md-sys-color-tertiary)); }
+  .use-legend { display: flex; justify-content: space-between; gap: var(--md-sys-spacing-3);
+    color: var(--md-sys-color-on-surface-variant); }
+
+  /* One row per model, with the token columns that make the cost add up. */
+  .use-table { width: 100%; border-collapse: collapse; }
+  .use-table th, .use-table td {
+    padding: var(--md-sys-spacing-2) var(--md-sys-spacing-2);
+    border-top: 1px solid var(--md-sys-color-outline-variant); text-align: right;
+  }
+  .use-table th { color: var(--md-sys-color-on-surface-variant); font-weight: 500; white-space: nowrap; }
+  .use-table th:first-child, .use-table td:first-child { text-align: left; overflow-wrap: anywhere; }
+  .use-table td:last-child { font-weight: 700; }
+  .use-scroll { overflow-x: auto; }
+
   /* =============================== detail: git ============================= */
   /* The branch line: where HEAD is, and how far it has drifted from upstream. */
   .git-head { display: flex; align-items: center; gap: var(--md-sys-spacing-3); flex-wrap: wrap;
@@ -1001,6 +1083,8 @@
   .dialog__actions { display: flex; justify-content: flex-end; gap: var(--md-sys-spacing-2); }
   /* Keeps the last-resort action away from the one people mean to press. */
   .dialog__actions-start { margin-right: auto; color: var(--md-sys-color-on-surface-variant); }
+  /* The plan report is a page of prose and bars rather than two controls. */
+  .dialog--wide { width: min(640px, 100%); }
   .divider { height: 1px; background: var(--md-sys-color-outline-variant); border: 0; margin: 0 0 var(--md-sys-spacing-6); }
 
   .swatches { display: flex; flex-wrap: wrap; gap: var(--md-sys-spacing-3); align-items: center; }
@@ -1069,6 +1153,11 @@
       <span class="app-bar__supporting md-label-medium" id="barSupporting"></span>
     </div>
     <div class="app-bar__actions">
+      <button class="plan-chip md-state md-label-large" id="planButton" hidden
+              aria-haspopup="dialog" title="What your plan has left">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 18a8 8 0 1 1 16 0"/><path d="M12 18l4.5-5.5"/></svg>
+        <span id="planChipText">plan</span>
+      </button>
       <label class="switch">
         <input type="checkbox" id="themeToggle" aria-label="Dark theme">
         <span class="switch__track"><span class="switch__thumb">
@@ -1123,6 +1212,19 @@
     <div class="dialog__actions">
       <button class="button button--text md-state" id="resetTheme">Reset</button>
       <button class="button button--filled md-state" id="closeSettings">Done</button>
+    </div>
+  </div>
+</div>
+
+<div class="scrim" id="planScrim" data-open="false">
+  <div class="dialog dialog--wide" role="dialog" aria-modal="true" aria-labelledby="planHeadline">
+    <h2 class="dialog__headline md-headline-small" id="planHeadline">Your plan</h2>
+    <p class="dialog__supporting md-body-medium" id="planHead"></p>
+    <div id="planBody"></div>
+    <div class="dialog__actions">
+      <span class="plan-age md-label-small dialog__actions-start" id="planAge"></span>
+      <button class="button button--text md-state" id="planRefresh">Refresh</button>
+      <button class="button button--filled md-state" id="closePlan">Done</button>
     </div>
   </div>
 </div>
@@ -1336,6 +1438,8 @@ const ICON = {
   upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V9M7 13l5-5 5 5"/><path d="M4 4h16"/></svg>',
   stash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 12h14M7 16h10M9 20h6"/></svg>',
   more: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>',
+  // A coin, for what the conversation has cost.
+  coin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M15 9.2A2.8 2.8 0 0 0 12.4 7.5h-.8a2.2 2.2 0 0 0 0 4.4h.8a2.2 2.2 0 0 1 0 4.4h-.8A2.8 2.8 0 0 1 9 14.8M12 6v12"/></svg>',
   // Two stars, the mark every editor now uses for "a model did this".
   sparkle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3.5 11.7 8 16 9.8 11.7 11.5 10 16l-1.7-4.5L4 9.8 8.3 8z"/><path d="m17.5 15 .8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></svg>',
 };
@@ -1397,6 +1501,9 @@ let transcriptBusy = false;
 let git = null;
 let gitFor = null;
 let gitBusy = false;
+let usage = null;
+let usageFor = null;
+let usageBusy = false;
 /* The writing side of the Git tab. The message being typed is kept per session
    rather than in the DOM, because the pane is rebuilt whenever the repository
    moves — which is exactly while a commit message is being written. */
@@ -1830,6 +1937,7 @@ async function poll() {
     render();
     if (selectedId && (transcriptFor !== selectedId || tab === "chat")) fetchTranscript();
     if (selectedId && isGitTab(tab)) fetchGit();
+    if (selectedId && tab === "usage") fetchUsage();
   } catch (error) {
     barSupporting.textContent = "lost the server — retrying";
   }
@@ -1928,6 +2036,36 @@ async function fetchGit(force) {
     /* leave the previous reading on screen */
   } finally {
     gitBusy = false;
+  }
+}
+
+/* Tokens and cost. Cheaper to read than the repository — the server scans the
+   transcript once and picks up where it stopped — but there is no point reading
+   it while another tab is showing, so it runs on the poll only when its own tab
+   is up, and once immediately when you open it. */
+function usageStamp(u) {
+  return [u?.cost ?? -1, u?.totals?.requests ?? -1, u?.context ?? -1,
+          (u?.models ?? []).length, (u?.agentModels ?? []).length].join("|");
+}
+
+async function fetchUsage(force) {
+  const id = selectedId;
+  if (!id || usageBusy) return;
+  if (!force && document.hidden) return;
+  usageBusy = true;
+  try {
+    const response = await fetch(`/api/usage?sessionId=${encodeURIComponent(id)}`, { cache: "no-store" });
+    if (!response.ok) throw new Error(String(response.status));
+    const data = await response.json();
+    if (selectedId !== id) return;             // selection moved on while fetching
+    const changed = usageStamp(data) !== usageStamp(usage) || usageFor !== id;
+    usage = data;
+    usageFor = id;
+    if (changed) renderDetail(true);
+  } catch (error) {
+    /* leave the previous reading on screen */
+  } finally {
+    usageBusy = false;
   }
 }
 
@@ -2270,6 +2408,7 @@ function setTab(next) {
   renderDetail(true);
   if (next === "chat") fetchTranscript();
   if (isGitTab(next)) fetchGit();
+  if (next === "usage") fetchUsage(true);
 }
 
 /* ==========================================================================
@@ -2660,6 +2799,7 @@ function renderDetail(force) {
     session.sessionId, session.name, stateKeyOf(session.status), session.branch, session.window?.confidence,
     host.label, tab, transcript?.messages?.length ?? -1, transcript?.title ?? "",
     session.repoRoot ?? "", gitFor === session.sessionId ? gitStamp(git) : "",
+    usageFor === session.sessionId ? usageStamp(usage) : "",
     mutedSessions.has(session.sessionId), feed.canFocus, feed.canSend, session.canSay, session.sticky,
     session.permissionMode ?? "", session.title ?? "", session.parentName ?? "",
   ].join(" ");
@@ -2719,6 +2859,7 @@ function renderDetail(force) {
       ${session.repoRoot ? `
         <button class="tab md-state md-label-large" role="tab" data-tab="git" aria-selected="${tab === "git"}">${ICON.branch}Git</button>
         <button class="tab md-state md-label-large" role="tab" data-tab="history" aria-selected="${tab === "history"}">${ICON.history}History</button>` : ""}
+      <button class="tab md-state md-label-large" role="tab" data-tab="usage" aria-selected="${tab === "usage"}">${ICON.coin}Usage</button>
       <button class="tab md-state md-label-large" role="tab" data-tab="about" aria-selected="${tab === "about"}">${ICON.info}Details</button>
     </div>
     <div class="panel-wrap">
@@ -2726,6 +2867,7 @@ function renderDetail(force) {
         ${tab === "chat" ? chatPanel(session)
           : tab === "git" ? gitPanel(session)
           : tab === "history" ? historyPanel(session)
+          : tab === "usage" ? usagePanel(session)
           : aboutPanel(session, host)}
       </div>
       ${tab === "chat" ? `<button class="jump-last md-state md-label-large" id="jumpLast" hidden>${ICON.up}Last request</button>` : ""}
@@ -4093,6 +4235,141 @@ function historyPanel(session) {
     </div>` : `<p class="git-empty md-body-medium">No commits yet.</p>`}`;
 }
 
+/* ==========================================================================
+   Usage — what this session has asked of the models, and what that is worth
+   at list price. Read out of the transcript, which is the only place the
+   figures exist: every reply Claude Code writes down carries the usage the
+   API reported for it.
+   ========================================================================== */
+
+/* Named here only to say them in the footnote; the server does the arithmetic. */
+const CACHE_WRITE_5M = 1.25;
+const CACHE_WRITE_1H = 2;
+
+/* Money to the cent, except when the whole session has not cost one — a figure
+   of "$0.00" beside a page of tokens reads as a bug rather than as cheap. */
+function money(n) {
+  if (!n) return "$0.00";
+  if (n < 0.01) return `$${n.toFixed(4)}`;
+  return `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/* Token counts run to eight figures within an afternoon, so they are shortened.
+   The exact number is never the question; the order of magnitude is. */
+function tokens(n) {
+  n = n || 0;
+  if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M`;
+  if (n >= 10_000) return `${Math.round(n / 1000)}k`;
+  return n.toLocaleString();
+}
+
+function usageTile(label, value, note, lead = false) {
+  return `<div class="use-tile${lead ? " use-tile--lead" : ""}">
+    <div class="use-tile__label md-label-medium">${escapeHtml(label)}</div>
+    <div class="use-tile__value ${lead ? "md-headline-small" : "md-title-medium"} md-mono">${value}</div>
+    ${note ? `<div class="use-tile__note md-label-small">${note}</div>` : ""}
+  </div>`;
+}
+
+function usageTable(rows) {
+  return `<div class="use-scroll"><table class="use-table md-body-small">
+    <thead><tr>
+      <th>Model</th><th>Requests</th><th>Fresh in</th><th>Cache write</th>
+      <th>Cache read</th><th>Out</th><th>Cost</th>
+    </tr></thead>
+    <tbody>${rows.map((row) => `<tr>
+      <td class="md-mono">${escapeHtml(row.model)}${row.priced ? "" :
+        ` <span class="fact-note">no price known</span>`}</td>
+      <td class="md-mono">${row.requests.toLocaleString()}</td>
+      <td class="md-mono">${tokens(row.input)}</td>
+      <td class="md-mono">${tokens(row.cacheWrite5m + row.cacheWrite1h)}</td>
+      <td class="md-mono">${tokens(row.cacheRead)}</td>
+      <td class="md-mono">${tokens(row.output)}</td>
+      <td class="md-mono">${row.priced ? money(row.cost) : "—"}</td>
+    </tr>`).join("")}</tbody>
+  </table></div>`;
+}
+
+function usagePanel(session) {
+  if (!usage || usageFor !== session.sessionId) {
+    return `<p class="git-empty md-body-medium">Reading the transcript…</p>`;
+  }
+  const t = usage.totals;
+  const every = [...usage.models, ...usage.agentModels];
+  if (!every.length) {
+    return `<p class="git-empty md-body-medium">${session.kind === "child"
+      ? `A session started from inside another writes no transcript of its own, so there
+         is nothing here to total. Its usage lands in the transcript of the session that
+         started it.`
+      : "No model requests recorded yet — this session has not asked Claude anything."}</p>`;
+  }
+  const cached = t.cacheRead + t.cacheWrite5m + t.cacheWrite1h;
+  // Rounded down: a session that has written any cache at all should not read
+  // as though every token came out of one.
+  const share = cached ? Math.floor(t.cacheRead / cached * 100) : 0;
+  const context = usage.context || 0;
+  const limit = usage.contextWindow || 1_000_000;
+  const full = Math.min(100, Math.round(context / limit * 100));
+  const spanEnd = usage.lastAt ? Date.parse(usage.lastAt) / 1000 : null;
+  const spanStart = usage.firstAt ? Date.parse(usage.firstAt) / 1000 : null;
+
+  return `
+    <div class="use-tiles">
+      ${usageTile("Cost so far", money(usage.cost), "at list price", true)}
+      ${usageTile("Requests", t.requests.toLocaleString(),
+        usage.agentModels.length
+          ? `${usage.agentModels.reduce((n, r) => n + r.requests, 0).toLocaleString()} from sub-agents`
+          : "")}
+      ${usageTile("Tokens in", tokens(t.input + cached),
+        `${share}% read from cache`)}
+      ${usageTile("Tokens out", tokens(t.output),
+        t.thinking ? `${tokens(t.thinking)} thinking` : "")}
+    </div>
+
+    <section class="section">
+      <h3 class="section__title md-title-small">Context</h3>
+      <p class="md-body-medium">${context
+        ? `Its last request carried <span class="md-mono">${tokens(context)}</span> tokens of
+           context${usage.contextModel ? ` into <span class="md-mono">${escapeHtml(usage.contextModel)}</span>` : ""},
+           which is ${full}% of that model's ${tokens(limit)} window.`
+        : "Nothing has gone in yet."}</p>
+      ${context ? `<div class="use-bar">
+        <div class="use-bar__fill" style="width: ${Math.max(1, full)}%" data-tight="${full >= 75 ? 1 : 0}"></div>
+      </div>
+      <div class="use-legend md-label-small">
+        <span>${tokens(context)} carried</span><span>${tokens(limit)} window</span>
+      </div>` : ""}
+    </section>
+
+    <section class="section">
+      <h3 class="section__title md-title-small">By model</h3>
+      ${usageTable(usage.models)}
+    </section>
+
+    ${usage.agentModels.length ? `<section class="section">
+      <h3 class="section__title md-title-small">Sub-agents</h3>
+      <p class="md-body-medium">Work this session handed to agents of its own. It is the
+        same bill, kept apart because it is not the conversation you are reading.</p>
+      ${usageTable(usage.agentModels)}
+    </section>` : ""}
+
+    <section class="section">
+      <h3 class="section__title md-title-small">About these figures</h3>
+      <p class="md-body-medium">Totalled from every reply in this session's transcript, at
+        Anthropic's published per-token prices — a cache write costs ${CACHE_WRITE_5M}× fresh
+        input for five minutes or ${CACHE_WRITE_1H}× for an hour, a cache read a tenth of it.
+        What you are actually charged may be less: a Claude subscription bills a plan rather
+        than tokens, and a negotiated rate is not the list one.${usage.unpriced.length
+          ? ` No price is known here for
+            ${usage.unpriced.map((m) => `<span class="md-mono">${escapeHtml(m)}</span>`).join(", ")},
+            so its tokens are counted but its cost is not.` : ""}</p>
+      ${spanStart ? `<p class="md-body-small fact-note">First request
+        ${escapeHtml(ago(Date.now() / 1000 + skew - spanStart))}, last
+        ${escapeHtml(ago(Date.now() / 1000 + skew - spanEnd))}.</p>` : ""}
+    </section>`;
+}
+
 function aboutPanel(session, host) {
   const win = session.window;
   const muted = mutedSessions.has(session.sessionId);
@@ -4368,6 +4645,145 @@ document.getElementById("askCancel").addEventListener("click", () => closeAsk(fa
 document.getElementById("askConfirm").addEventListener("click", () => closeAsk(true));
 askScrim.addEventListener("click", (event) => { if (event.target === askScrim) closeAsk(false); });
 
+/* ==========================================================================
+   The plan — what a subscription has left, which is the one figure in this
+   panel that no file on this machine knows. The server runs Claude Code's own
+   `/usage` for it, so the reading is the same one the terminal would give you.
+   ========================================================================== */
+const planScrim = document.getElementById("planScrim");
+const planButton = document.getElementById("planButton");
+const planChipText = document.getElementById("planChipText");
+
+/* Five seconds and a process per reading, and a figure that moves in points
+   over hours: so it is read on the clock rather than on the poll, and not at
+   all while nobody is looking at the page. */
+const PLAN_POLL_MS = 300_000;
+let plan = null;
+let planBusy = false;
+let planPolledAt = 0;
+let planGone = false;      // the panel is read-only, so there is nothing to ask
+
+async function fetchPlan(force) {
+  if (planBusy || planGone) return;
+  if (!force && document.hidden) return;
+  if (!force && Date.now() - planPolledAt < PLAN_POLL_MS) return;
+  planBusy = true;
+  planPolledAt = Date.now();
+  paintPlanChip();
+  try {
+    const response = await fetch(`/api/plan${force ? "?force=1" : ""}`, { cache: "no-store" });
+    if (response.status === 403) {
+      // Reading it means running a command, which a panel serving the network
+      // does not do. The chip goes rather than sitting there refusing.
+      planGone = true;
+      planButton.hidden = true;
+      return;
+    }
+    if (!response.ok) throw new Error(String(response.status));
+    plan = await response.json();
+    // A reading already in flight elsewhere: come back for its answer shortly
+    // rather than waiting on this request.
+    if (plan.reading) planPolledAt = Date.now() - PLAN_POLL_MS + 4000;
+  } catch (error) {
+    /* leave the last reading on screen */
+  } finally {
+    planBusy = false;
+    paintPlanChip();
+    if (planScrim.dataset.open === "true") paintPlanDialog();
+  }
+}
+
+/* The two figures worth an app bar: how much of the current session's allowance
+   has gone, and how much of the week's. Whichever is tighter colours the chip. */
+function planHeadline() {
+  const limits = plan?.limits || [];
+  const session = limits.find((l) => /session/i.test(l.name));
+  const week = limits.find((l) => /week/i.test(l.name) && !/\(/.test(l.name))
+    || limits.find((l) => /week.*all models/i.test(l.name))
+    || limits.find((l) => /week/i.test(l.name));
+  return [session, week].filter(Boolean);
+}
+
+function paintPlanChip() {
+  if (planGone) { planButton.hidden = true; return; }
+  planButton.hidden = false;
+  planButton.dataset.reading = planBusy || plan?.reading ? "1" : "0";
+  const shown = planHeadline();
+  if (!shown.length) {
+    planChipText.textContent = plan?.ok === false ? "plan?" : "plan";
+    planButton.dataset.tight = "0";
+    planButton.title = plan?.message || "What your plan has left";
+    return;
+  }
+  // Left, not used: "72% left" is the thing you are actually asking.
+  planChipText.textContent = shown.map((l) => `${100 - l.percent}%`).join(" · ");
+  const worst = Math.max(...shown.map((l) => l.percent));
+  planButton.dataset.tight = worst >= 90 ? "2" : worst >= 75 ? "1" : "0";
+  planButton.title = `${shown.map((l) => `${l.name}: ${100 - l.percent}% left`).join(", ")} — press for the rest`;
+}
+
+function planBar(limit) {
+  const tight = limit.percent >= 90 ? 2 : limit.percent >= 75 ? 1 : 0;
+  return `<div class="plan-limit">
+    <div class="plan-limit__head">
+      <span class="md-body-medium">${escapeHtml(limit.name)}</span>
+      <span class="plan-limit__pct md-title-medium md-mono">${100 - limit.percent}% left</span>
+    </div>
+    <div class="use-bar">
+      <div class="use-bar__fill" style="width: ${limit.percent ? Math.max(1, limit.percent) : 0}%" data-tight="${tight}"></div>
+    </div>
+    <div class="use-legend md-label-small">
+      <span>${limit.percent}% used</span>
+      <span>${limit.resets ? `resets ${escapeHtml(limit.resets)}` : "nothing used yet"}</span>
+    </div>
+  </div>`;
+}
+
+function paintPlanDialog() {
+  const head = document.getElementById("planHead");
+  const body = document.getElementById("planBody");
+  const age = document.getElementById("planAge");
+  if (!plan) {
+    head.textContent = "Reading your usage — this takes a few seconds.";
+    body.innerHTML = "";
+    age.textContent = "";
+    return;
+  }
+  head.textContent = plan.headline || plan.message || "";
+  const limits = plan.limits || [];
+  body.innerHTML = `
+    ${limits.length ? limits.map(planBar).join("")
+      : plan.text ? `<p class="plan-raw md-body-small">${escapeHtml(plan.text)}</p>`
+      : `<p class="md-body-medium">${escapeHtml(plan.message || "Nothing came back.")}</p>`}
+    ${(plan.blocks || []).map((block) => `<section class="plan-block">
+      <h3 class="plan-block__title md-title-small">${escapeHtml(block.title)}</h3>
+      ${block.lines.length ? `<ul class="md-body-small">${block.lines
+        .map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>` : ""}
+    </section>`).join("")}
+    <p class="plan-note md-body-small">Read by running Claude Code's own
+      <span class="md-mono">/usage</span>, so it is the same answer the terminal gives — and it
+      costs no tokens. The panel never touches your credentials.${limits.length && plan.message
+        ? ` The last refresh failed: ${escapeHtml(plan.message)}` : ""}</p>`;
+  age.textContent = plan.at
+    ? planBusy || plan.reading ? "reading…" : `read ${ago(Date.now() / 1000 - plan.at)}`
+    : "";
+}
+
+function openPlan(open) {
+  planScrim.dataset.open = String(open);
+  if (!open) { planButton.focus(); return; }
+  paintPlanDialog();
+  document.getElementById("closePlan").focus();
+  // Opening it is asking for the figure, so a stale one is refreshed there and
+  // then rather than at the next tick of the clock.
+  if (!plan || Date.now() / 1000 - (plan.at || 0) > PLAN_POLL_MS / 1000) fetchPlan(true);
+}
+
+planButton.addEventListener("click", () => openPlan(true));
+document.getElementById("closePlan").addEventListener("click", () => openPlan(false));
+document.getElementById("planRefresh").addEventListener("click", () => { fetchPlan(true); paintPlanDialog(); });
+planScrim.addEventListener("click", (event) => { if (event.target === planScrim) openPlan(false); });
+
 function openSettings(open) {
   settingsScrim.dataset.open = String(open);
   if (open) { renderSwatches(); renderContrast(); document.getElementById("closeSettings").focus(); }
@@ -4380,6 +4796,7 @@ document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
   if (askScrim.dataset.open === "true") closeAsk(false);
   else if (endScrim.dataset.open === "true") closeEndDialog();
+  else if (planScrim.dataset.open === "true") openPlan(false);
   else if (settingsScrim.dataset.open === "true") openSettings(false);
   // Nothing modal is open, so Escape drops whatever rows are picked.
   else clearPicked();
@@ -4415,6 +4832,8 @@ applyScheme();
 if (selectedId) panes.dataset.view = "detail";
 poll();
 setInterval(poll, 1000);
+fetchPlan(true);
+setInterval(() => fetchPlan(false), 30_000);
 setInterval(() => {
   const now = Date.now() / 1000 + skew;
   for (const node of document.querySelectorAll("[data-since]")) {

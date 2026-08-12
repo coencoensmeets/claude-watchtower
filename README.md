@@ -59,10 +59,12 @@ python3 server.py
 | Section | What's inside |
 |---|---|
 | [What it shows](#what-it-shows) | The four states, and why the one you care about is inferred rather than read |
-| [Layout](#layout-an-index-and-a-detail-pane) | The index, groups, the detail pane and its four tabs |
+| [Layout](#layout-an-index-and-a-detail-pane) | The index, groups, the detail pane and its five tabs |
 | [Sending a message](#sending-a-message) | The composer, the unix socket behind it, and its three honest limits |
 | [Permission mode](#permission-mode) | How much rope a session has, when it was true, and why it is read-only |
 | [Git and History](#git-and-history) | Staging, committing and pushing in the editor's own Source Control layout, and a commit graph drawn from real ancestry |
+| [Usage and cost](#usage-and-cost) | What a session has spent in tokens, and what that comes to at list price |
+| [What your plan has left](#what-your-plan-has-left) | The subscription's session and weekly limits, in the app bar |
 | [Naming a session](#naming-a-session) | Call a session what you are using it for |
 | [Focusing a window](#focusing-a-window) | Matching by pid, identifying over the pty, pairing by hand |
 | [Ending a session](#ending-a-session) | SIGTERM, force quit, and the stale-pid check |
@@ -154,11 +156,12 @@ Click a row and the pane shows that session in full: its name, state and how lon
 | **Conversation** | The recent transcript, as speech bubbles, plus the composer |
 | **Git** | What the session has done to the working tree |
 | **History** | The same repository's recent commits, drawn as a graph |
+| **Usage** | Tokens and cost, per model, and how full the context is |
 | **Details** | Window pairing, notification switch, the facts, and **End session** |
 
 **Conversation.** Your prompts and Claude's replies are speech bubbles; turns that only ran tools are quiet single rows with the tool name and its target, so the actual conversation stays readable. It is read from the end backwards and stops at a page of messages, which is why a five-megabyte transcript opens as fast as a fresh one — and why the page is a page of *conversation*: a fixed tail of a working session is nearly all tool output, so it would show Claude's last twenty turns and none of your own messages. The bubbles render Markdown — headings, lists, tables, quotes, emphasis, links and code blocks — because an answer read as raw `###` and `**` is hard work. Nothing from a message reaches the page as markup: code is held aside first, every other scrap is escaped before a tag is added, links are only made for http, https and mailto, and an image becomes a link rather than a remote fetch. It follows the live session, and stays pinned to the newest message unless you scroll up. A long answer buries what you asked for, so a **Last request** pill floats over the corner whenever your most recent message is off screen; it scrolls back to it and its arrow points the way it will travel.
 
-**Git** and **History** are described under [Git and History](#git-and-history). **Details** carries window pairing, a per-session switch for whether it may raise a desktop notification when it starts waiting, the facts (pid, Claude Code version, session id, start time, where the transcript lives), and **End session**.
+**Git** and **History** are described under [Git and History](#git-and-history), **Usage** under [Usage and cost](#usage-and-cost). **Details** carries window pairing, a per-session switch for whether it may raise a desktop notification when it starts waiting, the facts (pid, Claude Code version, session id, start time, where the transcript lives), and **End session**.
 
 Below 900px the two panes become one at a time, with a back arrow in the app bar.
 
@@ -244,6 +247,40 @@ Each row reads name first, then the folder it sits in, then one letter for what 
 
 **The panel does not choose for you.** A pull that cannot fast-forward, a merge, a rebase, a force-push without a lease: none of them happen here. `pull --ff-only` refuses and says the branch has diverged, because deciding between a merge and a rebase under a session that is editing the same tree belongs to whoever can see the conflict. Discarding is the one action that cannot be undone with git, so it is the one action that asks first — and it says *delete* rather than *discard* for a file that was never committed, because that is what happens to it.
 
+## Usage and cost
+
+A session working on its own for an hour is spending money, and nothing in the terminal says how much until you ask it. **Usage** says it: what this session has cost so far, how many requests it took, the tokens in and out, and one row per model it used.
+
+It is read out of the transcript, because that is the only place the figures exist. Every reply Claude Code writes down carries the usage the API reported for it — fresh input, cache writes and reads, output, thinking tokens, any web searches — and the tab is the sum of them at Anthropic's published per-token prices, with a cache write at 1.25× fresh input for the five-minute cache or 2× for the hour, and a cache read at a tenth.
+
+**The cost is a list price, and the tab says so.** A Claude subscription bills a plan rather than tokens, and a negotiated rate is not the published one, so the figure is what this work is worth rather than what you will be charged — which is still the number you want when deciding whether a model is worth pointing at a job. A model the panel has no price for is counted in tokens and named as unpriced rather than quietly costed at zero.
+
+**Cache reads are most of it, and the tab shows why.** A long session re-reads its whole conversation on every turn, so its token count runs into the hundreds of millions while the bill does not — the *Tokens in* tile gives the share that came out of the cache, and the per-model row splits fresh input, cache writes and cache reads into their own columns so the cost adds up in front of you.
+
+**Sub-agent work is kept apart.** A turn handed to an agent of the session's own is marked as a sidechain in the transcript, and it gets its own table under the models: the same bill, listed separately because it is not the conversation you are reading in the tab next door.
+
+**The context bar is the other thing you came for.** Its last request carried some number of tokens into the model, cached or not, and that is the session's context size; the bar puts it against that model's window and turns amber past three quarters, which is roughly where compaction starts to be the next thing that happens.
+
+> **A transcript only grows, so it is only read once.** The server remembers the byte it stopped at and picks up from there on the next poll, which is what keeps a hundred-megabyte transcript from being re-totalled every few seconds. A turn is written down once per content block, all carrying the same request id, so the id is what keeps a turn that had three things to say from being billed three times.
+
+A nested session has no transcript of its own, so there is nothing for it to total — its usage lands in the transcript of the session that started it, and the tab says so rather than showing zeros.
+
+## What your plan has left
+
+The Usage tab answers what a session has spent. The other question — how much of the *plan* is left before everything stops — is not a session's to answer, and no file on this machine knows it: it belongs to the account and lives behind Anthropic's API.
+
+So the app bar carries a chip reading **65% · 72%** — what is left of the current session's allowance and of the week's — and pressing it opens the full report: a bar per limit with what each resets at, and Claude Code's own breakdown of what has been contributing to them (requests and sessions over the last day and week, how much of it was at large context, in parallel, or in sessions running for hours). Past three quarters of any limit the chip turns amber, past nine tenths red, so the app bar starts saying it before a session does.
+
+**It is read by running `claude --print /usage`.** The panel handles no credentials and calls no endpoint of its own. The alternative was to read the OAuth token out of `~/.claude/.credentials.json` and ask Anthropic directly — a web server on this machine holding your login, for a figure the official client already gives away — and that is not a trade this panel makes for a number. What you see is what the terminal would have told you, parsed.
+
+**It costs no tokens.** `/usage` fetches and prints; it samples no model, which a run against a fresh transcript confirms — not one usage entry in it. What it does cost is about five seconds and a process, so the panel asks rarely: once when the page opens, then no more than once every five minutes, never while the page is hidden, and immediately when you press **Refresh**. Two readings never run at once — the second is handed the first one's answer.
+
+Being an errand the panel started, it stays out of the list, the same way the commit-message errand does. It does leave a transcript behind under `~/.claude/projects`, as any headless run does; there is nothing the panel can do about that from the outside.
+
+Like sending a message and writing to a repository, this runs a command on this machine, so it sits behind the same gate: **loopback only**. A panel served to the network, or started with `--no-send`, answers 403 and shows no chip at all rather than one that refuses.
+
+**The output is a report for a person, not an interface, so nothing here insists on it.** Every line that reads as a limit becomes a bar; anything else is kept as prose in the order it arrived; and a release that changes the wording shows you the text it could not parse rather than an empty dialog. An API-key user, who has no plan to have anything left of, sees whatever `/usage` says about that.
+
 ## Naming a session
 
 A session arrives with the name Claude Code gives it, which says nothing about what you are using it for. Click the name in the detail header — not the one in the list — and it turns into a field: type a name and press Enter, or just click away. Escape leaves it alone, and clearing the field puts the session's own name back.
@@ -288,6 +325,8 @@ The terminal is whichever of Ghostty, WezTerm, kitty, Alacritty, Konsole, GNOME 
 ```bash
 CLAUDE_WATCHTOWER_TERMINAL="kitty --"
 ```
+
+A session the panel starts is a session in its own right, never a child of whatever started the panel. The panel is often run from inside a session itself, and Claude Code stamps its environment on everything it launches — inherit that stamp and the new session comes up nested, with no session file, no transcript and no chat of its own — what [What it shows](#what-it-shows) describes about nested sessions. So the terminal is opened with those session-scoped variables stripped — `CLAUDECODE`, `CLAUDE_PID`, `CLAUDE_CODE_SESSION_ID` and the rest. Settings you put in your own profile, `CLAUDE_CONFIG_DIR` and the other `CLAUDE_CODE_*` options among them, are passed through untouched.
 
 Starting a session runs a command on this machine, so it sits behind the same loopback gate as sending a message: off unless the panel is bound to a loopback address. What is kept lives in `~/.config/claude-watchtower/sticky.json`.
 
@@ -374,9 +413,9 @@ google-chrome --headless=new --remote-debugging-port=9333 \
 node tests/ui-check.mjs
 ```
 
-`tests/ui-check.mjs` drives a throwaway headless Chrome over the DevTools protocol and asserts the things a screenshot cannot: that every MD3 token resolves, that the four state containers are distinct and stay distinct after the base colour changes, that every piece of text on screen clears 4.5:1, that the index lists each session with a host icon and a state lamp, that clicking a row opens its detail and every tab renders, that the filter chips filter, that sessions sharing a folder group themselves and picked rows can be grouped, folded and ungrouped by hand, that the settings dialog changes the scheme and persists it, and that interactive targets reach 48dp. Node 24+, no dependencies. Override `PANEL_URL` / `CDP_URL` to point elsewhere.
+`tests/ui-check.mjs` drives a throwaway headless Chrome over the DevTools protocol and asserts the things a screenshot cannot: that every MD3 token resolves, that the four state containers are distinct and stay distinct after the base colour changes, that every piece of text on screen clears 4.5:1, that the index lists each session with a host icon and a state lamp, that clicking a row opens its detail and every tab renders, that the filter chips filter, that sessions sharing a folder group themselves and picked rows can be grouped, folded and ungrouped by hand, that the plan chip shows what is left and opens a dialog with a bar per limit — skipped, with a reason, on a read-only panel or where `/usage` does not answer — that the settings dialog changes the scheme and persists it, that Usage either shows a cost and a row per model or says plainly that there is nothing to total yet, and that interactive targets reach 48dp. Node 24+, no dependencies. Override `PANEL_URL` / `CDP_URL` to point elsewhere.
 
-The Git checks want a session whose folder is in a repository: they find one from `/api/state`, then assert that both tabs appear, that Git reads the branch and marks every file with its status letter and a way to open it while carrying no graph, that the files land in the editor's three groups, that the commit box and its split button are there when writing is on — and that a read-only panel says so and offers nothing — that a row opens exactly one diff and closes it again, that History draws one node per commit and keeps no file list, that each rail is the same height as its row — a mismatch there is what leaves the lanes broken at every join — that both clear 4.5:1, and that all four tabs stay reachable at 48dp. With no such fixture they say so and skip rather than failing for a reason that has nothing to do with the panel.
+The Git checks want a session whose folder is in a repository: they find one from `/api/state`, then assert that both tabs appear, that Git reads the branch and marks every file with its status letter and a way to open it while carrying no graph, that the files land in the editor's three groups, that the commit box and its split button are there when writing is on — and that a read-only panel says so and offers nothing — that a row opens exactly one diff and closes it again, that History draws one node per commit and keeps no file list, that each rail is the same height as its row — a mismatch there is what leaves the lanes broken at every join — that both clear 4.5:1, and that all five tabs stay reachable at 48dp. With no such fixture they say so and skip rather than failing for a reason that has nothing to do with the panel.
 
 **No check stages or commits anything.** The suite runs against whatever real sessions are on the machine, and a test that commits in somebody's checkout to prove a button works has done more than it was asked. It asserts that the controls are there and wired; the one action it actually performs is opening a diff, which only reads.
 
@@ -392,6 +431,8 @@ PANEL_URL=http://127.0.0.1:8787 node tests/ui-check.mjs
 |---|---|
 | `GET /api/state` | Every live session, with status, trace, and window match |
 | `GET /api/transcript` | `?sessionId=…&limit=…` — the recent conversation |
+| `GET /api/usage` | `?sessionId=…` — that session's token totals per model, the cost they come to, and the size of its last context |
+| `GET /api/plan` | The subscription's limits, read by running `claude --print /usage`; `?force=1` skips the five-minute cache; loopback only |
 | `GET /api/git` | `?sessionId=…` — that session's repository: branch, upstream drift, changed files, recent commits with their parents, and the branches it could switch to |
 | `GET /api/git/diff` | `?sessionId=…&path=…&staged=1` — one changed file's unified diff, one side at a time |
 | `POST /api/git` | `{"sessionId": "...", "action": "...", …}` — one source-control action: `stage`, `unstage`, `discard` (each with `paths`), `stageAll`, `unstageAll`, `discardAll`, `commit` (`message`, `amend`, `stageAll`), `push` (`force` uses a lease), `pull`, `fetch`, `sync`, `stash`, `stashPop`, `switch` (`branch`, `create`, `from`), `suggestMessage` (answers with `text`, the message it wrote); loopback only |

@@ -1370,6 +1370,153 @@ def suggest_message(root: str) -> tuple[bool, str]:
     return True, message
 
 
+# --------------------------------------------------------------- the plan left
+
+
+# `/usage` is the one thing in this panel that no file on this machine knows.
+# What a subscription has left is the account's, not the session's, and it lives
+# behind Anthropic's API — so it is asked for the way you would ask yourself, by
+# running Claude Code's own command and reading what it prints.
+#
+# Which is the point of doing it this way. The alternative was for the panel to
+# read the OAuth token out of ~/.claude/.credentials.json and call an undocumented
+# endpoint itself: a web server on this machine holding your credentials, for a
+# reading the official client already gives away for free. This spawns `claude`,
+# handles no secret, and asks for nothing the terminal would not have told you.
+#
+# It costs no tokens — the command fetches and prints, and samples no model, which
+# a run against a fresh transcript confirms: not one usage entry — but it does take
+# five seconds and a process, so it is asked rarely and its answer is kept.
+PLAN_TIMEOUT = 45.0
+PLAN_FRESH = 300.0
+
+PLAN_LOCK = threading.Lock()
+PLAN_HELD: dict = {}
+PLAN_RUNNING = False
+
+# "Current session: 34% used · resets Aug 12, 5:49pm (Europe/Amsterdam)", and the
+# week's two lines in the same shape. The reset clause is optional: a limit at 0%
+# has nothing to reset from yet.
+PLAN_LIMIT = re.compile(
+    r"^(?P<name>[^:]{1,60}?):\s*(?P<percent>\d{1,3})%\s*used"
+    r"(?:\s*[·|-]\s*resets\s*(?P<resets>.+?))?\s*$")
+# "Last 24h · 4141 requests · 46 sessions" — the heading of a block of bullets.
+PLAN_BLOCK = re.compile(r"^(Last\s.+|What's contributing.*)$")
+
+
+def parse_plan(text: str) -> dict:
+    """Read `/usage`'s report into figures, keeping the text it came from.
+
+    The output is a human's report rather than an interface, so nothing here
+    insists on it. Every line that reads as a limit becomes one; anything else is
+    kept in order as prose, and a run that parses to nothing still hands back
+    what it was given rather than an empty panel.
+    """
+    headline, limits, blocks = "", [], []
+    for raw in text.splitlines():
+        line = raw.rstrip()
+        if not line.strip():
+            continue
+        match = PLAN_LIMIT.match(line.strip())
+        if match:
+            limits.append({
+                "name": match.group("name").strip(),
+                "percent": min(100, int(match.group("percent"))),
+                "resets": (match.group("resets") or "").strip(),
+            })
+            continue
+        if PLAN_BLOCK.match(line.strip()):
+            blocks.append({"title": line.strip(), "lines": []})
+            continue
+        if blocks and raw.startswith((" ", "\t")):
+            blocks[-1]["lines"].append(line.strip())
+            continue
+        if not headline:
+            headline = line.strip()
+        elif blocks:
+            blocks[-1]["lines"].append(line.strip())
+    return {"headline": headline, "limits": limits, "blocks": blocks, "text": text.strip()}
+
+
+def run_plan() -> dict:
+    """Run `claude /usage` once and read the answer."""
+    claude = shutil.which("claude")
+    if not claude:
+        return {"ok": False, "message": "Cannot find the claude command on PATH"}
+    try:
+        # Same shape as the commit-message errand: printing, no tools, so there is
+        # no permission prompt to answer and nothing it can touch. Run from home
+        # rather than a repository — this is the account's reading, not a folder's.
+        process = subprocess.Popen(
+            [claude, "--print", "/usage", "--model", MESSAGE_MODEL,
+             "--allowed-tools", "", "--output-format", "text"],
+            cwd=str(HOME), text=True,
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        return {"ok": False, "message": f"Could not run claude: {error}"}
+
+    own_errand(process.pid, True)
+    try:
+        out, err = process.communicate(timeout=PLAN_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.communicate()
+        return {"ok": False, "message": f"Claude did not answer within {int(PLAN_TIMEOUT)}s"}
+    except (OSError, subprocess.SubprocessError) as error:
+        process.kill()
+        return {"ok": False, "message": f"Could not run claude: {error}"}
+    finally:
+        own_errand(process.pid, False)
+
+    if process.returncode != 0:
+        return {"ok": False, "message": git_said(err) or "Claude could not read your usage"}
+    if not out.strip():
+        return {"ok": False, "message": "Claude answered with nothing"}
+    return {"ok": True, **parse_plan(out)}
+
+
+def read_plan(force: bool = False) -> dict:
+    """The account's remaining plan, read at most every few minutes.
+
+    A reading costs five seconds and a process, and the figure moves in
+    percentage points over hours, so it is kept and handed back until it is stale.
+    Two people opening the dialog at once get the same answer rather than two
+    runs: the second is told one is on its way and shown what there is.
+    """
+    global PLAN_RUNNING
+    now = time.time()
+    with PLAN_LOCK:
+        held = dict(PLAN_HELD)
+        fresh = held.get("ok") and now - held.get("at", 0) < PLAN_FRESH
+        if fresh and not force:
+            return {**held, "reading": False}
+        if PLAN_RUNNING:
+            # Somebody's run is already in flight. Hand back what we have and say
+            # so, rather than starting a second `claude` for the same answer.
+            return {**held, "reading": True} if held else {"ok": False, "reading": True,
+                                                          "message": "Reading your usage…"}
+        PLAN_RUNNING = True
+
+    try:
+        answer = run_plan()
+    finally:
+        with PLAN_LOCK:
+            PLAN_RUNNING = False
+
+    answer["at"] = time.time()
+    if answer.get("ok"):
+        with PLAN_LOCK:
+            PLAN_HELD.clear()
+            PLAN_HELD.update(answer)
+        return {**answer, "reading": False}
+    # A failed read does not throw away a good one: the last figures with the
+    # reason the refresh failed is more use than the reason alone.
+    if held.get("ok"):
+        return {**held, "reading": False, "message": answer.get("message", "")}
+    return {**answer, "reading": False}
+
+
 def git_action(root: str, action: str, payload: dict) -> tuple[bool, str, int]:
     """One Source-Control action, named by the browser, run against one repo.
 
@@ -1859,6 +2006,251 @@ def read_transcript(session_id: str, cwd: str, limit: int = 60) -> dict:
     return {"sessionId": session_id, "title": None, "messages": [], "truncated": False, "path": None}
 
 
+# ------------------------------------------------------------- tokens and cost
+
+
+# List price per million tokens, input and output, as the API charges them. The
+# multipliers below turn the input price into the other three rates: a cache
+# write costs more than fresh input, a cache read a tenth of it.
+#
+# Keys are matched longest-first as a prefix of the model the transcript names,
+# so a dated or suffixed id (`claude-opus-5[1m]`) prices as its family. A model
+# with no entry is still counted — its tokens are real — but contributes no cost
+# and is named as unpriced, which is honest and says what to fix.
+MODEL_PRICES = {
+    "claude-fable-5": (10.0, 50.0),
+    "claude-mythos-5": (10.0, 50.0),
+    "claude-mythos-preview": (10.0, 50.0),
+    "claude-opus-5": (5.0, 25.0),
+    "claude-opus-4": (5.0, 25.0),
+    "claude-sonnet-5": (3.0, 15.0),
+    "claude-sonnet-4": (3.0, 15.0),
+    "claude-haiku-4-5": (1.0, 5.0),
+    "claude-3-5-haiku": (0.8, 4.0),
+}
+
+# Fast mode is the same model at a premium, and the transcript says which one ran.
+FAST_PRICES = {"claude-opus-5": (10.0, 50.0), "claude-opus-4-8": (10.0, 50.0)}
+
+CACHE_WRITE_5M = 1.25
+CACHE_WRITE_1H = 2.0
+CACHE_READ = 0.1
+WEB_SEARCH_PER_1K = 10.0
+
+# What a full context is, for the reading of how much of one this session is
+# carrying. Haiku's is the small one; everything current is a million.
+SMALL_WINDOW = 200_000
+BIG_WINDOW = 1_000_000
+
+
+def price_of(model: str, fast: bool) -> tuple[float, float] | None:
+    if fast:
+        for name, rate in FAST_PRICES.items():
+            if model.startswith(name):
+                return rate
+    for name in sorted(MODEL_PRICES, key=len, reverse=True):
+        if model.startswith(name):
+            return MODEL_PRICES[name]
+    return None
+
+
+def context_window(model: str) -> int:
+    if "haiku" in model or "claude-3" in model:
+        return SMALL_WINDOW
+    return BIG_WINDOW
+
+
+def blank_counters() -> dict:
+    return {"requests": 0, "input": 0, "output": 0, "thinking": 0,
+            "cacheWrite5m": 0, "cacheWrite1h": 0, "cacheRead": 0, "webSearch": 0}
+
+
+def add_usage(bucket: dict, usage: dict) -> None:
+    """Fold one request's usage into a model's running totals.
+
+    Only the top-level figures are read. A response that took several passes
+    also carries an `iterations` list holding the same numbers broken up, so
+    counting both would bill every such turn twice.
+    """
+    bucket["requests"] += 1
+    bucket["input"] += int(usage.get("input_tokens") or 0)
+    bucket["output"] += int(usage.get("output_tokens") or 0)
+    details = usage.get("output_tokens_details")
+    if isinstance(details, dict):
+        bucket["thinking"] += int(details.get("thinking_tokens") or 0)
+    bucket["cacheRead"] += int(usage.get("cache_read_input_tokens") or 0)
+    written = int(usage.get("cache_creation_input_tokens") or 0)
+    split = usage.get("cache_creation")
+    if isinstance(split, dict):
+        hour = int(split.get("ephemeral_1h_input_tokens") or 0)
+        minutes = int(split.get("ephemeral_5m_input_tokens") or 0)
+        bucket["cacheWrite1h"] += hour
+        # Trust the total over the split: an unfamiliar bucket would otherwise
+        # go uncounted rather than merely unclassified.
+        bucket["cacheWrite5m"] += max(minutes, written - hour)
+    else:
+        bucket["cacheWrite5m"] += written
+    tools = usage.get("server_tool_use")
+    if isinstance(tools, dict):
+        bucket["webSearch"] += int(tools.get("web_search_requests") or 0)
+
+
+def cost_of(model: str, counters: dict, fast: bool = False) -> float | None:
+    rate = price_of(model, fast)
+    searches = counters["webSearch"] / 1000 * WEB_SEARCH_PER_1K
+    if rate is None:
+        return searches or None
+    inp, out = rate
+    return (
+        counters["input"] / 1e6 * inp
+        + counters["output"] / 1e6 * out
+        + counters["cacheWrite5m"] / 1e6 * inp * CACHE_WRITE_5M
+        + counters["cacheWrite1h"] / 1e6 * inp * CACHE_WRITE_1H
+        + counters["cacheRead"] / 1e6 * inp * CACHE_READ
+        + searches
+    )
+
+
+# A transcript only ever grows, so the scan remembers where it stopped and picks
+# up from there. Without this, every poll would re-read and re-total a file that
+# is megabytes long within an hour of work.
+USAGE_SCANS: dict[str, dict] = {}
+USAGE_LOCK = threading.Lock()
+
+
+def scan_usage(path: Path) -> dict:
+    """Every model request in this transcript, totalled, read once.
+
+    A turn is written down more than once — one line per content block, all
+    carrying the same `requestId` — so the id is what keeps a turn from being
+    counted as many times as it had things to say. Sub-agent turns are marked as
+    sidechains and are kept apart: they are the session's spend, but not the
+    session's conversation, and the two are worth telling apart.
+    """
+    try:
+        stat = path.stat()
+    except OSError:
+        return {}
+    key = str(path)
+    with USAGE_LOCK:
+        held = USAGE_SCANS.get(key)
+        # Replaced or truncated rather than appended to: start over.
+        if held is None or stat.st_size < held["offset"]:
+            held = {"offset": 0, "seen": set(), "main": {}, "agents": {},
+                    "context": None, "contextModel": None, "contextAt": None,
+                    "firstAt": None, "lastAt": None}
+            USAGE_SCANS[key] = held
+        if stat.st_size == held["offset"]:
+            return held
+
+        start = held["offset"]
+        try:
+            with path.open("rb") as handle:
+                handle.seek(start)
+                chunk = handle.read()
+        except OSError:
+            return held
+
+        # A line still being written has no newline yet. Stop at the last one
+        # there is and leave the remainder for the next pass, so the scan never
+        # sees half a turn and never skips it either.
+        cut = chunk.rfind(b"\n")
+        if cut < 0:
+            return held
+        held["offset"] = start + cut + 1
+        for line in chunk[:cut].decode("utf-8", "replace").split("\n"):
+            line = line.strip()
+            if not line.startswith("{"):
+                continue
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            if entry.get("type") != "assistant":
+                continue
+            message = entry.get("message")
+            if not isinstance(message, dict):
+                continue
+            usage = message.get("usage")
+            if not isinstance(usage, dict):
+                continue
+            model = str(message.get("model") or "unknown")
+            if model.startswith("<"):
+                continue          # a synthetic turn the API never billed
+            mark = entry.get("requestId") or entry.get("uuid")
+            if mark in held["seen"]:
+                continue
+            held["seen"].add(mark)
+            fast = usage.get("speed") == "fast"
+            name = f"{model} (fast)" if fast else model
+            side = bool(entry.get("isSidechain"))
+            where = held["agents"] if side else held["main"]
+            add_usage(where.setdefault(name, blank_counters()), usage)
+            at = entry.get("timestamp")
+            if at:
+                held["firstAt"] = held["firstAt"] or at
+                held["lastAt"] = at
+            if not side:
+                # What the model was carrying on its last turn: everything that
+                # went in, cached or not. This is the session's context size.
+                held["context"] = (int(usage.get("input_tokens") or 0)
+                                   + int(usage.get("cache_read_input_tokens") or 0)
+                                   + int(usage.get("cache_creation_input_tokens") or 0))
+                held["contextModel"] = model
+                held["contextAt"] = at
+        return held
+
+
+def read_usage(session_id: str, cwd: str) -> dict:
+    """What this session has spent, per model, with the cost that implies."""
+    for path in transcript_paths(session_id, cwd):
+        if not path.exists():
+            continue
+        held = scan_usage(path)
+        if not held:
+            break
+
+        def rows(bucket: dict) -> list[dict]:
+            out = []
+            for name, counters in sorted(bucket.items(), key=lambda kv: -sum(
+                    (kv[1]["input"], kv[1]["output"], kv[1]["cacheRead"],
+                     kv[1]["cacheWrite5m"], kv[1]["cacheWrite1h"]))):
+                fast = name.endswith(" (fast)")
+                model = name[:-7] if fast else name
+                out.append({**counters, "model": name,
+                            "cost": cost_of(model, counters, fast),
+                            "priced": price_of(model, fast) is not None})
+            return out
+
+        main, agents = rows(held["main"]), rows(held["agents"])
+        every = main + agents
+        totals = blank_counters()
+        for row in every:
+            for field in totals:
+                totals[field] += row[field]
+        cost = sum(row["cost"] or 0.0 for row in every)
+        return {
+            "ok": True,
+            "sessionId": session_id,
+            "models": main,
+            "agentModels": agents,
+            "totals": totals,
+            "cost": cost,
+            "unpriced": sorted({row["model"] for row in every if not row["priced"]}),
+            "context": held["context"],
+            "contextModel": held["contextModel"],
+            "contextWindow": context_window(held["contextModel"] or ""),
+            "contextAt": held["contextAt"],
+            "firstAt": held["firstAt"],
+            "lastAt": held["lastAt"],
+            "path": str(path),
+        }
+    return {"ok": True, "sessionId": session_id, "models": [], "agentModels": [],
+            "totals": blank_counters(), "cost": 0.0, "unpriced": [], "context": None,
+            "contextModel": None, "contextWindow": BIG_WINDOW, "contextAt": None,
+            "firstAt": None, "lastAt": None, "path": None}
+
+
 # ------------------------------------------------------------------- X11 windows
 
 
@@ -2108,6 +2500,39 @@ TERMINALS = [
 ]
 
 
+# The environment Claude Code stamps on everything it starts, and what makes a
+# session started from inside another one call itself a child: see
+# child_session. The panel is often itself started from inside a session, so
+# without this the terminal it opens inherits that stamp and the fresh session it
+# was asked for comes up nested — no session file, no transcript, no title, no
+# chat, and a parent it does not really belong to. Only session-scoped names are
+# dropped; the CLAUDE_CODE_* settings a user puts in their profile (model,
+# config dir, output limits) are not ours to throw away.
+SESSION_ENV = (
+    "CLAUDECODE",
+    "CLAUDE_CODE_CHILD_SESSION",
+    "CLAUDE_CODE_ENTRYPOINT",
+    "CLAUDE_CODE_EXECPATH",
+    "CLAUDE_CODE_MESSAGING_SOCKET",
+    "CLAUDE_CODE_MESSAGING_TOKEN",
+    "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_CODE_SSE_PORT",
+    "CLAUDE_EFFORT",
+    "CLAUDE_PID",
+    "AI_AGENT",
+)
+
+
+def top_level_env() -> dict[str, str]:
+    """Our environment with the marks of the session we may be running in removed.
+
+    What a new `claude` needs to start as a session in its own right rather than
+    as a child of ours. Also right for a resume: a resumed session that comes up
+    nested writes nothing to the transcript it was resumed on.
+    """
+    return {k: v for k, v in os.environ.items() if k not in SESSION_ENV}
+
+
 def terminal_argv(command: list[str], cwd: str) -> list[str] | None:
     """A terminal invocation that runs `command`, or None if none is installed.
 
@@ -2150,6 +2575,7 @@ def start_session(entry: dict) -> tuple[bool, str]:
         subprocess.Popen(
             argv, cwd=cwd, stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+            env=top_level_env(),
         )
     except OSError as exc:
         return False, f"Could not start it: {exc}"
@@ -2170,6 +2596,7 @@ def new_session(cwd: str) -> tuple[bool, str]:
         subprocess.Popen(
             argv, cwd=cwd, stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+            env=top_level_env(),
         )
     except OSError as exc:
         return False, f"Could not start it: {exc}"
@@ -2777,6 +3204,26 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError:
                 limit = 60
             self._json(read_transcript(session_id, session["cwd"], limit))
+            return
+        if path == "/api/usage":
+            query = parse_qs(urlparse(self.path).query)
+            session_id = (query.get("sessionId") or [""])[0]
+            session = self._session_by_id(session_id)
+            if not session:
+                self._json({"ok": False, "message": "That session is no longer running"}, 404)
+                return
+            self._json(read_usage(session_id, session["cwd"]))
+            return
+        if path == "/api/plan":
+            # Reading this runs a command on this machine, which is the same order
+            # of risk as the panel's other errands — so it sits behind the same
+            # loopback gate, however read-only the answer is.
+            if not SAY_ENABLED:
+                self._json({"ok": False, "message": "Reading your plan is off because the panel "
+                                                    "is not bound to loopback"}, 403)
+                return
+            query = parse_qs(urlparse(self.path).query)
+            self._json(read_plan((query.get("force") or [""])[0] == "1"))
             return
         if path == "/api/git":
             query = parse_qs(urlparse(self.path).query)

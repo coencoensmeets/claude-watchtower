@@ -224,6 +224,29 @@ const about = JSON.parse(await evaluate(`JSON.stringify({
 })`));
 check("details tab switches and shows facts", about.selected === "true" && about.facts >= 6, `${about.facts} facts`);
 check("details tab exposes window pairing and notifications", about.window && about.mute);
+
+/* The Usage tab totals the transcript, so a fixture with no recorded model
+   request has nothing to add up. Either way the tab must be there and must say
+   which of the two it is rather than drawing an empty page. */
+await evaluate(`document.querySelector('[data-tab="usage"]').click()`);
+await sleep(1200);
+const use = JSON.parse(await evaluate(`JSON.stringify({
+  selected: document.querySelector('[data-tab="usage"]').getAttribute('aria-selected'),
+  tiles: document.querySelectorAll('.use-tile').length,
+  cost: document.querySelector('.use-tile--lead .use-tile__value')?.textContent.trim() || "",
+  rows: document.querySelectorAll('.use-table tbody tr').length,
+  note: document.querySelector('.git-empty')?.textContent.trim().slice(0, 40) || "",
+  wide: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+})`));
+check("usage tab switches", use.selected === "true");
+if (use.tiles) {
+  check("usage shows a cost and a row per model", /^\$/.test(use.cost) && use.rows >= 1,
+    `${use.cost}, ${use.rows} models`);
+  check("the usage tab does not push the page sideways", !use.wide);
+} else {
+  check("usage says plainly when there is nothing to total", !!use.note, use.note);
+}
+
 await evaluate(`document.querySelector('[data-tab="chat"]').click()`);
 await sleep(800);
 
@@ -453,7 +476,7 @@ if (!gitSession) {
     check("git file rows clear 4.5:1", fileWorst >= 4.5,
       `worst ${fileWorst}:1 over ${fileContrast.length} spots`);
 
-    // Every tab has to stay reachable once there are four of them.
+    // Every tab has to stay reachable once there are five of them.
     const reach = JSON.parse(await evaluate(`JSON.stringify((() => {
       const strip = document.querySelector('.tabs');
       const tabs = [...document.querySelectorAll('.tab')];
@@ -463,8 +486,8 @@ if (!gitSession) {
         tall: tabs.every((t) => t.getBoundingClientRect().height >= 44),
       };
     })())`));
-    check("all four tabs stay reachable and 48dp tall",
-      reach.count === 4 && reach.scrollable && reach.tall, `${reach.count} tabs`);
+    check("all five tabs stay reachable and 48dp tall",
+      reach.count === 5 && reach.scrollable && reach.tall, `${reach.count} tabs`);
   }
   await evaluate(`document.querySelector('[data-tab="chat"]')?.click()`);
   await sleep(800);
@@ -506,6 +529,61 @@ const afterFilter = await evaluate(`document.querySelectorAll('.session-item').l
 check("filter chip narrows the list", afterFilter >= 1 && afterFilter < beforeFilter, `${beforeFilter} -> ${afterFilter}`);
 await evaluate(`[...document.querySelectorAll('.chip')].find(c => c.textContent.includes('all')).click()`);
 await sleep(600);
+
+/* ---------------------------------------------------------------- the plan */
+/* The plan chip reads /usage through the server, which takes a few seconds and
+   only answers a loopback panel at all. So this waits for it, and says which of
+   the three it got rather than failing for whichever one it is. */
+const planState = JSON.parse(await evaluate(`(async () => {
+  const answer = await fetch('/api/plan', { cache: 'no-store' });
+  const body = answer.status === 200 ? await answer.json() : null;
+  return JSON.stringify({ status: answer.status, ok: !!body?.ok });
+})()`));
+if (planState.status === 403) {
+  console.log("SKIP  plan chip — this panel is read-only, so it does not read your plan");
+} else if (!planState.ok) {
+  console.log("SKIP  plan chip — /usage did not answer on this machine");
+} else {
+  // The chip appears once the reading lands; the page asks for it on boot.
+  for (let i = 0; i < 20 && await evaluate(`planButton.hidden`); i++) await sleep(1000);
+  const chip = JSON.parse(await evaluate(`JSON.stringify({
+    hidden: planButton.hidden,
+    text: planChipText.textContent,
+    tight: planButton.dataset.tight,
+    title: planButton.title,
+  })`));
+  check("the plan chip shows what is left", !chip.hidden && /%/.test(chip.text), `${chip.text}`);
+  check("the chip names its limits in full", /left/.test(chip.title), chip.title);
+  await evaluate(`planButton.click()`);
+  await sleep(900);
+  const dialog = JSON.parse(await evaluate(`JSON.stringify({
+    open: planScrim.dataset.open,
+    bars: document.querySelectorAll('#planBody .plan-limit').length,
+    fills: [...document.querySelectorAll('#planBody .use-bar__fill')].map(f => f.style.width),
+    age: document.getElementById('planAge').textContent,
+    refresh: !!document.getElementById('planRefresh'),
+  })`));
+  check("the chip opens a dialog with one bar per limit",
+    dialog.open === "true" && dialog.bars >= 1, `${dialog.bars} limits`);
+  check("each bar is drawn to its own figure and says how old the reading is",
+    dialog.fills.every((w) => /%$/.test(w)) && /read|reading/.test(dialog.age),
+    `${dialog.fills.join(" ")} — ${dialog.age}`);
+  check("the dialog offers a refresh", dialog.refresh);
+  const planContrast = JSON.parse(await evaluate(`JSON.stringify((() => {
+    const out = [];
+    for (const el of document.querySelectorAll('#planHead, .plan-limit__pct, .plan-limit__resets, .plan-block li, .plan-note')) {
+      const fg = window.__hex(getComputedStyle(el).color);
+      out.push({ ratio: Math.round(window.__ratio(fg, window.__bgOf(el)) * 100) / 100 });
+    }
+    return out;
+  })())`));
+  const planWorst = planContrast.length ? Math.min(...planContrast.map((r) => r.ratio)) : 99;
+  check("plan dialog text clears 4.5:1", planWorst >= 4.5,
+    `worst ${planWorst}:1 over ${planContrast.length} spots`);
+  await evaluate(`document.getElementById('closePlan').click()`);
+  await sleep(500);
+  check("the plan dialog closes", await evaluate(`planScrim.dataset.open === 'false'`));
+}
 
 /* ------------------------------------------------- settings / dynamic colour */
 await evaluate(`document.getElementById('settingsButton').click()`);
