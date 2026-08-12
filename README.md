@@ -100,6 +100,19 @@ The age threshold is deliberately short, because it is not what protects a worki
 
 The obvious worry — a long, silent build being called ready while it runs — does not materialise: Claude Code keeps redrawing its own spinner throughout, which measured 0.17 of a core during a deliberately quiet twelve-second command, an order of magnitude above the threshold. The reading only expires for a session that is both quiet on disk and doing nothing measurable.
 
+**A session started from inside another one writes no session file at all.** Run `claude` from a session's own shell, or from a terminal that inherited its environment, and the new session marks itself a child — `CLAUDE_CODE_CHILD_SESSION=1` — and leaves nothing in `~/.claude/sessions/` but the key file that goes beside a session file. Nothing in that directory to read means the panel used to miss such a session completely, however hard it was working.
+
+So the panel writes that session file itself, from `/proc`: the pid, its working folder, when it started, which build it is running, and the parent it names in `CLAUDE_PID`. Its row is a row like any other — state, branch, Git tab, **Focus window**, **Send**, **End** — and it says whose child it is under its name.
+
+Two things about a nested session are genuinely missing rather than merely somewhere else:
+
+- **It has no transcript.** Nothing is written for it under `~/.claude/projects`, so there is no conversation to read, and nothing to take a title or a permission mode from. The Chat tab says so rather than promising one is coming.
+- **It publishes no session id.** Nothing outside the process can read the id it knows itself by, so the panel gives it one of its own — `child:<pid>:<starttime>`, unique for as long as the process lives. A name you type, a window you pair and a row you pin are all remembered against that, and outlive nothing but the process itself.
+
+Its status comes from the liveness signals, exactly as a VS Code session's does, with the same limit: a nested session sitting at a permission prompt reads as Waiting rather than as blocked on you.
+
+Headless work is left out. A `claude -p` errand started from inside a session is a child too, but it is one turn of someone else's work rather than a session you could type at, and the panel tells them apart by what is on standard input — a pty means somebody is there, a pipe or `/dev/null` means nobody is.
+
 ## Layout: an index and a detail pane
 
 The window is split the way Material 3's list-detail layout prescribes.

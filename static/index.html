@@ -2209,8 +2209,15 @@ function paintListItem(item, session) {
   // displaying" says what it is doing. Dropped when it only repeats the name.
   const subject = session.title && session.title.toLowerCase() !== session.name.toLowerCase()
     ? session.title : "";
+  // A nested session — one started from inside another — has no transcript to
+  // take a subject from, and its name is the panel's own guess rather than one
+  // Claude chose. Saying whose child it is puts the row in context instead.
+  const nested = session.kind === "child"
+    ? `in ${session.parentName || `pid ${session.parentPid || "?"}`}` : "";
+  const supporting = [state.short, session.folder, nested].filter(Boolean)
+    .map(escapeHtml).join(" · ");
   const signature = [stateKeyOf(session.status), session.name, session.folder, host.label,
-                     isSelected, session.sticky, subject].join(" ");
+                     isSelected, session.sticky, subject, nested].join(" ");
   if (item.dataset.signature !== signature) {
     item.dataset.signature = signature;
     item.innerHTML = `
@@ -2222,7 +2229,7 @@ function paintListItem(item, session) {
             session.sticky ? `<span class="session-item__pin" title="Kept in the dashboard">${ICON.pin}</span>` : ""
           }${escapeHtml(session.name)}</span>
           ${subject ? `<span class="session-item__subject md-body-small">${escapeHtml(subject)}</span>` : ""}
-          <span class="session-item__supporting md-body-small">${escapeHtml(state.short)} · ${escapeHtml(session.folder || "")}</span>
+          <span class="session-item__supporting md-body-small">${supporting}</span>
         </span>
         <span class="session-item__trailing md-label-small md-mono" data-since="${displaySince(session)}"></span>
       </button>`;
@@ -2654,7 +2661,7 @@ function renderDetail(force) {
     host.label, tab, transcript?.messages?.length ?? -1, transcript?.title ?? "",
     session.repoRoot ?? "", gitFor === session.sessionId ? gitStamp(git) : "",
     mutedSessions.has(session.sessionId), feed.canFocus, feed.canSend, session.canSay, session.sticky,
-    session.permissionMode ?? "", session.title ?? "",
+    session.permissionMode ?? "", session.title ?? "", session.parentName ?? "",
   ].join(" ");
   if (!force && detailPane.dataset.signature === signature) {
     const clock = detailPane.querySelector("[data-since]");
@@ -3281,7 +3288,13 @@ function chatPanel(session) {
     return `<p class="chat__note md-body-medium">Reading the conversation…</p>`;
   }
   if (!transcript.messages.length) {
-    return `<p class="chat__note md-body-medium">Nothing in this transcript yet.</p>`;
+    // A nested session has no transcript at all — Claude Code writes none for
+    // one — so "yet" would be a promise the panel cannot keep.
+    return `<p class="chat__note md-body-medium">${session.kind === "child"
+      ? "A session started from inside another one keeps no transcript on disk, "
+        + "so there is no conversation to read here. Its state, folder and branch "
+        + "are still live, and you can still send it a message."
+      : "Nothing in this transcript yet."}</p>`;
   }
   const rows = transcript.truncated
     ? [`<p class="chat__note md-label-small">showing the last ${transcript.messages.length} messages</p>`]
@@ -4088,6 +4101,12 @@ function aboutPanel(session, host) {
     ["Working folder", `<span class="md-mono">${escapeHtml(session.cwd)}</span>`],
     ["Git branch", session.branch ? `<span class="md-mono">${escapeHtml(session.branch)}</span>` : "—"],
     ["Runs in", escapeHtml(host.label)],
+    // Only a nested session has one of these, and it is the fact that explains
+    // the two below it: no transcript, and an id the panel made up.
+    ...(session.kind === "child" ? [["Started from", session.parentName
+      ? `${escapeHtml(session.parentName)} <span class="meta-sep">·</span>
+         <span class="fact-note">pid ${session.parentPid}</span>`
+      : `<span class="fact-note">a session that has since closed</span>`]] : []),
     // The only place the mode is said, and said in full: there is room here for
     // the caveat that it is a reading, and possibly an old one.
     ["Permission mode", session.permissionMode
@@ -4097,7 +4116,10 @@ function aboutPanel(session, host) {
       : "not written down yet"],
     ["Process", session.pid ? `<span class="md-mono">pid ${session.pid}</span>` : "not running"],
     ["Claude Code", escapeHtml(session.version || "—")],
-    ["Session id", `<span class="md-mono">${escapeHtml(session.sessionId)}</span>`],
+    ["Session id", `<span class="md-mono">${escapeHtml(session.sessionId)}</span>${
+      session.kind === "child"
+        ? ` <span class="meta-sep">·</span> <span class="fact-note">the panel's own:
+            a nested session publishes none</span>` : ""}`],
     ["Started", `${started.toLocaleString()} <span class="meta-sep">·</span> up ${duration(Date.now() / 1000 + skew - session.startedAt)}`],
     ["Transcript", transcript?.path ? `<span class="md-mono">${escapeHtml(shorten(transcript.path, 2))}</span>` : "—"],
   ];
@@ -4133,8 +4155,12 @@ function aboutPanel(session, host) {
         <span class="switch__track"><span class="switch__thumb">
           <svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
         </span></span>
-        <span class="switch__label md-body-medium">Keep this one in the dashboard after it closes, so the
-          conversation stays here and can be started up again</span>
+        <span class="switch__label md-body-medium">${session.kind === "child"
+          ? `Keep this one in the dashboard after it closes, so its folder stays here and a
+             session can be started up in it again — a nested session leaves no conversation
+             behind to keep`
+          : `Keep this one in the dashboard after it closes, so the
+             conversation stays here and can be started up again`}</span>
       </label>
     </section>
     <section class="section">
