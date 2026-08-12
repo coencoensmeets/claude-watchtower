@@ -339,6 +339,13 @@ if (!gitSession) {
           current: items.filter((b) => b.dataset.key?.startsWith('local:') && b.disabled).length,
           fromGit: (reading.branches?.local ?? []).length,
           onABranch: Boolean(reading.branch),
+          // A remote's default-branch pointer is not a branch. refs/remotes/origin/HEAD
+          // shortens to plain "origin" -- no backticks in here, this is inside a
+          // template literal -- so it once landed in the local list and was offered
+          // as somewhere to switch to.
+          noRemotePointers: (reading.branches?.remote ?? [])
+            .map((b) => b.name.split('/')[0])
+            .every((remote) => !(reading.branches?.local ?? []).some((b) => b.name === remote)),
         };
         // Put it away, so the checks after this one are not measuring a menu.
         // Dispatched on an element, not on document: listeners here reasonably
@@ -353,6 +360,8 @@ if (!gitSession) {
       // Detached HEAD has no current branch to mark, which is not a failure.
       check("the branch you are on is marked, not offered",
         branches.current === (branches.onABranch ? 1 : 0));
+      check("no remote's default-branch pointer is listed as a branch",
+        branches.noRemotePointers);
       if (scm.hasRow) {
         check("a file row carries stage or unstage",
           /(^|,)(stage|unstage)(,|$)/.test(scm.rowActions), scm.rowActions);

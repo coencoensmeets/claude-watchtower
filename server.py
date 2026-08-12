@@ -550,8 +550,13 @@ def parse_log(text: str) -> list[dict]:
     return commits
 
 
-# One record per ref: where it is, what it tracks, and when it last moved.
-REF_FORMAT = "%(refname:short)%1f%(upstream:short)%1f%(committerdate:unix)%1f%(HEAD)"
+# One record per ref: where it is, what it tracks, and when it last moved. The
+# full refname comes along because it is the only part that says for certain
+# whether a ref is a local branch or a remote one — the short name cannot, since
+# `refs/remotes/origin/HEAD` shortens to plain `origin` and a local branch is
+# free to have a slash in it. symref marks that pointer, which is not a branch.
+REF_FORMAT = ("%(refname)%1f%(refname:short)%1f%(upstream:short)"
+              "%1f%(committerdate:unix)%1f%(HEAD)%1f%(symref)")
 
 
 def read_branches(root: str) -> dict:
@@ -570,26 +575,23 @@ def read_branches(root: str) -> dict:
 
     local_names = set()
     remotes = []
-    # Read once, not per ref: telling refs/remotes from a local branch with a
-    # slash in its name means knowing what the remotes are called.
-    known = remote_names(root)
     for line in text.splitlines():
         parts = line.split("\x1f")
-        if len(parts) < 4:
+        if len(parts) < 6:
             continue
-        name, upstream, when, head = parts[0], parts[1], parts[2], parts[3]
-        if not name or name.endswith("/HEAD"):
-            continue          # the remote's default-branch pointer, not a branch
+        full, name, upstream, when, head, symref = parts[:6]
+        if not name or symref:
+            continue          # a remote's default-branch pointer, not a branch
         try:
             at = int(when)
         except ValueError:
             at = 0
-        if "/" in name and name.split("/", 1)[0] in known:
-            remotes.append({"name": name, "at": at})
-        else:
+        if full.startswith("refs/heads/"):
             local_names.add(name)
             out["local"].append({"name": name, "upstream": upstream or None,
                                  "at": at, "current": head == "*"})
+        elif full.startswith("refs/remotes/"):
+            remotes.append({"name": name, "at": at})
 
     for entry in remotes:
         # A remote branch that already has a local counterpart is reachable by
@@ -598,11 +600,6 @@ def read_branches(root: str) -> dict:
         if short not in local_names:
             out["remote"].append({**entry, "short": short})
     return out
-
-
-def remote_names(root: str) -> list[str]:
-    ok, text = git_run(root, ["remote"])
-    return [line.strip() for line in text.splitlines() if line.strip()] if ok else []
 
 
 def read_git(root: str, log_limit: int = 60) -> dict:

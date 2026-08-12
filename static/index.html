@@ -3845,6 +3845,17 @@ function branchMenuItems(session) {
       });
     }
   }
+  // A repository with nothing but the branch you are on says so. Two create
+  // lines and then silence reads as a list that failed to load — which is also
+  // what it looks like when the panel is a server old enough not to send one.
+  if (local.length <= 1 && !remote.length) {
+    items.push({ divider: true });
+    items.push({
+      key: "none", icon: ICON.branch, disabled: true,
+      label: git?.branches ? "No other branches yet" : "Branch list unavailable",
+      hint: git?.branches ? "" : "restart the panel",
+    });
+  }
   return items;
 }
 
