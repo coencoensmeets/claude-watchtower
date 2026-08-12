@@ -1865,9 +1865,15 @@ async function fetchTranscript() {
 }
 
 /* Reading a repository costs a subprocess or three, unlike the transcript's file
-   read, so this runs on its own slower clock rather than on every poll. */
+   read, so this runs on its own much slower clock rather than on every poll.
+
+   Slow on purpose. A working tree does not change on its own — a session or you
+   changes it — and everything the panel itself does re-reads immediately, as does
+   opening the tab or switching session. So this interval only governs how long a
+   change made *elsewhere* takes to show up, which is worth far less than running
+   git against somebody's repository every couple of seconds all day. */
 let gitPolledAt = 0;
-const GIT_POLL_MS = 2500;
+const GIT_POLL_MS = 20000;
 
 /* Everything the Git tab draws, in one string. Same reasoning as the
    transcript's: re-rendering on every poll throws the pane away under the
@@ -1897,6 +1903,10 @@ function gitStamp(g) {
 async function fetchGit(force) {
   const id = selectedId;
   if (!id || gitBusy) return;
+  // Nobody is reading a hidden tab. A Git tab left open behind another window
+  // would otherwise go on running git for the rest of the day; coming back to it
+  // reads once, immediately.
+  if (!force && document.hidden) return;
   if (!force && gitFor === id && Date.now() - gitPolledAt < GIT_POLL_MS) return;
   gitBusy = true;
   gitPolledAt = Date.now();
@@ -4385,7 +4395,13 @@ setInterval(() => {
     node.textContent = duration(now - Number(node.dataset.since));
   }
 }, 1000);
-document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) return;
+  poll();
+  // The repository was left alone while the tab was away, so catch it up now
+  // rather than at the end of an interval that started before you looked.
+  if (selectedId && isGitTab(tab)) fetchGit(true);
+});
 </script>
 </body>
 </html>

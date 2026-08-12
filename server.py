@@ -10,7 +10,8 @@ per running session (pid, name, cwd, status). Status is one of:
     idle     finished, waiting for your next prompt
 
 A busy or shell reading is only believed while the session keeps refreshing it;
-see effective_status.
+see effective_status. Some sessions — the VS Code extension among them — write
+no status at all, and are read from their liveness instead.
 
 Serves a small web UI and can raise the terminal or editor window that owns a
 session, using xdotool on X11.
@@ -113,12 +114,35 @@ def effective_status(data: dict, now: float, live: bool) -> str:
 
     Only the active states expire. `waiting` means blocked on you and stays put
     for as long as you take, which is not the same as going stale.
+
+    A session that writes no status at all is a separate case — see
+    inferred_status.
     """
-    status = data.get("status") or "idle"
+    if not data.get("status"):
+        return inferred_status(live)
+    status = data["status"]
     if status not in ACTIVE_STATUSES or live:
         return status
     age = status_age(data, now)
     return "idle" if age is not None and age > STATUS_TTL else status
+
+
+def inferred_status(live: bool) -> str:
+    """The state of a session that never reports one.
+
+    Not every entry point keeps the status field current. The VS Code extension
+    (`entrypoint: claude-vscode`) writes its session file once at startup and
+    never adds a status to it, so taking the absent field at face value pins
+    such a session to `idle` — which the panel shows as "Waiting" — for its
+    whole life, working turns included.
+
+    The liveness signals are the only reading left, and they separate the two
+    states that matter here: CPU burning or a transcript still growing means the
+    turn is running, and nothing means the turn is over. `waiting` cannot be
+    reached this way, so a permission prompt in such a session reads as done
+    rather than as blocked on you; that is the same as before this inference.
+    """
+    return "busy" if live else "idle"
 
 
 # ----------------------------------------------------------------- proc helpers
