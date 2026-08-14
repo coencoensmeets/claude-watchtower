@@ -40,61 +40,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from watchtower import build
-
-HOME = Path.home()
-# Override to point at a fixture directory when trying out the panel's states.
-# CLAUDE_BUSY_UI_SESSION_DIR is the pre-rename name, still honoured.
-SESSION_DIR = Path(
-    os.environ.get("CLAUDE_WATCHTOWER_SESSION_DIR")
-    or os.environ.get("CLAUDE_BUSY_UI_SESSION_DIR")
-    or HOME / ".claude" / "sessions"
+from watchtower import build, config
+from watchtower.config import (
+    HOME, SESSION_DIR, PROJECT_DIR, STATIC_DIR,
+    PAIR_FILE, NAME_FILE, MAX_NAME, MAX_NAMES,
+    STICKY_FILE, MAX_STICKY, HISTORY_SECONDS, SAMPLE_INTERVAL,
+    ACTIVE_STATUSES, STATUS_TTL, TRANSCRIPT_WINDOW, WORKING_CPU,
+    CPU_WINDOW, LIVENESS_GRACE,
 )
-PROJECT_DIR = HOME / ".claude" / "projects"
-# What the panel serves: the built frontend, not its sources. server.py builds
-# it on the way up when web/ is newer — see watchtower.build.
-STATIC_DIR = Path(__file__).resolve().parent / "dist"
-PAIR_FILE = HOME / ".config" / "claude-watchtower" / "pairs.json"
-# Names you have given sessions yourself, keyed by session id.
-NAME_FILE = HOME / ".config" / "claude-watchtower" / "names.json"
-MAX_NAME = 80
-# Session ids are never reused, so the file would grow forever without a cap.
-MAX_NAMES = 500
-# Sessions you asked the panel to keep after their process is gone.
-STICKY_FILE = HOME / ".config" / "claude-watchtower" / "sticky.json"
-MAX_STICKY = 100
-
-# How long a state trace remembers, and how often we sample.
-HISTORY_SECONDS = 30 * 60
-SAMPLE_INTERVAL = 1.0
-
-KNOWN_STATUSES = ("waiting", "busy", "shell", "idle")
-
-# States that mean work is happening right now. Claude Code writes the status
-# only when it changes, so an old reading is not proof of anything on its own —
-# see effective_status.
-ACTIVE_STATUSES = ("busy", "shell")
-# Short on purpose. The age check is not what keeps a working session on screen —
-# the liveness signals below do that — so this only has to be long enough not to
-# flap between two of them.
-STATUS_TTL = 15.0
-# A transcript that grew this recently counts as a session still at work. Kept
-# tight: the last thing a finished turn does is write to the transcript, so a
-# long window would hold every session at "working" well past the end of its turn.
-TRANSCRIPT_WINDOW = 10.0
-# A working session burns a good fraction of a core; an idle one ticks along at
-# well under a hundredth of one, so the gap between them is wide.
-WORKING_CPU = 0.02
-CPU_WINDOW = 5.0
-# A working turn is not steady activity. While a request is out to the API, or a
-# tool call is blocking on something slow, the process burns almost no CPU and
-# appends nothing to its transcript — both liveness signals go quiet mid-turn.
-# Read literally, that gap expires the session's `busy` reading and shows a
-# working session as "Waiting" for a few seconds until the next append puts it
-# back. So a reading of "alive" is remembered for this long after the signals
-# fall silent, which is longer than those gaps and still short enough that a
-# session whose status went stale for real settles within the minute.
-LIVENESS_GRACE = 45.0
 
 
 def cpu_seconds(pid: int) -> float | None:
@@ -476,10 +429,6 @@ def end_process(pid: int, recorded_start: str | None, force: bool) -> tuple[bool
 # can reach it. Two newline-delimited JSON lines inject a turn: an optional auth
 # line, then the message. The protocol is internal, hence PEER_PROTOCOL below.
 PEER_PROTOCOL = 1
-# Sending is settled once, in main, from the address we bind. Off unless loopback:
-# anyone who can POST /api/say can instruct an agent that has tools and a
-# checkout, which is a different order of risk from raising a window.
-SAY_ENABLED = False
 
 
 def is_loopback(host: str) -> bool:
@@ -1424,7 +1373,6 @@ PLAN_FRESH = 300.0
 
 PLAN_LOCK = threading.Lock()
 PLAN_HELD: dict = {}
-PLAN_RUNNING = False
 
 # "Current session: 34% used · resets Aug 12, 5:49pm (Europe/Amsterdam)", and the
 # week's two lines in the same shape. The reset clause is optional: a limit at 0%
@@ -1516,25 +1464,24 @@ def read_plan(force: bool = False) -> dict:
     Two people opening the dialog at once get the same answer rather than two
     runs: the second is told one is on its way and shown what there is.
     """
-    global PLAN_RUNNING
     now = time.time()
     with PLAN_LOCK:
         held = dict(PLAN_HELD)
         fresh = held.get("ok") and now - held.get("at", 0) < PLAN_FRESH
         if fresh and not force:
             return {**held, "reading": False}
-        if PLAN_RUNNING:
+        if config.PLAN_RUNNING:
             # Somebody's run is already in flight. Hand back what we have and say
             # so, rather than starting a second `claude` for the same answer.
             return {**held, "reading": True} if held else {"ok": False, "reading": True,
                                                           "message": "Reading your usage…"}
-        PLAN_RUNNING = True
+        config.PLAN_RUNNING = True
 
     try:
         answer = run_plan()
     finally:
         with PLAN_LOCK:
-            PLAN_RUNNING = False
+            config.PLAN_RUNNING = False
 
     answer["at"] = time.time()
     if answer.get("ok"):
@@ -3612,7 +3559,7 @@ class SessionStore:
                 "alive": False,
                 "canSay": False,
                 # Starting runs a command here, so it follows the same gate as sending.
-                "canStart": SAY_ENABLED,
+                "canStart": config.SAY_ENABLED,
                 "ancestors": [],
                 "tty": None,
                 "host": [],
@@ -3641,7 +3588,7 @@ class SessionStore:
             "sessions": out,
             "historySeconds": HISTORY_SECONDS,
             "canFocus": WINDOWS.available(),
-            "canSend": SAY_ENABLED,
+            "canSend": config.SAY_ENABLED,
         }
 
     def raw(self, session_id: str) -> dict | None:
@@ -3757,7 +3704,7 @@ class Handler(BaseHTTPRequestHandler):
             # Reading this runs a command on this machine, which is the same order
             # of risk as the panel's other errands — so it sits behind the same
             # loopback gate, however read-only the answer is.
-            if not SAY_ENABLED:
+            if not config.SAY_ENABLED:
                 self._json({"ok": False, "message": "Reading your plan is off because the panel "
                                                     "is not bound to loopback"}, 403)
                 return
@@ -3776,7 +3723,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": False, "isRepo": False,
                             "message": "This session's folder is not in a git repository"})
                 return
-            self._json({**read_git(root), "isRepo": True, "canWrite": SAY_ENABLED})
+            self._json({**read_git(root), "isRepo": True, "canWrite": config.SAY_ENABLED})
             return
         if path == "/api/git/diff":
             query = parse_qs(urlparse(self.path).query)
@@ -3872,7 +3819,7 @@ class Handler(BaseHTTPRequestHandler):
             # A prompt is an instruction to an agent with tools, so this endpoint
             # is worth more than the others put together. It stays on loopback
             # even when the rest of the panel is served to the network.
-            if not SAY_ENABLED:
+            if not config.SAY_ENABLED:
                 self._json({"ok": False, "message": "Sending is off because the panel is not bound to loopback"}, 403)
                 return
             data = STORE.raw(session_id)
@@ -3887,7 +3834,7 @@ class Handler(BaseHTTPRequestHandler):
             # Where the folder you picked in the browser's own dialog actually is.
             # Same gate as the listing it feeds: it reads this machine's
             # filesystem, and exists only to start a session.
-            if not SAY_ENABLED:
+            if not config.SAY_ENABLED:
                 self._json({"ok": False, "message": "Browsing folders is off because the panel "
                                                     "is not bound to loopback"}, 403)
                 return
@@ -3904,7 +3851,7 @@ class Handler(BaseHTTPRequestHandler):
             # Committing, pushing and discarding change a checkout on this
             # machine, which is the same order of risk as prompting the session
             # that lives in it — so they sit behind the same loopback gate.
-            if not SAY_ENABLED:
+            if not config.SAY_ENABLED:
                 self._json({"ok": False, "message": "Git actions are off — this panel is serving read-only"}, 403)
                 return
             root = self._session_repo(session_id)
@@ -3948,7 +3895,7 @@ class Handler(BaseHTTPRequestHandler):
             # Starting a session runs a command on this machine, which is the same
             # order of risk as sending it a prompt — so it lives behind the same
             # loopback gate.
-            if not SAY_ENABLED:
+            if not config.SAY_ENABLED:
                 self._json({"ok": False, "message": "Starting is off because the panel is not bound to loopback"}, 403)
                 return
             entry = load_sticky().get(session_id)
@@ -3971,7 +3918,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/new":
             # Same risk as /api/start — it runs a command on this machine — so it
             # sits behind the same loopback gate.
-            if not SAY_ENABLED:
+            if not config.SAY_ENABLED:
                 self._json({"ok": False, "message": "Starting is off because the panel is not bound to loopback"}, 403)
                 return
             # A folder named in the request opens a session there. This is a real
@@ -4070,8 +4017,7 @@ def main() -> None:
     if not args.no_build and not build.ensure_built():
         raise SystemExit(1)
 
-    global SAY_ENABLED
-    SAY_ENABLED = is_loopback(args.host) and not args.no_send
+    config.SAY_ENABLED = is_loopback(args.host) and not args.no_send
 
     if not SESSION_DIR.exists():
         print(f"warning: {SESSION_DIR} does not exist yet — start a Claude Code session first")
@@ -4083,7 +4029,7 @@ def main() -> None:
     print(f"claude-watchtower → http://{args.host}:{args.port}")
     if not WINDOWS.available():
         print("note: xdotool/DISPLAY unavailable, so window focusing is switched off")
-    if not SAY_ENABLED:
+    if not config.SAY_ENABLED:
         why = "--no-send" if args.no_send else f"not bound to loopback ({args.host})"
         print(f"note: sending input is switched off — {why}")
     try:
