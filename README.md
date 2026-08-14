@@ -2,8 +2,8 @@
 <p align="center">
   <a href="https://github.com/coencoensmeets/claude-watchtower">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="static/claude-watchtower-transparent-dark.svg">
-      <img src="static/claude-watchtower-transparent.svg" alt="Logo" height="170">
+      <source media="(prefers-color-scheme: dark)" srcset="docs/assets/claude-watchtower-transparent-dark.svg">
+      <img src="docs/assets/claude-watchtower-transparent.svg" alt="Logo" height="170">
     </picture>
   </a>
 
@@ -33,7 +33,9 @@
 
 See at a glance which session is working, which finished, and which is waiting on you — then click **Focus window** to jump to the terminal or editor that owns it.
 
-Python standard library only. No install step, no dependencies, nothing leaves the machine.
+Python standard library only, no packages to install, nothing leaves the machine.
+
+The panel's frontend is TypeScript, so it is built before it is served — but there is still nothing to install for it. Node strips TypeScript types itself, so the build needs a Node binary and no npm packages at all, and `python3 server.py` runs it for you when anything under `web/` has changed. If Node is not on the machine and cannot be put there, `python3 -m venv .venv && .venv/bin/pip install nodejs-wheel-binaries` puts one in the project instead.
 
 ## Quick start
 
@@ -453,8 +455,12 @@ Components used: top app bar, navigation-drawer style list items, filter chips, 
 ## Options
 
 ```bash
-python3 server.py --port 8787 --host 127.0.0.1 [--no-send]
+python3 server.py --port 8787 --host 127.0.0.1 [--no-send] [--build] [--no-build]
 ```
+
+`--build` builds the frontend and exits; `--no-build` serves whatever is already
+built, however stale. Neither is needed day to day — starting the panel builds
+what has changed and nothing else.
 
 > **`--host 0.0.0.0` exposes the panel to your network.** There is no authentication and the focus endpoint moves windows on this machine, so only do that on a network you trust. Sending input switches itself off on any non-loopback bind; `--no-send` switches it off on loopback as well.
 
@@ -492,11 +498,19 @@ systemctl --user enable --now claude-watchtower
 | Path | What's inside |
 |---|---|
 | `server.py` | Session discovery, window matching, JSON API |
-| `static/index.html` | The panel — Material 3, one file, no build step |
-| `static/fonts/` | Roboto and Roboto Mono, self-hosted |
-| `static/vendor/` | `material-color-utilities`, for dynamic colour |
+| `watchtower/build.py` | Finds Node and runs the frontend build when `web/` has changed |
+| `tools/build.mjs` | The build: strips types, concatenates stylesheets, copies assets |
+| `web/index.html` | The page shell — markup only |
+| `web/styles/` | The stylesheet, Material 3 |
+| `web/src/` | The panel's TypeScript |
+| `web/assets/fonts/` | Roboto and Roboto Mono, self-hosted |
+| `web/assets/vendor/` | `material-color-utilities`, for dynamic colour |
+| `dist/` | The built frontend, which is what the panel serves. Generated; not in git |
+| `tests/python/` | Unit tests over the readers |
+| `tests/fixtures.py` | Stands up a session in every state |
 | `tests/ui-check.mjs` | UI checks over CDP (tokens, contrast, settings) |
 | `claude-watchtower.service` | Optional systemd user unit |
+| `docs/cleanup-plan.md` | The staged refactor this layout is partway through |
 
 ## Tests
 

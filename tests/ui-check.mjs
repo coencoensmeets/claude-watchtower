@@ -1328,9 +1328,13 @@ if (!askSession) {
    machine. The native chooser cannot be driven from here, so it is stood in for —
    what is being checked is the panel's half. */
 if (await evaluate(`!document.getElementById('openButton').hidden`)) {
+  // The names below are the fingerprint the server places the folder by — it
+  // looks for a directory called claude-watchtower that holds all of them (see
+  // folder_matches). They must therefore be things this repository really
+  // contains, or the placement fails and the panel is blamed for it.
   await evaluate(`(() => { window.__realPicker = window.showDirectoryPicker;
     window.showDirectoryPicker = async () => ({ name: 'claude-watchtower',
-      keys: async function* () { yield 'server.py'; yield 'static'; yield 'README.md'; } });
+      keys: async function* () { yield 'server.py'; yield 'web'; yield 'README.md'; } });
     return true; })()`);
   await evaluate(`document.getElementById('openButton').click()`);
   await sleep(700);

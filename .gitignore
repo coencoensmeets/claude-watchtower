@@ -1,2 +1,6 @@
 __pycache__/
 .claude/worktrees/
+
+# Built frontend — regenerated from web/ by `python3 server.py`.
+dist/
+.dist-build/

@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Claude sessions</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div class="app">
+  <header class="app-bar">
+    <button class="icon-button md-state back-button" id="backButton" aria-label="Back to the session list">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+    </button>
+    <div class="app-bar__headline">
+      <h1 class="app-bar__title md-title-large">Claude Watchtower</h1>
+      <span class="app-bar__supporting md-label-medium" id="barSupporting"></span>
+    </div>
+    <div class="app-bar__actions">
+      <button class="plan-chip md-state md-label-large" id="planButton" hidden
+              aria-haspopup="dialog" title="How much of your plan has gone">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 18a8 8 0 1 1 16 0"/><path d="M12 18l4.5-5.5"/></svg>
+        <span id="planChipText">plan</span>
+      </button>
+      <label class="switch">
+        <input type="checkbox" id="themeToggle" aria-label="Dark theme">
+        <span class="switch__track"><span class="switch__thumb">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+        </span></span>
+        <span class="switch__label md-label-large" id="themeLabel">Light</span>
+      </label>
+      <button class="icon-button md-state" id="settingsButton" aria-label="Appearance settings" aria-haspopup="dialog">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3.2"/>
+          <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.9 19.3a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.7 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.7a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9v.09A1.7 1.7 0 0 0 21 10.1a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1.03z"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="panes" id="panes" data-view="list">
+    <nav class="list-pane" aria-label="Sessions">
+      <div class="list-sticky">
+        <!-- Above the list rather than in the app bar: what it makes is another
+             row here, so it belongs at the head of the thing it adds to. Inside
+             the sticky block, so it stays reachable however far the list scrolls. -->
+        <div class="list-actions">
+          <button class="button button--tonal md-state list-actions__open" id="openButton" hidden
+                  title="Open a Claude Code session in a folder">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+            Open session
+          </button>
+        </div>
+        <ul class="chip-set" id="chipSet"></ul>
+        <div class="pick-bar" id="pickBar" hidden>
+          <span class="pick-bar__count md-label-large" id="pickCount" role="status" aria-live="polite"></span>
+          <button class="button button--text md-state" id="pickClear" type="button">Clear</button>
+          <button class="button button--tonal md-state" id="pickGroup" type="button">Group</button>
+        </div>
+      </div>
+      <ul class="session-list" id="sessionList"></ul>
+      <p class="list-empty md-body-medium" id="listEmpty" hidden></p>
+    </nav>
+    <section class="detail-pane" id="detailPane" aria-live="polite"></section>
+  </div>
+</div>
+
+<div class="scrim" id="settingsScrim" data-open="false">
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="settingsHeadline">
+    <h2 class="dialog__headline md-headline-small" id="settingsHeadline">Appearance</h2>
+    <p class="dialog__supporting md-body-medium">
+      The whole palette is generated from one base colour, the way Material 3 dynamic
+      colour works. Pick a base and every surface, container, and state colour is
+      derived from it.
+    </p>
+    <section class="section">
+      <h3 class="section__title md-title-small">Base colour</h3>
+      <div class="swatches" id="swatches"></div>
+      <p class="seed-readout md-body-small" id="seedReadout"></p>
+    </section>
+    <hr class="divider">
+    <section class="section">
+      <h3 class="section__title md-title-small">Contrast</h3>
+      <div class="segmented" id="contrastGroup" role="group" aria-label="Contrast level"></div>
+    </section>
+    <div class="dialog__actions">
+      <button class="button button--text md-state" id="resetTheme">Reset</button>
+      <button class="button button--filled md-state" id="closeSettings">Done</button>
+    </div>
+  </div>
+</div>
+
+<div class="scrim" id="planScrim" data-open="false">
+  <div class="dialog dialog--wide" role="dialog" aria-modal="true" aria-labelledby="planHeadline">
+    <h2 class="dialog__headline md-headline-small" id="planHeadline">Your plan</h2>
+    <p class="dialog__supporting md-body-medium" id="planHead"></p>
+    <div id="planBody"></div>
+    <div class="dialog__actions">
+      <span class="plan-age md-label-small dialog__actions-start" id="planAge"></span>
+      <button class="button button--text md-state" id="planRefresh">Refresh</button>
+      <button class="button button--filled md-state" id="closePlan">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- Picking a folder to start a session in, through the browser's own native
+     dialog. What that dialog will not give up is where the folder is — a
+     `webkitdirectory` input reports each file's path relative to whatever you
+     chose — so the name and the entries directly inside it go to the server,
+     which finds the one folder on disk that matches. See locate_folder. -->
+<div class="scrim" id="folderScrim" data-open="false">
+  <div class="dialog dialog--tall" role="dialog" aria-modal="true" aria-labelledby="folderHeadline">
+    <h2 class="dialog__headline md-headline-small" id="folderHeadline">Open a session</h2>
+    <p class="dialog__supporting md-body-medium">Pick the folder it should start in.</p>
+    <!-- The one shape carrying this dialog: an outlined target while there is
+         nothing to open, the folder's real path once there is. Emptiness here is an
+         invitation, so it is the button — not a label with a button beside it. -->
+    <button class="folder-target md-state" id="folderBrowse" type="button">
+      <span class="folder-target__mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h3.6l2 2H19a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 16v-5M9.5 13.5 12 11l2.5 2.5"/></svg>
+      </span>
+      <span class="folder-target__words">
+        <span class="folder-target__lead md-title-small">Choose folder</span>
+        <span class="folder-target__hint md-label-small">your file browser opens — nothing is uploaded</span>
+      </span>
+    </button>
+    <input type="file" id="folderNative" webkitdirectory directory multiple hidden>
+    <!-- Where the pick landed. Named in full, because this is the only thing on
+         screen that says which checkout a session is about to start in. -->
+    <div class="folder-chosen" id="folderChosen" hidden>
+      <span class="folder-chosen__label md-label-small">Starting in</span>
+      <span class="folder-chosen__path md-body-medium md-mono" id="folderChosenPath"></span>
+      <button class="button button--text md-state folder-chosen__again" id="folderAgain" type="button">Choose another</button>
+    </div>
+    <p class="folder-note md-label-small" id="folderBrowseNote"></p>
+    <ul class="folder-choices" id="folderChoices" hidden></ul>
+    <!-- Shown only when the pick could not be placed: the search covers your home
+         directory, so a folder outside it — or one picked on another machine, when
+         the panel is read from one — has nowhere else to be named. -->
+    <label class="folder-typed" id="folderTyped" hidden>
+      <span class="md-label-medium">That one could not be placed. Type where it is:</span>
+      <input class="folder-typed__field md-body-medium md-mono" id="folderField" type="text"
+             autocomplete="off" spellcheck="false" placeholder="/opt/work/something">
+    </label>
+    <div class="dialog__actions">
+      <button class="button button--text md-state" id="folderCancel">Cancel</button>
+      <button class="button button--filled md-state" id="folderOpen" disabled>Open session</button>
+    </div>
+  </div>
+</div>
+
+<div class="scrim" id="endScrim" data-open="false">
+  <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="endHeadline" aria-describedby="endSupporting">
+    <h2 class="dialog__headline md-headline-small" id="endHeadline">End this session?</h2>
+    <p class="dialog__supporting md-body-medium" id="endSupporting"></p>
+    <div class="dialog__actions">
+      <button class="button button--text md-state dialog__actions-start" id="endForce">Force quit</button>
+      <button class="button button--text md-state" id="endCancel">Cancel</button>
+      <button class="button button--danger md-state" id="endConfirm">End session</button>
+    </div>
+  </div>
+</div>
+
+<!-- Asked before anything that loses work: discarding a change, deleting a file
+     that was never committed. Everything else on the Git tab can be undone with
+     git itself, so nothing else stops to ask. -->
+<div class="scrim" id="askScrim" data-open="false">
+  <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="askHeadline" aria-describedby="askSupporting">
+    <h2 class="dialog__headline md-headline-small" id="askHeadline"></h2>
+    <p class="dialog__supporting md-body-medium" id="askSupporting"></p>
+    <input class="dialog__field md-body-medium md-mono" id="askField" type="text" hidden
+      autocomplete="off" spellcheck="false">
+    <div class="dialog__actions">
+      <button class="button button--text md-state" id="askCancel">Cancel</button>
+      <button class="button button--danger md-state" id="askConfirm">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<div class="menu" id="sessionMenu" role="menu" data-open="false" hidden></div>
+
+<div class="quote-chip md-label-large" id="quoteChip" role="toolbar" aria-label="What to do with the selected passage" data-open="false" hidden></div>
+
+<div class="snackbar md-body-medium" id="snackbar" role="status" aria-live="polite" data-open="false"></div>
+
+<script type="module" src="/main.js"></script>
+</body>
+</html>

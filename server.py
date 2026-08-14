@@ -32,12 +32,15 @@ import shutil
 import signal
 import socket
 import subprocess
+import sys
 import threading
 import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+
+from watchtower import build
 
 HOME = Path.home()
 # Override to point at a fixture directory when trying out the panel's states.
@@ -48,7 +51,9 @@ SESSION_DIR = Path(
     or HOME / ".claude" / "sessions"
 )
 PROJECT_DIR = HOME / ".claude" / "projects"
-STATIC_DIR = Path(__file__).resolve().parent / "static"
+# What the panel serves: the built frontend, not its sources. server.py builds
+# it on the way up when web/ is newer — see watchtower.build.
+STATIC_DIR = Path(__file__).resolve().parent / "dist"
 PAIR_FILE = HOME / ".config" / "claude-watchtower" / "pairs.json"
 # Names you have given sessions yourself, keyed by session id.
 NAME_FILE = HOME / ".config" / "claude-watchtower" / "names.json"
@@ -3791,10 +3796,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/favicon.ico":
             self._send(204, b"", "image/x-icon")
             return
-        if path.startswith(("/fonts/", "/vendor/")):
-            self._serve_static(path)
-            return
-        self._send(404, b"not found", "text/plain")
+        # Everything else the page asks for — the stylesheet, the modules it
+        # imports, the fonts — is whatever the build put in dist/. The
+        # confinement check in _serve_static is what keeps that honest, and it
+        # is the same check as before: only files under the served directory.
+        self._serve_static(path)
 
     def do_POST(self) -> None:
         path = self.path.split("?", 1)[0]
@@ -4050,7 +4056,19 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--no-send", action="store_true",
                         help="serve the conversation read-only, with no way to send input")
+    parser.add_argument("--build", action="store_true",
+                        help="build the frontend and exit")
+    parser.add_argument("--no-build", action="store_true",
+                        help="serve whatever is already built, however stale")
     args = parser.parse_args()
+
+    if args.build:
+        ok, said = build.build()
+        if said:
+            print(said, file=sys.stderr)
+        raise SystemExit(0 if ok else 1)
+    if not args.no_build and not build.ensure_built():
+        raise SystemExit(1)
 
     global SAY_ENABLED
     SAY_ENABLED = is_loopback(args.host) and not args.no_send
