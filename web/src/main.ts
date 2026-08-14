@@ -4,6 +4,7 @@ import {
 import { ICON, HOST_KIND, HOST_BY_PROCESS, hostOf } from "./ui/icons.js";
 import { duration, shorten, clip, clockOf, escapeHtml } from "./ui/format.js";
 import { renderMarkdown } from "./ui/markdown.js";
+import { app, chat, repo, spend, sidebar, ui, loadKeySet, CHAT_PAGE } from "./state.js";
 
 /* ==========================================================================
    Dynamic colour — one seed generates the entire scheme.
@@ -56,28 +57,27 @@ function customRoles(palette, dark) {
     : { color: palette.tone(40), onColor: palette.tone(100), container: palette.tone(90), onContainer: palette.tone(10) };
 }
 
-let settings = { seed: DEFAULT_SEED, dark: matchMedia("(prefers-color-scheme: dark)").matches, contrast: "standard" };
 
 function loadSettings() {
   const params = new URLSearchParams(location.search);
   const seed = params.get("seed") || localStorage.getItem("cbu-seed");
-  if (seed && /^#[0-9a-f]{6}$/i.test(seed)) settings.seed = seed;
+  if (seed && /^#[0-9a-f]{6}$/i.test(seed)) app.settings.seed = seed;
   const theme = params.get("theme") || localStorage.getItem("cbu-theme");
-  if (theme === "dark" || theme === "light") settings.dark = theme === "dark";
+  if (theme === "dark" || theme === "light") app.settings.dark = theme === "dark";
   const contrast = params.get("contrast") || localStorage.getItem("cbu-contrast");
-  if (CONTRAST_LEVELS.some((l) => l.key === contrast)) settings.contrast = contrast;
+  if (CONTRAST_LEVELS.some((l) => l.key === contrast)) app.settings.contrast = contrast;
 }
 function persist() {
-  localStorage.setItem("cbu-seed", settings.seed);
-  localStorage.setItem("cbu-theme", settings.dark ? "dark" : "light");
-  localStorage.setItem("cbu-contrast", settings.contrast);
+  localStorage.setItem("cbu-seed", app.settings.seed);
+  localStorage.setItem("cbu-theme", app.settings.dark ? "dark" : "light");
+  localStorage.setItem("cbu-contrast", app.settings.contrast);
 }
 
 function applyScheme() {
   const root = document.documentElement;
-  const seedArgb = argbFromHex(settings.seed);
-  const level = CONTRAST_LEVELS.find((l) => l.key === settings.contrast) || CONTRAST_LEVELS[0];
-  const scheme = new SchemeVibrant(Hct.fromInt(seedArgb), settings.dark, level.value);
+  const seedArgb = argbFromHex(app.settings.seed);
+  const level = CONTRAST_LEVELS.find((l) => l.key === app.settings.contrast) || CONTRAST_LEVELS[0];
+  const scheme = new SchemeVibrant(Hct.fromInt(seedArgb), app.settings.dark, level.value);
   for (const role of SYS_ROLES) {
     if (scheme[role] === undefined) continue;
     root.style.setProperty(`--md-sys-color-${kebab(role)}`, hexFromArgb(scheme[role]));
@@ -88,14 +88,14 @@ function applyScheme() {
     const hue = firstFreeHue(base.hue, occupied);
     occupied.push(hue);
     const palette = TonalPalette.fromHueAndChroma(hue, Math.min(base.chroma, MAX_CUSTOM_CHROMA));
-    for (const [role, argb] of Object.entries(customRoles(palette, settings.dark))) {
+    for (const [role, argb] of Object.entries(customRoles(palette, app.settings.dark))) {
       root.style.setProperty(`--md-extended-color-${name}-${kebab(role)}`, hexFromArgb(argb));
     }
   }
-  root.style.colorScheme = settings.dark ? "dark" : "light";
+  root.style.colorScheme = app.settings.dark ? "dark" : "light";
   root.dataset.schemeReady = "true";
-  themeToggle.checked = settings.dark;
-  themeLabel.textContent = settings.dark ? "Dark" : "Light";
+  themeToggle.checked = app.settings.dark;
+  themeLabel.textContent = app.settings.dark ? "Dark" : "Light";
   paintFavicon();
 }
 
@@ -216,32 +216,14 @@ function conceal(el) {
   }, EXIT_MS));
 }
 
-let feed = { sessions: [], now: Date.now() / 1000, historySeconds: 1800, canFocus: true, canSend: false };
-let skew = 0;
-let lastGood = 0;
-let filter = "all";
-let selectedId = localStorage.getItem("cbu-selected") || null;
-let tab = localStorage.getItem("cbu-tab") || "chat";
-let transcript = null;
-let transcriptFor = null;
-let transcriptBusy = false;
 /* How much conversation the chat tab asks for. A page at a time, because the
    whole point of reading backwards is that a long session costs no more than a
    short one — but a truncated transcript can be asked for more, up to what the
    server will read back. Reset per session: the depth you dug to in one
    conversation says nothing about the next. */
-const CHAT_PAGE = 80;
 const CHAT_LIMIT_MAX = 500;
-let chatLimit = CHAT_PAGE;
 // Set when "show more" is what caused the re-render, so the pane can hold the
 // message you were reading in place instead of jumping.
-let chatGrew = false;
-let git = null;
-let gitFor = null;
-let gitBusy = false;
-let usage = null;
-let usageFor = null;
-let usageBusy = false;
 /* A half-typed message belongs to the session it was written for, not to the
    composer: switching away puts it aside and coming back brings it out again. */
 const sayDrafts = new Map();
@@ -249,24 +231,13 @@ const sayDrafts = new Map();
    rather than in the DOM, because the pane is rebuilt whenever the repository
    moves — which is exactly while a commit message is being written. */
 const commitDrafts = new Map();
-let diffOpen = null;      // { path, staged } — the one row showing its diff
-let diffText = null;      // null while it is being read, "" when there is none
-let diffNote = "";        // why there is none, when there is none
-let gitActing = false;    // one git action at a time, whatever the pane offers
 /* Held apart from gitActing because it outlives a repaint: writing a message
    takes long enough for a poll to rebuild the pane underneath it, and the new
    sparkle has to come back still spinning. */
-let suggesting = false;
-let lastStatuses = new Map();
-let inFlight = null;
-let mutedSessions = new Set(JSON.parse(localStorage.getItem("cbu-muted") || "[]"));
 /* A pinned height for the message box in px, or null to size itself to the text.
    Dragging the rule above the box pins it; double-clicking hands it back. */
-let composerHeight = Number(localStorage.getItem("cbu-composer-height")) || null;
-let resizingComposer = false;
 // The session whose name is being edited right now, if any. A poll must not
 // rebuild the pane out from under the field.
-let renamingId = null;
 
 /* ==========================================================================
    Grouping the index.
@@ -303,30 +274,16 @@ const saveGroups = () => localStorage.setItem("cbu-groups", JSON.stringify(custo
 
 /* Folders you told the panel not to group, and groups you folded away. Both are
    keyed by the folder path, which outlives the sessions in it. */
-const loadKeySet = (key) => {
-  try {
-    const raw = JSON.parse(localStorage.getItem(key) || "[]");
-    return new Set(Array.isArray(raw) ? raw.filter((k) => typeof k === "string") : []);
-  } catch (error) {
-    return new Set();
-  }
-};
-let looseFolders = loadKeySet("cbu-loose-folders");
 let collapsedFolders = loadKeySet("cbu-collapsed-folders");
 const saveKeySet = (key, set) => localStorage.setItem(key, JSON.stringify([...set]));
 
 /* The rows ticked for a group action, the row a shift-click measures from, and
    the ids the list is showing in the order it draws them — which is what makes a
    shift-click select the run you can actually see. */
-let picked = new Set();
-let pickAnchor = null;
-let visibleOrder = [];
 /* The blocks the list is showing, so a menu opened from the keyboard can find
    the group its header belongs to. */
-let lastBlocks = [];
 /* The group whose name is being typed, so a poll cannot rebuild the list out
    from under the field. */
-let renamingGroup = null;
 
 const groupOf = (id) => customGroups.find((g) => g.members.includes(id)) || null;
 const folderKeyOf = (session) => session.cwd || session.folder || "";
@@ -353,7 +310,7 @@ function listBlocks(visible) {
     let key = null;
     if (custom) key = `custom:${custom.id}`;
     // One session in a folder is a row, not a group of one.
-    else if (folder && perFolder.get(folder) > 1 && !looseFolders.has(folder)) key = `folder:${folder}`;
+    else if (folder && perFolder.get(folder) > 1 && !sidebar.looseFolders.has(folder)) key = `folder:${folder}`;
     if (!key) {
       blocks.push({ kind: "session", session });
       continue;
@@ -397,38 +354,38 @@ function toggleGroup(block) {
 /* Picking rows. Ctrl-click ticks one, shift-click ticks the run between it and
    the last row you touched; a plain click goes back to selecting one session. */
 function togglePick(id) {
-  if (picked.has(id)) picked.delete(id);
-  else picked.add(id);
+  if (sidebar.picked.has(id)) sidebar.picked.delete(id);
+  else sidebar.picked.add(id);
   render();
 }
 
 function pickRange(from, to) {
-  const a = visibleOrder.indexOf(from);
-  const b = visibleOrder.indexOf(to);
+  const a = sidebar.visibleOrder.indexOf(from);
+  const b = sidebar.visibleOrder.indexOf(to);
   if (a === -1 || b === -1) return togglePick(to);
-  for (const id of visibleOrder.slice(Math.min(a, b), Math.max(a, b) + 1)) picked.add(id);
+  for (const id of sidebar.visibleOrder.slice(Math.min(a, b), Math.max(a, b) + 1)) sidebar.picked.add(id);
   render();
 }
 
 function clearPicked(repaint = true) {
-  if (!picked.size) return;
-  picked.clear();
+  if (!sidebar.picked.size) return;
+  sidebar.picked.clear();
   if (repaint) render();
 }
 
 function onRowClick(id, event) {
   if (event.ctrlKey || event.metaKey) {
     togglePick(id);
-    pickAnchor = id;
+    sidebar.pickAnchor = id;
     return;
   }
   if (event.shiftKey) {
-    pickRange(pickAnchor ?? id, id);
-    pickAnchor = id;
+    pickRange(sidebar.pickAnchor ?? id, id);
+    sidebar.pickAnchor = id;
     return;
   }
-  picked.clear();
-  pickAnchor = id;
+  sidebar.picked.clear();
+  sidebar.pickAnchor = id;
   selectSession(id);
 }
 
@@ -436,16 +393,16 @@ function onRowClick(id, event) {
    belongs to one — and the new group takes the folder's name when they share
    one, because that is what you would have called it. */
 function groupPicked() {
-  const ids = visibleOrder.filter((id) => picked.has(id));
+  const ids = sidebar.visibleOrder.filter((id) => sidebar.picked.has(id));
   if (ids.length < 2) return;
   const sessions = ids.map(sessionById).filter(Boolean);
   const folders = new Set(sessions.map((s) => s.folder).filter(Boolean));
   const name = folders.size === 1 ? [...folders][0] : `${ids.length} sessions`;
-  for (const group of customGroups) group.members = group.members.filter((id) => !picked.has(id));
+  for (const group of customGroups) group.members = group.members.filter((id) => !sidebar.picked.has(id));
   customGroups = customGroups.filter((g) => g.members.length);
   customGroups.unshift({ id: `g${Date.now().toString(36)}`, name, members: ids, collapsed: false });
   saveGroups();
-  picked.clear();
+  sidebar.picked.clear();
   showSnackbar(`Grouped ${ids.length} sessions as “${name}”`);
   render();
 }
@@ -457,8 +414,8 @@ function ungroup(block) {
     showSnackbar(`“${block.name}” ungrouped`);
   } else {
     // A folder group is not stored, so leaving it apart is what gets stored.
-    looseFolders.add(block.folder);
-    saveKeySet("cbu-loose-folders", looseFolders);
+    sidebar.looseFolders.add(block.folder);
+    saveKeySet("cbu-loose-folders", sidebar.looseFolders);
     showSnackbar(`${block.name} is no longer grouped by folder`);
   }
   render();
@@ -475,13 +432,13 @@ function leaveGroup(id) {
 }
 
 function regroupFolders() {
-  looseFolders.clear();
-  saveKeySet("cbu-loose-folders", looseFolders);
+  sidebar.looseFolders.clear();
+  saveKeySet("cbu-loose-folders", sidebar.looseFolders);
   render();
 }
 
 function syncPickBar() {
-  const count = picked.size;
+  const count = sidebar.picked.size;
   pickBar.hidden = count === 0;
   pickCount.textContent = count
     ? `${count} picked${count < 2 ? " — ctrl-click another" : ""}`
@@ -490,7 +447,7 @@ function syncPickBar() {
 }
 
 
-const selected = () => feed.sessions.find((s) => s.sessionId === selectedId) || null;
+const selected = () => app.feed.sessions.find((s) => s.sessionId === app.selectedId) || null;
 
 /* ------------------------------------------------------------------ transport */
 async function poll() {
@@ -498,31 +455,31 @@ async function poll() {
     const response = await fetch("/api/state", { cache: "no-store" });
     if (!response.ok) throw new Error(String(response.status));
     const data = await response.json();
-    skew = data.now - Date.now() / 1000;
-    feed = data;
-    lastGood = Date.now();
+    app.skew = data.now - Date.now() / 1000;
+    app.feed = data;
+    app.lastGood = Date.now();
     notifyWaiting(data.sessions);
     paintOpenButton();
     render();
-    if (selectedId && (transcriptFor !== selectedId || tab === "chat")) fetchTranscript();
-    if (selectedId && isGitTab(tab)) fetchGit();
-    if (selectedId && tab === "usage") fetchUsage();
+    if (app.selectedId && (chat.transcriptFor !== app.selectedId || app.tab === "chat")) fetchTranscript();
+    if (app.selectedId && isGitTab(app.tab)) fetchGit();
+    if (app.selectedId && app.tab === "usage") fetchUsage();
   } catch (error) {
     barSupporting.textContent = "lost the server — retrying";
   }
 }
 
 async function fetchTranscript() {
-  const id = selectedId;
-  if (!id || transcriptBusy) return;
-  if (tab !== "chat" && transcriptFor === id) return;
-  transcriptBusy = true;
+  const id = app.selectedId;
+  if (!id || chat.transcriptBusy) return;
+  if (app.tab !== "chat" && chat.transcriptFor === id) return;
+  chat.transcriptBusy = true;
   try {
-    const asked = chatLimit;
+    const asked = chat.chatLimit;
     const response = await fetch(`/api/transcript?sessionId=${encodeURIComponent(id)}&limit=${asked}`, { cache: "no-store" });
     if (!response.ok) throw new Error(String(response.status));
     const data = await response.json();
-    if (selectedId !== id) return;             // selection moved on while fetching
+    if (app.selectedId !== id) return;             // selection moved on while fetching
     // Enough of the transcript to notice a new message, or the last one growing.
     // Rebuilding on every poll instead — which "always redraw the chat tab" came
     // down to — throws the pane away a second at a time, under the pointer.
@@ -531,14 +488,14 @@ async function fetchTranscript() {
       return [t?.title ?? "", t?.messages?.length ?? -1, last?.at ?? "",
               last?.text?.length ?? 0, last?.tools?.length ?? 0].join("|");
     };
-    const changed = stamp(data) !== stamp(transcript) || transcriptFor !== id;
-    transcript = data;
-    transcriptFor = id;
+    const changed = stamp(data) !== stamp(chat.transcript) || chat.transcriptFor !== id;
+    chat.transcript = data;
+    chat.transcriptFor = id;
     if (changed) renderDetail(true);
   } catch (error) {
     /* leave the previous transcript on screen */
   } finally {
-    transcriptBusy = false;
+    chat.transcriptBusy = false;
   }
 }
 
@@ -548,9 +505,9 @@ async function fetchTranscript() {
    re-fetches on the next poll a moment later, now at the larger limit. */
 function showMoreChat(event) {
   const button = event.currentTarget;
-  if (chatLimit >= CHAT_LIMIT_MAX) return;
-  chatLimit = Math.min(CHAT_LIMIT_MAX, chatLimit + CHAT_PAGE);
-  chatGrew = true;
+  if (chat.chatLimit >= CHAT_LIMIT_MAX) return;
+  chat.chatLimit = Math.min(CHAT_LIMIT_MAX, chat.chatLimit + CHAT_PAGE);
+  chat.chatGrew = true;
   button.disabled = true;
   button.textContent = "reading…";
   fetchTranscript();
@@ -593,33 +550,33 @@ function gitStamp(g) {
 }
 
 async function fetchGit(force) {
-  const id = selectedId;
-  if (!id || gitBusy) return;
+  const id = app.selectedId;
+  if (!id || repo.gitBusy) return;
   // Nobody is reading a hidden tab. A Git tab left open behind another window
   // would otherwise go on running git for the rest of the day; coming back to it
   // reads once, immediately.
   if (!force && document.hidden) return;
-  if (!force && gitFor === id && Date.now() - gitPolledAt < GIT_POLL_MS) return;
-  gitBusy = true;
+  if (!force && repo.gitFor === id && Date.now() - gitPolledAt < GIT_POLL_MS) return;
+  repo.gitBusy = true;
   gitPolledAt = Date.now();
   try {
     const response = await fetch(`/api/git?sessionId=${encodeURIComponent(id)}`, { cache: "no-store" });
     if (!response.ok) throw new Error(String(response.status));
     const data = await response.json();
-    if (selectedId !== id) return;             // selection moved on while fetching
-    const changed = gitStamp(data) !== gitStamp(git) || gitFor !== id;
-    git = data;
-    gitFor = id;
+    if (app.selectedId !== id) return;             // selection moved on while fetching
+    const changed = gitStamp(data) !== gitStamp(repo.git) || repo.gitFor !== id;
+    repo.git = data;
+    repo.gitFor = id;
     if (changed) {
       renderDetail(true);
       // An open diff describes a file that has just moved, so it is read again
       // rather than left showing what the file used to say.
-      if (diffOpen) fetchDiff();
+      if (repo.diffOpen) fetchDiff();
     }
   } catch (error) {
     /* leave the previous reading on screen */
   } finally {
-    gitBusy = false;
+    repo.gitBusy = false;
   }
 }
 
@@ -633,65 +590,65 @@ function usageStamp(u) {
 }
 
 async function fetchUsage(force) {
-  const id = selectedId;
-  if (!id || usageBusy) return;
+  const id = app.selectedId;
+  if (!id || spend.usageBusy) return;
   if (!force && document.hidden) return;
-  usageBusy = true;
+  spend.usageBusy = true;
   try {
     const response = await fetch(`/api/usage?sessionId=${encodeURIComponent(id)}`, { cache: "no-store" });
     if (!response.ok) throw new Error(String(response.status));
     const data = await response.json();
-    if (selectedId !== id) return;             // selection moved on while fetching
-    const changed = usageStamp(data) !== usageStamp(usage) || usageFor !== id;
-    usage = data;
-    usageFor = id;
+    if (app.selectedId !== id) return;             // selection moved on while fetching
+    const changed = usageStamp(data) !== usageStamp(spend.usage) || spend.usageFor !== id;
+    spend.usage = data;
+    spend.usageFor = id;
     if (changed) renderDetail(true);
   } catch (error) {
     /* leave the previous reading on screen */
   } finally {
-    usageBusy = false;
+    spend.usageBusy = false;
   }
 }
 
 /* ------------------------------------------------- git: opening and acting */
 
 function closeDiff() {
-  diffOpen = null;
-  diffText = null;
-  diffNote = "";
+  repo.diffOpen = null;
+  repo.diffText = null;
+  repo.diffNote = "";
 }
 
 /* Clicking a row shows its diff under it, and clicking the same row again puts
    it away — one open at a time, because the pane is one column wide. */
 function toggleDiff(path, staged) {
-  if (diffOpen && diffOpen.path === path && diffOpen.staged === staged) {
+  if (repo.diffOpen && repo.diffOpen.path === path && repo.diffOpen.staged === staged) {
     closeDiff();
     renderDetail(true);
     return;
   }
-  diffOpen = { path, staged };
-  diffText = null;
-  diffNote = "";
+  repo.diffOpen = { path, staged };
+  repo.diffText = null;
+  repo.diffNote = "";
   renderDetail(true);
   fetchDiff();
 }
 
 async function fetchDiff() {
-  const id = selectedId;
-  const want = diffOpen;
+  const id = app.selectedId;
+  const want = repo.diffOpen;
   if (!id || !want) return;
   const query = new URLSearchParams({ sessionId: id, path: want.path, staged: want.staged ? "1" : "0" });
   try {
     const response = await fetch(`/api/git/diff?${query}`, { cache: "no-store" });
     const data = await response.json().catch(() => ({}));
     // The row may have been closed, or another one opened, while this was in the air.
-    if (selectedId !== id || diffOpen !== want) return;
-    diffText = data.text || "";
-    diffNote = data.message || (data.ok ? "No line changes to show" : "Could not read that diff");
+    if (app.selectedId !== id || repo.diffOpen !== want) return;
+    repo.diffText = data.text || "";
+    repo.diffNote = data.message || (data.ok ? "No line changes to show" : "Could not read that diff");
   } catch (error) {
-    if (diffOpen !== want) return;
-    diffText = "";
-    diffNote = "Could not reach the server";
+    if (repo.diffOpen !== want) return;
+    repo.diffText = "";
+    repo.diffNote = "Could not reach the server";
   }
   renderDetail(true);
 }
@@ -700,9 +657,9 @@ async function fetchDiff() {
    snackbar, and a fresh reading afterwards so the list matches the repository
    again without waiting for the next poll. */
 async function gitDo(action, extra, button) {
-  const id = selectedId;
-  if (!id || gitActing) return false;
-  gitActing = true;
+  const id = app.selectedId;
+  if (!id || repo.gitActing) return false;
+  repo.gitActing = true;
   if (button) button.disabled = true;
   let ok = false;
   try {
@@ -716,7 +673,7 @@ async function gitDo(action, extra, button) {
   } catch (error) {
     showSnackbar("Could not reach the server");
   } finally {
-    gitActing = false;
+    repo.gitActing = false;
     if (button) button.disabled = false;
     // The reading is stale the moment anything above succeeded — and after a
     // failure it is worth confirming that nothing moved.
@@ -726,8 +683,8 @@ async function gitDo(action, extra, button) {
 }
 
 async function run(url, session, button, waitingMessage, extra) {
-  if (inFlight) return;
-  inFlight = url;
+  if (app.inFlight) return;
+  app.inFlight = url;
   button.disabled = true;
   if (waitingMessage) showSnackbar(waitingMessage, 44000);
   try {
@@ -740,7 +697,7 @@ async function run(url, session, button, waitingMessage, extra) {
   } catch (error) {
     showSnackbar("Could not reach the server");
   } finally {
-    inFlight = null;
+    app.inFlight = null;
     button.disabled = false;
     poll();
   }
@@ -749,16 +706,16 @@ async function run(url, session, button, waitingMessage, extra) {
 /* --------------------------------------------------------------- rendering */
 function render() {
   const counts = {};
-  for (const session of feed.sessions) {
+  for (const session of app.feed.sessions) {
     const key = stateKeyOf(session.status);
     counts[key] = (counts[key] || 0) + 1;
   }
-  if (filter !== "all" && !counts[filter]) filter = "all";
+  if (app.filter !== "all" && !counts[app.filter]) app.filter = "all";
 
   // A kept session with no process is on the list but is not running, so it is
   // counted apart from the live ones rather than inflating them.
   const stopped = counts.stopped || 0;
-  const total = feed.sessions.length - stopped;
+  const total = app.feed.sessions.length - stopped;
   const waiting = counts.waiting || 0;
   const parts = [];
   if (total) parts.push(`${total} live`);
@@ -769,10 +726,10 @@ function render() {
   document.title = waiting ? `(${waiting}) Claude sessions` : "Claude sessions";
 
   // Keep a valid selection: fall back to the top of the list.
-  const visible = filter === "all" ? feed.sessions : feed.sessions.filter((s) => stateKeyOf(s.status) === filter);
-  if (!visible.some((s) => s.sessionId === selectedId)) {
-    selectedId = visible.length ? visible[0].sessionId : null;
-    if (selectedId) localStorage.setItem("cbu-selected", selectedId);
+  const visible = app.filter === "all" ? app.feed.sessions : app.feed.sessions.filter((s) => stateKeyOf(s.status) === app.filter);
+  if (!visible.some((s) => s.sessionId === app.selectedId)) {
+    app.selectedId = visible.length ? visible[0].sessionId : null;
+    if (app.selectedId) localStorage.setItem("cbu-selected", app.selectedId);
   }
 
   renderChips(counts);
@@ -782,9 +739,9 @@ function render() {
 }
 
 function renderChips(counts) {
-  const entries = [{ key: "all", label: `all ${feed.sessions.length}` }];
+  const entries = [{ key: "all", label: `all ${app.feed.sessions.length}` }];
   for (const key of STATE_ORDER) if (counts[key]) entries.push({ key, label: `${counts[key]} ${STATE[key].short}` });
-  const signature = entries.map((e) => e.key + e.label).join("|") + filter;
+  const signature = entries.map((e) => e.key + e.label).join("|") + app.filter;
   if (chipSet.dataset.signature === signature) return;
   chipSet.dataset.signature = signature;
   chipSet.innerHTML = "";
@@ -793,10 +750,10 @@ function renderChips(counts) {
     const chip = document.createElement("button");
     chip.className = "chip md-state md-label-large";
     chip.type = "button";
-    chip.setAttribute("aria-pressed", String(filter === entry.key));
+    chip.setAttribute("aria-pressed", String(app.filter === entry.key));
     if (entry.key !== "all") chip.style.setProperty("--chip-dot", STATE[entry.key].colour);
     chip.innerHTML = `<span class="chip__check">${ICON.check}</span>${entry.key === "all" ? "" : '<span class="chip__dot"></span>'}<span>${escapeHtml(entry.label)}</span>`;
-    chip.addEventListener("click", () => { filter = filter === entry.key ? "all" : entry.key; render(); });
+    chip.addEventListener("click", () => { app.filter = app.filter === entry.key ? "all" : entry.key; render(); });
     item.appendChild(chip);
     chipSet.appendChild(item);
   }
@@ -806,32 +763,32 @@ function renderList(visible) {
   listEmpty.hidden = visible.length > 0;
   // A menu whose row is leaving the list — ended, or filtered out — has nothing
   // left to act on.
-  if (menuFor && !visible.some((s) => s.sessionId === menuFor)) closeSessionMenu({ restoreFocus: false });
+  if (ui.menuFor && !visible.some((s) => s.sessionId === ui.menuFor)) closeSessionMenu({ restoreFocus: false });
   // Rows that have left the list cannot be part of a pick any more.
   const here = new Set(visible.map((s) => s.sessionId));
-  for (const id of [...picked]) if (!here.has(id)) picked.delete(id);
+  for (const id of [...sidebar.picked]) if (!here.has(id)) sidebar.picked.delete(id);
   if (!visible.length) {
-    listEmpty.textContent = feed.sessions.length
+    listEmpty.textContent = app.feed.sessions.length
       ? "Nothing in this state. Pick “all” above."
       : "No sessions are running. Start one with claude in any terminal.";
     sessionList.innerHTML = "";
     sessionList.dataset.layout = "";
-    visibleOrder = [];
-    lastBlocks = [];
+    sidebar.visibleOrder = [];
+    sidebar.lastBlocks = [];
     syncPickBar();
     return;
   }
 
   const blocks = listBlocks(visible);
-  lastBlocks = blocks;
+  sidebar.lastBlocks = blocks;
   // A group menu whose group has gone — ungrouped, or its rows filtered out —
   // has nothing left to act on either.
-  if (menuGroup && !blocks.some((block) => block.key === menuGroup)) {
+  if (ui.menuGroup && !blocks.some((block) => block.key === ui.menuGroup)) {
     closeSessionMenu({ restoreFocus: false });
   }
   // Only the rows you can see, in the order you see them: what a shift-click
   // range and “group the picked rows” both count along.
-  visibleOrder = blocks.flatMap((block) => block.kind === "group"
+  sidebar.visibleOrder = blocks.flatMap((block) => block.kind === "group"
     ? (block.collapsed ? [] : block.sessions.map((s) => s.sessionId))
     : [block.session.sessionId]);
 
@@ -841,7 +798,7 @@ function renderList(visible) {
   const layout = blocks.map((block) => block.kind === "group"
     ? `g:${block.key}:${block.name}:${block.collapsed}:${block.sessions.map((s) => s.sessionId).join(",")}`
     : `s:${block.session.sessionId}`).join("|");
-  if (sessionList.dataset.layout !== layout && !renamingGroup) {
+  if (sessionList.dataset.layout !== layout && !sidebar.renamingGroup) {
     sessionList.dataset.layout = layout;
     sessionList.textContent = "";
     for (const block of blocks) {
@@ -867,9 +824,9 @@ function renderList(visible) {
       sessionList.appendChild(item);
     }
     // The rebuild threw away the mark on the row the open menu points at.
-    const marked = menuFor
-      ? sessionList.querySelector(`li[data-id="${CSS.escape(menuFor)}"]`)
-      : menuGroup ? sessionList.querySelector(`li[data-group="${CSS.escape(menuGroup)}"]`) : null;
+    const marked = ui.menuFor
+      ? sessionList.querySelector(`li[data-id="${CSS.escape(ui.menuFor)}"]`)
+      : ui.menuGroup ? sessionList.querySelector(`li[data-group="${CSS.escape(ui.menuGroup)}"]`) : null;
     if (marked) marked.dataset.menu = "open";
   }
 
@@ -883,7 +840,7 @@ function renderList(visible) {
     if (block.kind !== "group") continue;
     const item = sessionList.querySelector(`li[data-group="${CSS.escape(block.key)}"]`);
     if (!item) continue;
-    const inside = block.sessions.filter((s) => picked.has(s.sessionId)).length;
+    const inside = block.sessions.filter((s) => sidebar.picked.has(s.sessionId)).length;
     if (inside) item.dataset.picked = String(inside);
     else delete item.dataset.picked;
     const count = item.querySelector(".group__count");
@@ -921,8 +878,8 @@ function groupHeader(block) {
 function paintListItem(item, session) {
   const state = stateOf(session.status);
   const host = hostOf(session);
-  const isSelected = session.sessionId === selectedId;
-  const isPicked = picked.has(session.sessionId);
+  const isSelected = session.sessionId === app.selectedId;
+  const isPicked = sidebar.picked.has(session.sessionId);
   // Picking is deliberately out of the signature: it is an attribute on a row
   // that already exists, and rebuilding the row would take the keyboard focus
   // away from it just as you were picking the next one.
@@ -978,23 +935,23 @@ function paintListItem(item, session) {
 }
 
 function selectSession(id) {
-  selectedId = id;
+  app.selectedId = id;
   localStorage.setItem("cbu-selected", id);
-  transcript = null;
-  transcriptFor = null;
-  chatLimit = CHAT_PAGE;
-  chatGrew = false;
-  git = null;
-  gitFor = null;
+  chat.transcript = null;
+  chat.transcriptFor = null;
+  chat.chatLimit = CHAT_PAGE;
+  chat.chatGrew = false;
+  repo.git = null;
+  repo.gitFor = null;
   closeDiff();
   panes.dataset.view = "detail";
   render();
   fetchTranscript();
-  if (isGitTab(tab)) fetchGit(true);
+  if (isGitTab(app.tab)) fetchGit(true);
 }
 
 function setTab(next) {
-  tab = next;
+  app.tab = next;
   localStorage.setItem("cbu-tab", next);
   renderDetail(true);
   if (next === "chat") fetchTranscript();
@@ -1009,8 +966,6 @@ function setTab(next) {
    The menu names its session instead, so the target is never ambiguous.
    ========================================================================== */
 const sessionMenu = document.getElementById("sessionMenu");
-let menuFor = null;     // sessionId the open menu belongs to
-let menuGroup = null;   // or the key of the group it belongs to, for a header menu
 /* Whether a menu is standing at all, which is not the same question as what it
    points at: a menu opened from a toolbar button — the Git tab's overflow, the
    commit split button — belongs to neither a row nor a group, and asking after
@@ -1020,12 +975,12 @@ const menuIsOpen = () => sessionMenu.dataset.open === "true";
    repaints on every status change, which detaches the button we were given. */
 let menuReturn = null;
 
-const sessionById = (id) => feed.sessions.find((s) => s.sessionId === id) || null;
+const sessionById = (id) => app.feed.sessions.find((s) => s.sessionId === id) || null;
 
 function setMuted(id, muted) {
-  if (muted) mutedSessions.add(id);
-  else mutedSessions.delete(id);
-  localStorage.setItem("cbu-muted", JSON.stringify([...mutedSessions]));
+  if (muted) app.mutedSessions.add(id);
+  else app.mutedSessions.delete(id);
+  localStorage.setItem("cbu-muted", JSON.stringify([...app.mutedSessions]));
   renderDetail();
 }
 
@@ -1057,12 +1012,12 @@ async function copyText(text, done) {
    where there is room to explain them. */
 function menuItemsFor(session) {
   const win = session.window;
-  const muted = mutedSessions.has(session.sessionId);
+  const muted = app.mutedSessions.has(session.sessionId);
   const items = [];
   // Window actions mean nothing for a session with no process behind it.
   if (session.status === "stopped") {
     // nothing to focus
-  } else if (!feed.canFocus) {
+  } else if (!app.feed.canFocus) {
     items.push({ key: "focus", icon: ICON.focus, label: "Focus window", hint: "needs xdotool", disabled: true });
   } else if (win) {
     items.push({ key: "focus", icon: ICON.focus, label: "Focus window",
@@ -1071,16 +1026,16 @@ function menuItemsFor(session) {
   }
   if (session.status === "stopped") {
     items.push({ key: "start", icon: ICON.play, label: "Start it up",
-      hint: feed.canSend ? "claude --resume" : "needs loopback",
-      disabled: !feed.canSend,
+      hint: app.feed.canSend ? "claude --resume" : "needs loopback",
+      disabled: !app.feed.canSend,
       run: (el) => run("/api/start", session, el) });
   }
   // A second session on the same work, started where this one is — a fresh
   // conversation rather than a resume, so it never touches this one's transcript.
   if (session.cwd) {
     items.push({ key: "new", icon: ICON.plus, label: "New session here",
-      hint: feed.canSend ? (session.folder || shorten(session.cwd, 1)) : "needs loopback",
-      disabled: !feed.canSend,
+      hint: app.feed.canSend ? (session.folder || shorten(session.cwd, 1)) : "needs loopback",
+      disabled: !app.feed.canSend,
       run: (el) => run("/api/new", session, el) });
   }
   items.push({ key: "sticky", icon: session.sticky ? ICON.pinOff : ICON.pin,
@@ -1092,9 +1047,9 @@ function menuItemsFor(session) {
     run: () => { setMuted(session.sessionId, !muted); showSnackbar(muted ? "Notifications on" : "Notifications muted"); } });
   // Grouping acts on the rows you picked, so it is offered where the picking is.
   const group = groupOf(session.sessionId);
-  if (picked.size > 1 && picked.has(session.sessionId)) {
+  if (sidebar.picked.size > 1 && sidebar.picked.has(session.sessionId)) {
     items.push({ divider: true });
-    items.push({ key: "group", icon: ICON.group, label: `Group these ${picked.size}`,
+    items.push({ key: "group", icon: ICON.group, label: `Group these ${sidebar.picked.size}`,
       run: () => groupPicked() });
   }
   if (group) {
@@ -1135,8 +1090,8 @@ function openMenu({ title, label, items, forId = null, forGroup = null }, x, y) 
     });
   }
 
-  menuFor = forId;
-  menuGroup = forGroup;
+  ui.menuFor = forId;
+  ui.menuGroup = forGroup;
   sessionMenu.hidden = false;
   // offsetWidth, not the bounding rect: the open transition scales the box and
   // would give a measurement smaller than the space it is about to need.
@@ -1188,23 +1143,23 @@ function openGroupMenu(block, x, y) {
     const any = block.sessions[0];
     if (any) {
       items.push({ key: "new", icon: ICON.plus, label: "New session here",
-        hint: feed.canSend ? shorten(block.folder, 1) : "needs loopback",
-        disabled: !feed.canSend,
+        hint: app.feed.canSend ? shorten(block.folder, 1) : "needs loopback",
+        disabled: !app.feed.canSend,
         run: (el) => run("/api/new", any, el) });
       items.push({ divider: true });
     }
     items.push({ key: "ungroup", icon: ICON.ungroup, label: "Do not group this folder",
       hint: shorten(block.folder, 2), run: () => ungroup(block) });
-    if (looseFolders.size) {
+    if (sidebar.looseFolders.size) {
       items.push({ key: "regroup", icon: ICON.folder, label: "Group every folder again",
-        hint: `${looseFolders.size} left out`, run: () => regroupFolders() });
+        hint: `${sidebar.looseFolders.size} left out`, run: () => regroupFolders() });
     }
   }
   items.push({ divider: true });
   items.push({ key: "pick", icon: ICON.group, label: "Pick every session in it",
     run: () => {
-      for (const session of block.sessions) picked.add(session.sessionId);
-      pickAnchor = block.sessions[block.sessions.length - 1]?.sessionId ?? null;
+      for (const session of block.sessions) sidebar.picked.add(session.sessionId);
+      sidebar.pickAnchor = block.sessions[block.sessions.length - 1]?.sessionId ?? null;
       render();
     } });
   openMenu({
@@ -1218,10 +1173,10 @@ function openGroupMenu(block, x, y) {
 /* Renaming a group works like renaming a session: the name in the header turns
    into a field, Enter or clicking away keeps it, Escape leaves it alone. */
 function startGroupRename(block) {
-  if (!block.custom || renamingGroup) return;
+  if (!block.custom || sidebar.renamingGroup) return;
   const header = sessionList.querySelector(`li[data-group="${CSS.escape(block.key)}"] > .group__header`);
   if (!header) return;
-  renamingGroup = block.key;
+  sidebar.renamingGroup = block.key;
   // The header is a button, and a field inside a button would fold the group away
   // on the first space, so the whole header steps aside while you type.
   const row = document.createElement("div");
@@ -1243,7 +1198,7 @@ function startGroupRename(block) {
   const finish = (save) => {
     if (done) return;
     done = true;
-    renamingGroup = null;
+    sidebar.renamingGroup = null;
     const typed = field.value.trim();
     if (save && typed && typed !== block.custom.name) {
       block.custom.name = typed;
@@ -1264,8 +1219,8 @@ function closeSessionMenu({ restoreFocus = true } = {}) {
   if (!menuIsOpen()) return;
   for (const row of sessionList.querySelectorAll('[data-menu="open"]')) delete row.dataset.menu;
   conceal(sessionMenu);
-  menuFor = null;
-  menuGroup = null;
+  ui.menuFor = null;
+  ui.menuGroup = null;
   const back = menuReturn;
   menuReturn = null;
   if (restoreFocus && back) {
@@ -1304,7 +1259,7 @@ sessionList.addEventListener("keydown", (event) => {
   if (!row || !event.target.closest(".session-item")) return;
   event.preventDefault();     // or the button below takes it as a click
   togglePick(row.dataset.id);
-  pickAnchor = row.dataset.id;
+  sidebar.pickAnchor = row.dataset.id;
   // The repaint keeps the row, so put the focus back where the reader left it.
   sessionList.querySelector(`li[data-id="${CSS.escape(row.dataset.id)}"] .session-item`)?.focus();
 });
@@ -1323,7 +1278,7 @@ sessionList.addEventListener("keydown", (event) => {
   }
   // The same key on a group header opens the group's menu.
   const header = event.target.closest("li.group")?.querySelector(":scope > .group__header");
-  const block = header && lastBlocks.find((b) => b.kind === "group" && b.key === header.parentElement.dataset.group);
+  const block = header && sidebar.lastBlocks.find((b) => b.kind === "group" && b.key === header.parentElement.dataset.group);
   if (!block) return;
   event.preventDefault();
   const rect = header.getBoundingClientRect();
@@ -1356,13 +1311,13 @@ function renderDetail(force) {
   const host = hostOf(session);
   // A session outside a repository has no Git tab to show, so a tab left over
   // from the last session you looked at falls back rather than showing nothing.
-  if (isGitTab(tab) && !session.repoRoot) tab = "chat";
+  if (isGitTab(app.tab) && !session.repoRoot) app.tab = "chat";
   const signature = [
     session.sessionId, session.name, stateKeyOf(session.status), session.branch, session.window?.confidence,
-    host.label, tab, transcript?.messages?.length ?? -1, transcript?.title ?? "",
-    session.repoRoot ?? "", gitFor === session.sessionId ? gitStamp(git) : "",
-    usageFor === session.sessionId ? usageStamp(usage) : "",
-    mutedSessions.has(session.sessionId), feed.canFocus, feed.canSend, session.canSay, session.sticky,
+    host.label, app.tab, chat.transcript?.messages?.length ?? -1, chat.transcript?.title ?? "",
+    session.repoRoot ?? "", repo.gitFor === session.sessionId ? gitStamp(repo.git) : "",
+    spend.usageFor === session.sessionId ? usageStamp(spend.usage) : "",
+    app.mutedSessions.has(session.sessionId), app.feed.canFocus, app.feed.canSend, session.canSay, session.sticky,
     session.permissionMode ?? "", session.title ?? "", session.parentName ?? "",
     // A question going up or being answered has to redraw the pane; the tool use
     // it came in on is what tells one question from the next.
@@ -1383,7 +1338,7 @@ function renderDetail(force) {
   // when the pointer comes up — the signature stays stale until then.
   // The same goes for a name being typed: rebuilding would throw the field and
   // the half-typed name away.
-  if ((resizingComposer || renamingId === session.sessionId || commentIsOpen()) && !force) {
+  if ((ui.resizingComposer || sidebar.renamingId === session.sessionId || commentIsOpen()) && !force) {
     const standing = detailPane.querySelector(".detail-header");
     if (standing) paintTrace(standing, session);
     return;
@@ -1395,7 +1350,7 @@ function renderDetail(force) {
   // Older messages are added above what you were reading, so holding scrollTop
   // would slide the whole conversation out from under you. Hold the distance to
   // the bottom instead, which is the part that did not move.
-  const chatFromBottom = chatGrew && chatBefore
+  const chatFromBottom = chat.chatGrew && chatBefore
     ? chatBefore.scrollHeight - chatBefore.scrollTop : null;
   // A half-typed message must survive a re-render — the poll re-renders every time
   // the status changes or a message lands, which is exactly while you are typing.
@@ -1415,18 +1370,18 @@ function renderDetail(force) {
   // Same for a commit message: its text lives in commitDrafts, but where the
   // caret was does not, and a poll landing mid-word would otherwise move it.
   const commitBefore = detailPane.querySelector("#commitField");
-  commitCaret = commitBefore ? {
+  repo.commitCaret = commitBefore ? {
     start: commitBefore.selectionStart,
     end: commitBefore.selectionEnd,
     focused: document.activeElement === commitBefore,
   } : null;
 
   // Whatever was being typed is gone with the rebuild below.
-  renamingId = null;
+  sidebar.renamingId = null;
   // A menu opened from a button in this pane — the Git tab's overflow, the
   // commit split button — is about to be pointing at an element that no longer
   // exists, so it goes with the rebuild rather than floating over the new one.
-  if (menuIsOpen() && !menuFor && !menuGroup) closeSessionMenu({ restoreFocus: false });
+  if (menuIsOpen() && !ui.menuFor && !ui.menuGroup) closeSessionMenu({ restoreFocus: false });
   detailPane.dataset.signature = signature;
   // What the pane was showing a moment ago, for the fade below. Read before the
   // rebuild overwrites it.
@@ -1435,33 +1390,33 @@ function renderDetail(force) {
   // buttons inside it — including the ones the tests click.
   const cameFrom = `${detailPane.dataset.sessionId || ""}/${detailPane.dataset.showing || ""}`;
   detailPane.dataset.sessionId = session.sessionId;
-  detailPane.dataset.showing = tab;
+  detailPane.dataset.showing = app.tab;
   detailPane.innerHTML = `
     ${detailHeader(session, state, host)}
     <div class="tabs" role="tablist">
-      <button class="tab md-state md-label-large" role="tab" data-tab="chat" aria-selected="${tab === "chat"}">${ICON.chat}Conversation</button>
+      <button class="tab md-state md-label-large" role="tab" data-tab="chat" aria-selected="${app.tab === "chat"}">${ICON.chat}Conversation</button>
       ${session.repoRoot ? `
-        <button class="tab md-state md-label-large" role="tab" data-tab="git" aria-selected="${tab === "git"}">${ICON.branch}Git</button>
-        <button class="tab md-state md-label-large" role="tab" data-tab="history" aria-selected="${tab === "history"}">${ICON.history}History</button>` : ""}
-      <button class="tab md-state md-label-large" role="tab" data-tab="usage" aria-selected="${tab === "usage"}">${ICON.coin}Usage</button>
-      <button class="tab md-state md-label-large" role="tab" data-tab="about" aria-selected="${tab === "about"}">${ICON.info}Details</button>
+        <button class="tab md-state md-label-large" role="tab" data-tab="git" aria-selected="${app.tab === "git"}">${ICON.branch}Git</button>
+        <button class="tab md-state md-label-large" role="tab" data-tab="history" aria-selected="${app.tab === "history"}">${ICON.history}History</button>` : ""}
+      <button class="tab md-state md-label-large" role="tab" data-tab="usage" aria-selected="${app.tab === "usage"}">${ICON.coin}Usage</button>
+      <button class="tab md-state md-label-large" role="tab" data-tab="about" aria-selected="${app.tab === "about"}">${ICON.info}Details</button>
     </div>
     <div class="panel-wrap">
       <div class="tab-panel" id="chatScroll" role="tabpanel">
-        ${tab === "chat" ? chatPanel(session)
-          : tab === "git" ? gitPanel(session)
-          : tab === "history" ? historyPanel(session)
-          : tab === "usage" ? usagePanel(session)
+        ${app.tab === "chat" ? chatPanel(session)
+          : app.tab === "git" ? gitPanel(session)
+          : app.tab === "history" ? historyPanel(session)
+          : app.tab === "usage" ? usagePanel(session)
           : aboutPanel(session, host)}
       </div>
-      ${tab === "chat" ? `<div class="jump-dock">
+      ${app.tab === "chat" ? `<div class="jump-dock">
           <button class="jump-bottom md-state" id="jumpBottom" title="Jump to latest" aria-label="Jump to latest" data-open="false" tabindex="-1" hidden>${ICON.toBottom}</button>
           <button class="jump-last md-state md-label-large" id="jumpLast" data-open="false" tabindex="-1" hidden>${ICON.up}Last request</button>
         </div>
         <div class="rail" id="commentRail" hidden><div class="rail__inner" id="commentRailInner"></div></div>` : ""}
     </div>
-    ${tab === "chat" ? questionCard(session) : ""}
-    ${tab === "chat" ? composer(session) : ""}`;
+    ${app.tab === "chat" ? questionCard(session) : ""}
+    ${app.tab === "chat" ? composer(session) : ""}`;
 
   const header = detailPane.querySelector(".detail-header");
   header.style.setProperty("--state-colour", state.colour);
@@ -1473,7 +1428,7 @@ function renderDetail(force) {
   // The transcript is rebuilt from the transcript data, so anything drawn over
   // it has to be drawn again — the marks over passages you have commented on
   // included.
-  if (tab === "chat") { markCommented(); renderRail(); }
+  if (app.tab === "chat") { markCommented(); renderRail(); }
 
   for (const button of detailPane.querySelectorAll("[data-tab]")) {
     button.addEventListener("click", () => setTab(button.dataset.tab));
@@ -1492,9 +1447,9 @@ function renderDetail(force) {
   detailPane.querySelector("#stickyToggle")?.addEventListener("change", (event) =>
     run("/api/sticky", session, event.target, null, { sticky: event.target.checked }));
   detailPane.querySelector("#muteToggle")?.addEventListener("change", (event) => {
-    if (event.target.checked) mutedSessions.delete(session.sessionId);
-    else mutedSessions.add(session.sessionId);
-    localStorage.setItem("cbu-muted", JSON.stringify([...mutedSessions]));
+    if (event.target.checked) app.mutedSessions.delete(session.sessionId);
+    else app.mutedSessions.add(session.sessionId);
+    localStorage.setItem("cbu-muted", JSON.stringify([...app.mutedSessions]));
   });
   for (const button of detailPane.querySelectorAll(".fact-copy")) {
     button.addEventListener("click", () => button.dataset.copy === "cwd"
@@ -1523,7 +1478,7 @@ function renderDetail(force) {
       growField(field);
       // Typing past a name the list was hiding from is a new question, so a
       // dismissed list comes back rather than staying shut for the whole draft.
-      cmdOff = false;
+      ui.cmdOff = false;
       syncCmdBar(session);
     });
     field.addEventListener("keydown", (event) => {
@@ -1542,24 +1497,24 @@ function renderDetail(force) {
   detailPane.querySelector("[data-act='say']")?.addEventListener("click", (e) => sendMessage(session, e.currentTarget));
 
   // Both git tabs carry the same header, and the header has buttons in it.
-  if (isGitTab(tab)) wireGit(session);
+  if (isGitTab(app.tab)) wireGit(session);
 
   detailPane.querySelector("[data-act='more']")?.addEventListener("click", showMoreChat);
 
   const chatAfter = detailPane.querySelector("#chatScroll");
-  if (chatAfter && tab === "chat" && chatFromBottom !== null) {
+  if (chatAfter && app.tab === "chat" && chatFromBottom !== null) {
     chatAfter.scrollTop = chatAfter.scrollHeight - chatFromBottom;
-    chatGrew = false;
-  } else if (chatAfter && tab === "chat" && wasAtBottom) {
+    chat.chatGrew = false;
+  } else if (chatAfter && app.tab === "chat" && wasAtBottom) {
     chatAfter.scrollTop = chatAfter.scrollHeight;
   }
-  if (chatAfter && tab === "chat") wireJumpDock(chatAfter);
+  if (chatAfter && app.tab === "chat") wireJumpDock(chatAfter);
 
   // Fade the panel in when it is showing something genuinely different — another
   // tab, another session. Not on every rebuild: the pane is rebuilt whenever a
   // message lands or a state changes, and a working session would have the thing
   // you are reading pulsing at you every few seconds.
-  if (cameFrom !== `${session.sessionId}/${tab}`) panelChangedAt = Date.now();
+  if (cameFrom !== `${session.sessionId}/${app.tab}`) panelChangedAt = Date.now();
   const since = Date.now() - panelChangedAt;
   if (since < PANEL_FADE_MS) {
     const wrap = detailPane.querySelector(".panel-wrap");
@@ -1654,11 +1609,11 @@ const COMPOSER_MIN = 48;
 const composerMax = () => Math.max(COMPOSER_MIN, detailPane.clientHeight - 200);
 
 function growField(field) {
-  if (composerHeight) {
+  if (ui.composerHeight) {
     // A pinned box keeps its height and scrolls inside, so the 40vh ceiling
     // that bounds the auto-grown one has to come off.
     field.style.maxHeight = "none";
-    field.style.height = `${Math.min(composerHeight, composerMax())}px`;
+    field.style.height = `${Math.min(ui.composerHeight, composerMax())}px`;
     return;
   }
   field.style.maxHeight = "";
@@ -1667,14 +1622,14 @@ function growField(field) {
 }
 
 function setComposerHeight(px, field) {
-  composerHeight = Math.round(Math.min(Math.max(px, COMPOSER_MIN), composerMax()));
-  localStorage.setItem("cbu-composer-height", composerHeight);
+  ui.composerHeight = Math.round(Math.min(Math.max(px, COMPOSER_MIN), composerMax()));
+  localStorage.setItem("cbu-composer-height", ui.composerHeight);
   growField(field);
   syncGrip(field);
 }
 
 function resetComposerHeight(field) {
-  composerHeight = null;
+  ui.composerHeight = null;
   localStorage.removeItem("cbu-composer-height");
   growField(field);
   syncGrip(field);
@@ -1683,7 +1638,7 @@ function resetComposerHeight(field) {
 function syncGrip(field) {
   const grip = detailPane.querySelector("#composerGrip");
   if (!grip) return;
-  grip.setAttribute("aria-valuenow", Math.round(composerHeight || field.clientHeight));
+  grip.setAttribute("aria-valuenow", Math.round(ui.composerHeight || field.clientHeight));
   grip.setAttribute("aria-valuemin", COMPOSER_MIN);
   grip.setAttribute("aria-valuemax", Math.round(composerMax()));
 }
@@ -1699,19 +1654,19 @@ function wireComposerGrip(grip, field) {
     const done = () => {
       grip.removeEventListener("pointermove", move);
       grip.classList.remove("is-dragging");
-      resizingComposer = false;
+      ui.resizingComposer = false;
       renderDetail(); // let through whatever the drag held off
     };
     grip.setPointerCapture(event.pointerId);
     grip.classList.add("is-dragging");
-    resizingComposer = true;
+    ui.resizingComposer = true;
     grip.addEventListener("pointermove", move);
     grip.addEventListener("pointerup", done, { once: true });
     grip.addEventListener("pointercancel", done, { once: true });
   });
   grip.addEventListener("dblclick", () => resetComposerHeight(field));
   grip.addEventListener("keydown", (event) => {
-    const from = composerHeight || field.clientHeight;
+    const from = ui.composerHeight || field.clientHeight;
     const step = event.shiftKey ? 64 : 16;
     if (event.key === "ArrowUp") setComposerHeight(from + step, field);
     else if (event.key === "ArrowDown") setComposerHeight(from - step, field);
@@ -1759,11 +1714,11 @@ async function sendMessage(session, button) {
     const live = detailPane.querySelector("#sayField");
     if (live && !live.value) { live.value = text; growField(live); }
   };
-  if (inFlight) { restore(); return; }
+  if (app.inFlight) { restore(); return; }
   // A stopped session cannot hear anything yet, so the message rides along with
   // the start: the server delivers it once the session is listening again.
   const url = session.status === "stopped" ? "/api/start" : "/api/say";
-  inFlight = url;
+  app.inFlight = url;
   button.disabled = true;
   try {
     const response = await fetch(url, {
@@ -1777,7 +1732,7 @@ async function sendMessage(session, button) {
     restore();
     showSnackbar("Could not reach the server");
   } finally {
-    inFlight = null;
+    app.inFlight = null;
     button.disabled = false;
     poll();
   }
@@ -1800,7 +1755,6 @@ let catalogFor = null;    // the session it was read for
 let catalogWaiting = false;
 let cmdRows = [];         // what the picker is showing, in the order it shows it
 let cmdIndex = 0;         // which of those the keyboard is on
-let cmdOff = false;       // Escape puts the list away without touching the text
 
 /* The walk costs a few dozen file heads, so it is paid for by the first "/" of a
    session rather than by opening the conversation. */
@@ -1889,14 +1843,14 @@ function syncCmdBar(session) {
     bar.innerHTML = "";
     cmdRows = [];
     cmdIndex = 0;
-    cmdOff = false;
+    ui.cmdOff = false;
     return;
   }
   loadCatalog(session);
 
   // Once a space has been typed the name is settled, so the list stands down and
   // leaves the line saying what will be sent.
-  cmdRows = (asked.chosen || cmdOff) ? [] : cmdMatches(asked.name);
+  cmdRows = (asked.chosen || ui.cmdOff) ? [] : cmdMatches(asked.name);
   cmdIndex = Math.min(cmdIndex, Math.max(0, cmdRows.length - 1));
   const note = cmdNote(asked);
   bar.hidden = !cmdRows.length && !note;
@@ -1939,7 +1893,7 @@ function takeCmd(session, entry) {
    standing — Enter is the send key every other moment. */
 function cmdKey(event, session) {
   if (event.key === "Escape" && !detailPane.querySelector("#cmdBar")?.hidden) {
-    cmdOff = true;
+    ui.cmdOff = true;
     syncCmdBar(session);
     return true;
   }
@@ -2151,7 +2105,7 @@ function commentOnSelection() {
     showSnackbar(why);
     return;
   }
-  const id = selectedId;
+  const id = app.selectedId;
   if (!id) return;
   if (!comments.has(id)) comments.set(id, []);
   const list = comments.get(id);
@@ -2206,10 +2160,10 @@ const RAIL_MIN_WIDTH = 860;
 const commentsFor = (id) => comments.get(id) || [];
 /* A card being typed in must not be rebuilt underneath, the same way a
    half-typed name or a drag on the composer grip holds off a repaint. */
-const commentIsOpen = () => commentsFor(selectedId).some((c) => c.editing);
+const commentIsOpen = () => commentsFor(app.selectedId).some((c) => c.editing);
 
 function rememberCommented(entries) {
-  const id = selectedId;
+  const id = app.selectedId;
   if (!id) return;
   if (!commented.has(id)) commented.set(id, new Set());
   const set = commented.get(id);
@@ -2229,7 +2183,7 @@ function forgetCommented(commentId) {
   const mine = commentSnippets.get(commentId);
   commentSnippets.delete(commentId);
   if (!mine || !mine.length) return;
-  const set = commented.get(selectedId);
+  const set = commented.get(app.selectedId);
   if (!set) return;
   const stillClaimed = new Set();
   for (const list of commentSnippets.values()) for (const snippet of list) stillClaimed.add(snippet);
@@ -2264,7 +2218,7 @@ function unmarkCommented() {
    crossing a bold run or a link is quoted correctly but goes unmarked, which is
    the honest trade for never rewriting a bubble's structure underneath itself. */
 function markCommented() {
-  const set = commented.get(selectedId);
+  const set = commented.get(app.selectedId);
   if (!set || !set.size) return;
   const scroller = detailPane.querySelector("#chatScroll");
   if (!scroller) return;
@@ -2320,7 +2274,7 @@ function renderRail() {
   const inner = detailPane.querySelector("#commentRailInner");
   const wrap = detailPane.querySelector(".panel-wrap");
   if (!rail || !inner || !wrap) return;
-  const list = commentsFor(selectedId);
+  const list = commentsFor(app.selectedId);
   const scroller = detailPane.querySelector("#chatScroll");
   rail.hidden = !list.length;
   // Cards live in the transcript now, so anything left over from a previous
@@ -2403,17 +2357,17 @@ function scheduleRail() {
 function refreshSendLabel() {
   const send = detailPane.querySelector(".rail__send");
   if (!send) return;
-  const n = commentsFor(selectedId).filter((c) => c.remark.trim()).length;
+  const n = commentsFor(app.selectedId).filter((c) => c.remark.trim()).length;
   send.textContent = n ? `Send ${n} comment${n === 1 ? "" : "s"}` : "Write a comment to send";
   send.disabled = !n;
 }
 
 function closeComment(id, keep) {
-  const list = commentsFor(selectedId);
+  const list = commentsFor(app.selectedId);
   const entry = list.find((c) => c.id === id);
   if (!entry) return;
   if (!keep && !entry.remark.trim()) {
-    comments.set(selectedId, list.filter((c) => c.id !== id));
+    comments.set(app.selectedId, list.filter((c) => c.id !== id));
     forgetCommented(id);
   } else {
     entry.editing = false;
@@ -2433,7 +2387,7 @@ function positionRail() {
   }
   const card = scroller.querySelector('.ccard[data-active="true"]');
   if (!card) return;
-  const entry = commentsFor(selectedId).find((c) => c.id === card.dataset.id);
+  const entry = commentsFor(app.selectedId).find((c) => c.id === card.dataset.id);
   const anchor = findAnchor(scroller, entry);
   const node = anchor && (anchor.nodeType === 1 ? anchor : anchor.commonAncestorContainer);
   const owner = node && (node.nodeType === 1 ? node : node.parentElement)?.closest(".msg, .activity-row");
@@ -2514,11 +2468,11 @@ function commentsAsMessage(list) {
 }
 
 async function sendComments(session, button) {
-  const list = commentsFor(selectedId).filter((c) => c.remark.trim());
-  if (!list.length || inFlight) return;
-  const text = commentsAsMessage(commentsFor(selectedId));
+  const list = commentsFor(app.selectedId).filter((c) => c.remark.trim());
+  if (!list.length || app.inFlight) return;
+  const text = commentsAsMessage(commentsFor(app.selectedId));
   const url = session.status === "stopped" ? "/api/start" : "/api/say";
-  inFlight = url;
+  app.inFlight = url;
   button.disabled = true;
   try {
     const response = await fetch(url, {
@@ -2529,7 +2483,7 @@ async function sendComments(session, button) {
     if (response.ok && data.ok) {
       // Sent comments leave the rail but keep their marks: the rail is what is
       // outstanding, the marks are where you have been.
-      comments.set(selectedId, commentsFor(selectedId).filter((c) => !c.remark.trim()));
+      comments.set(app.selectedId, commentsFor(app.selectedId).filter((c) => !c.remark.trim()));
       activeComment = null;
       renderRail();
     }
@@ -2537,7 +2491,7 @@ async function sendComments(session, button) {
   } catch (error) {
     showSnackbar("Could not reach the server");
   } finally {
-    inFlight = null;
+    app.inFlight = null;
     button.disabled = false;
     poll();
   }
@@ -2556,12 +2510,12 @@ detailPane.addEventListener("click", (event) => {
   if (act) {
     const id = act.dataset.id;
     if (act.dataset.cc === "drop") {
-      comments.set(selectedId, commentsFor(selectedId).filter((c) => c.id !== id));
+      comments.set(app.selectedId, commentsFor(app.selectedId).filter((c) => c.id !== id));
       if (activeComment === id) activeComment = null;
       forgetCommented(id);
       renderRail();
     } else if (act.dataset.cc === "edit") {
-      const entry = commentsFor(selectedId).find((c) => c.id === id);
+      const entry = commentsFor(app.selectedId).find((c) => c.id === id);
       if (entry) { entry.editing = true; activeComment = id; renderRail(); focusComment(id); }
     } else if (act.dataset.cc === "keep") {
       closeComment(id, true);
@@ -2633,8 +2587,8 @@ document.addEventListener("keydown", (event) => {
    and an empty name puts the session's own name back. The name is kept by the
    server, so it outlives a reload and shows in the list too. */
 function startRename(session, button) {
-  if (renamingId) return;
-  renamingId = session.sessionId;
+  if (sidebar.renamingId) return;
+  sidebar.renamingId = session.sessionId;
   const field = document.createElement("input");
   field.type = "text";
   field.className = "name-field md-headline-small";
@@ -2654,7 +2608,7 @@ function startRename(session, button) {
   const finish = (save) => {
     if (done) return;
     done = true;
-    renamingId = null;
+    sidebar.renamingId = null;
     const name = field.value.trim();
     if (save && name !== session.name) commitRename(session, name);
     else renderDetail(true);
@@ -2668,7 +2622,7 @@ function startRename(session, button) {
 
 async function commitRename(session, name) {
   // Show the new name at once; the next poll confirms it from the server.
-  const local = feed.sessions.find((s) => s.sessionId === session.sessionId);
+  const local = app.feed.sessions.find((s) => s.sessionId === session.sessionId);
   if (local) local.name = name || local.defaultName || local.name;
   render();
   try {
@@ -2696,11 +2650,11 @@ function detailHeader(session, state, host) {
   if (session.branch) meta.push(`<span class="meta-sep">·</span><span class="md-mono md-body-small">${escapeHtml(session.branch)}</span>`);
   meta.push(stopped
     ? `<span class="meta-sep">·</span><span class="md-body-small">kept here</span>`
-    : `<span class="meta-sep">·</span><span class="md-body-small">up ${duration(Date.now() / 1000 + skew - session.startedAt)}</span>`);
+    : `<span class="meta-sep">·</span><span class="md-body-small">up ${duration(Date.now() / 1000 + app.skew - session.startedAt)}</span>`);
   // The transcript's own reading first — it is the fresher of the two — and the
   // one that came with the session behind it, so the subject is there on the
   // first paint rather than a moment after it.
-  const title = (transcriptFor === session.sessionId && transcript?.title) || session.title || null;
+  const title = (chat.transcriptFor === session.sessionId && chat.transcript?.title) || session.title || null;
   return `<header class="detail-header">
       <div class="detail-header__top">
         <div class="detail-header__text">
@@ -2710,7 +2664,7 @@ function detailHeader(session, state, host) {
                       aria-label="Rename ${escapeHtml(session.name)}"><span>${escapeHtml(session.name)}</span>${ICON.pencil}</button>
             </h2>
             <span class="md-label-large">${escapeHtml(state.label)}
-              <span class="md-mono md-body-small" data-since="${displaySince(session)}">${duration(Date.now() / 1000 + skew - displaySince(session))}</span></span>
+              <span class="md-mono md-body-small" data-since="${displaySince(session)}">${duration(Date.now() / 1000 + app.skew - displaySince(session))}</span></span>
           </div>
           ${title ? `<p class="detail-header__subtitle md-body-medium">${escapeHtml(title)}</p>` : ""}
           <div class="detail-header__meta">${meta.join(" ")}</div>
@@ -2775,11 +2729,11 @@ const IDENTIFY_NOTE = "Asking the terminal — its title will flicker";
 function headerActions(session) {
   // A stopped session has no window to raise; what it has is a way back.
   if (session.status === "stopped") {
-    if (!feed.canSend) return `<p class="hint md-label-small">starting needs the panel on loopback</p>`;
+    if (!app.feed.canSend) return `<p class="hint md-label-small">starting needs the panel on loopback</p>`;
     return `<button class="button button--filled md-state" data-act="start">${ICON.play} Start it up</button>
             <p class="hint md-label-small">resumes this conversation</p>`;
   }
-  if (!feed.canFocus) return `<p class="hint md-label-small">focusing needs xdotool</p>`;
+  if (!app.feed.canFocus) return `<p class="hint md-label-small">focusing needs xdotool</p>`;
   const win = session.window;
   if (!win) {
     return `<button class="button button--tonal md-state" data-act="pair">${ICON.pair} Pair window</button>
@@ -2812,9 +2766,9 @@ function traceFor(session) {
 function traceSpans(session) {
   const spans = session.trace || [];
   if (!spans.length) return null;
-  const end = feed.now;
+  const end = app.feed.now;
   const observed = end - spans[0].from;
-  const window = Math.min(feed.historySeconds, Math.max(observed, 15));
+  const window = Math.min(app.feed.historySeconds, Math.max(observed, 15));
   const start = end - window;
   const merged = [];
   for (const span of spans) {
@@ -2877,7 +2831,7 @@ function paintTrace(root, session) {
 
 /* Wall-clock time of a server epoch, corrected for the client's clock offset. */
 function clockAt(epoch) {
-  return new Date((epoch - skew) * 1000).toLocaleTimeString([], {
+  return new Date((epoch - app.skew) * 1000).toLocaleTimeString([], {
     hour: "2-digit", minute: "2-digit", second: "2-digit",
   });
 }
@@ -2913,7 +2867,7 @@ function wireTrace(root) {
     const began = seg.dataset.clipped ? `before ${clockAt(from)}` : clockAt(from);
     const text = `<span class="trace__tip-state md-label-medium">
         <span class="trace__tip-dot" style="--seg:${seg.dataset.colour}"></span>
-        ${escapeHtml(seg.dataset.state)} <span class="md-mono">${duration((to ?? feed.now) - from)}</span>
+        ${escapeHtml(seg.dataset.state)} <span class="md-mono">${duration((to ?? app.feed.now) - from)}</span>
       </span>
       <span class="trace__tip-times md-mono">${escapeHtml(began)} → ${escapeHtml(ended)}</span>`;
     if (tip.innerHTML !== text) tip.innerHTML = text;
@@ -2947,7 +2901,7 @@ function wireTrace(root) {
 /* Why this session cannot be sent to, or null if it can. Every case says what is
    wrong rather than leaving a dead box on screen. */
 function sendBlockedReason(session) {
-  if (!feed.canSend) return "sending is off — the panel is not on loopback";
+  if (!app.feed.canSend) return "sending is off — the panel is not on loopback";
   // A stopped session gets a composer of its own: writing in it starts it up.
   if (session.status === "stopped") return null;
   if (session.status === "offline") return "that session has closed";
@@ -2997,7 +2951,7 @@ function questionCard(session) {
   }).join("");
   // Raising the window is the whole of what the panel can do here, so it is only
   // offered when there is a window to raise.
-  const go = session.window && feed.canFocus
+  const go = session.window && app.feed.canFocus
     ? `<button class="button button--text md-state ask__go" data-act="focus">${ICON.focus}Answer there</button>`
     : "";
   return `<div class="ask">
@@ -3045,10 +2999,10 @@ function messageKey(message) {
 }
 
 function chatPanel(session) {
-  if (transcriptFor !== session.sessionId || !transcript) {
+  if (chat.transcriptFor !== session.sessionId || !chat.transcript) {
     return `<p class="chat__note md-body-medium">Reading the conversation…</p>`;
   }
-  if (!transcript.messages.length) {
+  if (!chat.transcript.messages.length) {
     // A nested session has no transcript at all — Claude Code writes none for
     // one — so "yet" would be a promise the panel cannot keep.
     return `<p class="chat__note md-body-medium">${session.kind === "child"
@@ -3057,9 +3011,9 @@ function chatPanel(session) {
         + "are still live, and you can still send it a message."
       : "Nothing in this transcript yet."}</p>`;
   }
-  const rows = transcript.truncated
-    ? [`<p class="chat__note md-label-small">showing the last ${transcript.messages.length} messages${
-        chatLimit < CHAT_LIMIT_MAX
+  const rows = chat.transcript.truncated
+    ? [`<p class="chat__note md-label-small">showing the last ${chat.transcript.messages.length} messages${
+        chat.chatLimit < CHAT_LIMIT_MAX
           ? ` <button class="button button--text md-state chat__more" data-act="more">show ${CHAT_PAGE} more</button>`
           : " — as far back as this panel reads"}</p>`]
     : [];
@@ -3067,7 +3021,7 @@ function chatPanel(session) {
       <span class="tool-line__name">${escapeHtml(tool.name)}</span>
       <span class="tool-line__detail">${escapeHtml(tool.detail || "")}</span></span>`).join("");
 
-  for (const message of transcript.messages) {
+  for (const message of chat.transcript.messages) {
     // Tool-only turns are activity, not speech — keep them out of bubbles so the
     // actual conversation stays readable.
     if (!message.text && (message.tools || []).length) {
@@ -3257,8 +3211,8 @@ function fileRow(file, staged) {
   const cut = trimmed.lastIndexOf("/");
   const dir = cut === -1 ? "" : trimmed.slice(0, cut);
   const base = (cut === -1 ? trimmed : trimmed.slice(cut + 1)) + (folder ? "/" : "");
-  const open = diffOpen && diffOpen.path === file.path && diffOpen.staged === staged;
-  const can = git?.canWrite;
+  const open = repo.diffOpen && repo.diffOpen.path === file.path && repo.diffOpen.staged === staged;
+  const can = repo.git?.canWrite;
   const act = (action, icon, title, danger) =>
     `<button class="scm-icon md-state${danger ? " scm-icon--danger" : ""}" type="button"
        data-git="${action}" title="${escapeHtml(title)}" aria-label="${escapeHtml(`${title} — ${file.path}`)}">${icon}</button>`;
@@ -3285,9 +3239,9 @@ function fileRow(file, staged) {
 
 /* The open diff, coloured by what each line does to the file. */
 function diffPane() {
-  if (diffText === null) return `<p class="git-empty md-body-small">Reading the diff…</p>`;
-  if (!diffText) return `<p class="git-empty md-body-small">${escapeHtml(diffNote || "No line changes to show")}</p>`;
-  const lines = diffText.split("\n");
+  if (repo.diffText === null) return `<p class="git-empty md-body-small">Reading the diff…</p>`;
+  if (!repo.diffText) return `<p class="git-empty md-body-small">${escapeHtml(repo.diffNote || "No line changes to show")}</p>`;
+  const lines = repo.diffText.split("\n");
   // The last line of a patch is the newline before EOF, not a line of its own.
   if (lines[lines.length - 1] === "") lines.pop();
   const body = lines.map((line) => {
@@ -3309,12 +3263,12 @@ function diffPane() {
 
 /* Neither tab is worth showing without knowing which branch it is describing,
    so the same header opens both. */
-function gitHead(git) {
-  const here = git.branch || (git.head ? git.head.slice(0, 7) : "no commits");
+function gitHead(repoState) {
+  const here = repoState.branch || (repoState.head ? repoState.head.slice(0, 7) : "no commits");
   // The branch is a button when there is somewhere to go: the editor's status-bar
   // branch works this way, and a repository with one branch and no remote has
   // nothing to offer but the new-branch line, which is still worth offering.
-  const badge = git.canWrite
+  const badge = repoState.canWrite
     ? `<button class="git-badge git-badge--button md-state md-label-large" type="button" data-git="branch-menu"
          title="Switch branch, or start a new one" aria-haspopup="menu">
         ${ICON.branch}<span class="md-mono">${escapeHtml(here)}</span>${ICON.chevron}
@@ -3329,7 +3283,7 @@ function gitHead(git) {
   const drift = (key, arrow, count, verb, title) => {
     if (!count) return "";
     const label = `<span class="md-mono">${arrow}${count}</span>`;
-    return git.canWrite
+    return repoState.canWrite
       ? `<button class="git-badge git-badge--button git-badge--drift md-state md-label-medium"
            type="button" data-way="${key}" data-git="${key}" title="${escapeHtml(title)}">
           ${label}<span class="git-badge__verb">${verb}</span>
@@ -3340,14 +3294,14 @@ function gitHead(git) {
   return `
     <div class="git-head">
       ${badge}
-      ${git.detached ? `<span class="git-badge git-badge--quiet md-body-small">detached HEAD</span>` : ""}
-      ${git.upstream ? `<span class="git-badge git-badge--quiet md-body-small md-mono">${escapeHtml(git.upstream)}</span>` : ""}
-      ${drift("push", "↑", git.ahead, "to push",
-        `Push ${plural(git.ahead, "commit")} to ${git.upstream || "the remote"}`)}
-      ${drift("pull", "↓", git.behind, "to pull",
-        `Pull ${plural(git.behind, "commit")} from ${git.upstream || "the remote"}`)}
-      ${git.stashes ? `<span class="git-badge git-badge--quiet md-body-small">${git.stashes} stashed</span>` : ""}
-      ${gitHeadActions(git)}
+      ${repoState.detached ? `<span class="git-badge git-badge--quiet md-body-small">detached HEAD</span>` : ""}
+      ${repoState.upstream ? `<span class="git-badge git-badge--quiet md-body-small md-mono">${escapeHtml(repoState.upstream)}</span>` : ""}
+      ${drift("push", "↑", repoState.ahead, "to push",
+        `Push ${plural(repoState.ahead, "commit")} to ${repoState.upstream || "the remote"}`)}
+      ${drift("pull", "↓", repoState.behind, "to pull",
+        `Pull ${plural(repoState.behind, "commit")} from ${repoState.upstream || "the remote"}`)}
+      ${repoState.stashes ? `<span class="git-badge git-badge--quiet md-body-small">${repoState.stashes} stashed</span>` : ""}
+      ${gitHeadActions(repoState)}
     </div>`;
 }
 
@@ -3361,14 +3315,14 @@ function plural(n, noun) {
    repository can be told to do that is not about one file. Sync is the editor's
    one button for "catch up, then hand over" — pull what is waiting, push what is
    not there yet — and it says which way the traffic is going. */
-function gitHeadActions(git) {
-  if (!git.canWrite) {
+function gitHeadActions(repoState) {
+  if (!repoState.canWrite) {
     return `<span class="git-badge git-badge--quiet md-body-small scm-actions" style="opacity:1;margin-inline-start:auto"
       title="This panel is serving read-only, so it can show the repository but not change it">read-only</span>`;
   }
-  const sync = !git.detached && (git.upstream
-    ? (git.ahead || git.behind
-        ? `Sync — pull ${git.behind || 0}, push ${git.ahead || 0}`
+  const sync = !repoState.detached && (repoState.upstream
+    ? (repoState.ahead || repoState.behind
+        ? `Sync — pull ${repoState.behind || 0}, push ${repoState.ahead || 0}`
         : "Sync — nothing waiting either way")
     : "Publish this branch — it has no upstream yet");
   return `<div class="scm-actions" style="opacity:1;margin-inline-start:auto">
@@ -3380,11 +3334,11 @@ function gitHeadActions(git) {
 /* Whatever both git tabs should show instead of themselves — still loading, not
    readable — or null when there is real data to draw. */
 function gitNotice(session) {
-  if (!git || gitFor !== session.sessionId) {
+  if (!repo.git || repo.gitFor !== session.sessionId) {
     return `<p class="git-empty md-body-medium">Reading the repository…</p>`;
   }
-  if (!git.ok) {
-    return `<p class="git-empty md-body-medium">${escapeHtml(git.message || "Could not read this repository")}</p>`;
+  if (!repo.git.ok) {
+    return `<p class="git-empty md-body-medium">${escapeHtml(repo.git.message || "Could not read this repository")}</p>`;
   }
   return null;
 }
@@ -3404,8 +3358,8 @@ function gitPanel(session) {
   const notice = gitNotice(session);
   if (notice) return notice;
 
-  const groups = gitGroups(git.files);
-  const can = git.canWrite;
+  const groups = gitGroups(repo.git.files);
+  const can = repo.git.canWrite;
   const act = (action, icon, title, danger) =>
     `<button class="scm-icon md-state${danger ? " scm-icon--danger" : ""}" type="button"
        data-git="${action}" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">${icon}</button>`;
@@ -3423,7 +3377,7 @@ function gitPanel(session) {
     </section>` : "";
 
   return `
-    ${gitHead(git)}
+    ${gitHead(repo.git)}
     ${can ? commitBox(session, groups) : ""}
     ${group("merge", "Merge changes", groups.merge, false,
       act("stage-group", ICON.plus, "Stage all — marks these conflicts resolved"))}
@@ -3431,7 +3385,7 @@ function gitPanel(session) {
       act("unstage-group", ICON.minus, "Unstage all"))}
     ${group("changes", "Changes", groups.changes, false,
       act("discard-group", ICON.discard, "Discard all changes", true) + act("stage-group", ICON.plus, "Stage all changes"))}
-    ${git.files.length ? "" : `<p class="git-empty md-body-medium">Nothing changed — the working tree is clean.</p>`}`;
+    ${repo.git.files.length ? "" : `<p class="git-empty md-body-medium">Nothing changed — the working tree is clean.</p>`}`;
 }
 
 /* Why the commit button cannot be pressed, or null when it can. One answer, in
@@ -3455,7 +3409,7 @@ function commitBox(session, groups) {
   const label = groups.staged.length ? "Commit"
     : groups.changes.length ? `Commit all ${groups.changes.length}`
     : "Commit";
-  const where = git.branch ? ` on ${git.branch}` : "";
+  const where = repo.git.branch ? ` on ${repo.git.branch}` : "";
   return `
     <div class="scm-commit">
       <div class="scm-commit__box">
@@ -3463,7 +3417,7 @@ function commitBox(session, groups) {
           placeholder="Message — ${escapeHtml(`Ctrl+Enter to commit${where}`)}"
           aria-label="Commit message">${escapeHtml(message)}</textarea>
         <button class="scm-icon md-state scm-commit__ai" type="button" data-git="suggest"
-          ${suggesting ? `data-busy="1" disabled title="Writing a message…"`
+          ${repo.suggesting ? `data-busy="1" disabled title="Writing a message…"`
             : `title="Let Claude write the message from the diff"`}
           aria-label="Let Claude write the commit message">${ICON.sparkle}</button>
       </div>
@@ -3491,17 +3445,17 @@ function growCommit(field) {
    which is far too often to rebuild the pane for. */
 function syncCommitButton(session) {
   const button = detailPane.querySelector("[data-git='commit']");
-  if (!button || !git) return;
-  const blocked = commitBlocker(session, gitGroups(git.files || []));
+  if (!button || !repo.git) return;
+  const blocked = commitBlocker(session, gitGroups(repo.git.files || []));
   button.disabled = Boolean(blocked);
-  button.title = blocked || `Commit${git.branch ? ` on ${git.branch}` : ""}`;
+  button.title = blocked || `Commit${repo.git.branch ? ` on ${repo.git.branch}` : ""}`;
 }
 
 /* Commit, and then — for the split button's other entries — push or sync what
    was just committed. The message is only forgotten once git has taken it. */
 async function doCommit(session, button, { amend = false, then = null } = {}) {
   const message = (commitDrafts.get(session.sessionId) || "").trim();
-  const groups = gitGroups(git?.files || []);
+  const groups = gitGroups(repo.git?.files || []);
   if (groups.merge.length) {
     showSnackbar("Resolve the conflicts first, then commit");
     return;
@@ -3529,7 +3483,7 @@ async function doCommit(session, button, { amend = false, then = null } = {}) {
    has been rebuilt underneath it, so the message goes into the draft first and
    into the field only if the field is still there. */
 async function suggestMessage(session, button) {
-  if (gitActing) return;
+  if (repo.gitActing) return;
   const typed = (commitDrafts.get(session.sessionId) || "").trim();
   if (typed) {
     const replace = await askConfirm({
@@ -3540,8 +3494,8 @@ async function suggestMessage(session, button) {
     if (!replace) return;
   }
 
-  gitActing = true;
-  suggesting = true;
+  repo.gitActing = true;
+  repo.suggesting = true;
   button.disabled = true;
   button.dataset.busy = "1";
   showSnackbar("Reading the diff and writing a message…", 90000);
@@ -3570,8 +3524,8 @@ async function suggestMessage(session, button) {
   } catch (error) {
     showSnackbar("Could not reach the server");
   } finally {
-    gitActing = false;
-    suggesting = false;
+    repo.gitActing = false;
+    repo.suggesting = false;
     const live = detailPane.querySelector("[data-git='suggest']");
     if (live) {
       live.disabled = false;
@@ -3583,7 +3537,7 @@ async function suggestMessage(session, button) {
 
 /* What the arrow beside Commit opens: the same list the editor keeps there. */
 function commitMenuItems(session) {
-  const upstream = git?.upstream;
+  const upstream = repo.git?.upstream;
   return [
     { key: "commit", icon: ICON.check, label: "Commit",
       run: (el) => doCommit(session, el) },
@@ -3595,8 +3549,8 @@ function commitMenuItems(session) {
       run: (el) => doCommit(session, el, { then: "sync" }) },
     { divider: true },
     { key: "amend", icon: ICON.pencil, label: "Commit (amend)",
-      hint: git?.commits?.[0]?.subject ? clip(git.commits[0].subject, 34) : "rewrites the last commit",
-      disabled: !git?.commits?.length,
+      hint: repo.git?.commits?.[0]?.subject ? clip(repo.git.commits[0].subject, 34) : "rewrites the last commit",
+      disabled: !repo.git?.commits?.length,
       run: (el) => doCommit(session, el, { amend: true }) },
   ];
 }
@@ -3606,8 +3560,8 @@ function commitMenuItems(session) {
    because that is the handful you are actually moving between, then the remote
    ones nobody here has a local copy of yet. */
 function branchMenuItems(session) {
-  const local = git?.branches?.local || [];
-  const remote = git?.branches?.remote || [];
+  const local = repo.git?.branches?.local || [];
+  const remote = repo.git?.branches?.remote || [];
   const items = [
     { key: "new", icon: ICON.plus, label: "Create new branch…", hint: "from here",
       run: () => createBranch(session, null) },
@@ -3621,7 +3575,7 @@ function branchMenuItems(session) {
       run: () => openGitMenu(detailPane.querySelector("[data-git='branch-menu']"),
                              "Start the branch from", startPointItems(session)) },
   ];
-  const now = Date.now() / 1000 + skew;
+  const now = Date.now() / 1000 + app.skew;
   if (local.length) {
     items.push({ divider: true });
     for (const branch of local.slice(0, 40)) {
@@ -3651,8 +3605,8 @@ function branchMenuItems(session) {
     items.push({ divider: true });
     items.push({
       key: "none", icon: ICON.branch, disabled: true,
-      label: git?.branches ? "No other branches yet" : "Branch list unavailable",
-      hint: git?.branches ? "" : "restart the panel",
+      label: repo.git?.branches ? "No other branches yet" : "Branch list unavailable",
+      hint: repo.git?.branches ? "" : "restart the panel",
     });
   }
   return items;
@@ -3661,8 +3615,8 @@ function branchMenuItems(session) {
 /* The same list again, but picking one names where a new branch starts rather
    than where HEAD goes. */
 function startPointItems(session) {
-  const local = git?.branches?.local || [];
-  const remote = git?.branches?.remote || [];
+  const local = repo.git?.branches?.local || [];
+  const remote = repo.git?.branches?.remote || [];
   return [...local, ...remote].slice(0, 60).map((branch) => ({
     key: `from:${branch.name}`, icon: ICON.branch, label: branch.name,
     hint: branch.current ? "where you are" : "",
@@ -3704,16 +3658,16 @@ async function switchTo(session, branch, button) {
 /* And what the header's overflow opens: everything about the repository rather
    than about one file. */
 function gitMenuItems(session) {
-  const files = git?.files || [];
+  const files = repo.git?.files || [];
   return [
-    { key: "pull", icon: ICON.download, label: "Pull", hint: git?.behind ? `${git.behind} waiting` : git?.upstream || "no upstream",
-      disabled: !git?.upstream,
+    { key: "pull", icon: ICON.download, label: "Pull", hint: repo.git?.behind ? `${repo.git.behind} waiting` : repo.git?.upstream || "no upstream",
+      disabled: !repo.git?.upstream,
       run: (el) => gitDo("pull", {}, el) },
-    { key: "push", icon: ICON.upload, label: git?.upstream ? "Push" : "Publish branch",
-      hint: git?.ahead ? `${git.ahead} to push` : git?.upstream || "sets the upstream",
-      disabled: git?.detached,
+    { key: "push", icon: ICON.upload, label: repo.git?.upstream ? "Push" : "Publish branch",
+      hint: repo.git?.ahead ? `${repo.git.ahead} to push` : repo.git?.upstream || "sets the upstream",
+      disabled: repo.git?.detached,
       run: (el) => gitDo("push", {}, el) },
-    { key: "sync", icon: ICON.sync, label: "Sync", hint: "pull, then push", disabled: git?.detached,
+    { key: "sync", icon: ICON.sync, label: "Sync", hint: "pull, then push", disabled: repo.git?.detached,
       run: (el) => gitDo("sync", {}, el) },
     { key: "fetch", icon: ICON.download, label: "Fetch", hint: "just look",
       run: (el) => gitDo("fetch", {}, el) },
@@ -3731,7 +3685,7 @@ function gitMenuItems(session) {
       hint: "including new files",
       run: (el) => gitDo("stash", { message: commitDrafts.get(session.sessionId) || "" }, el) },
     { key: "stash-pop", icon: ICON.stash, label: "Restore latest stash",
-      disabled: !git?.stashes, hint: git?.stashes ? `${git.stashes} stashed` : "nothing stashed",
+      disabled: !repo.git?.stashes, hint: repo.git?.stashes ? `${repo.git.stashes} stashed` : "nothing stashed",
       run: (el) => gitDo("stashPop", {}, el) },
   ];
 }
@@ -3774,25 +3728,25 @@ function onGitAction(session, button) {
   const path = row?.dataset.path;
   const staged = row?.dataset.staged === "1";
   const groupKey = button.closest(".scm-group")?.dataset.group;
-  const groupFiles = groupKey ? gitGroups(git?.files || [])[groupKey] || [] : [];
+  const groupFiles = groupKey ? gitGroups(repo.git?.files || [])[groupKey] || [] : [];
   const groupPaths = groupFiles.map((f) => f.path);
 
   switch (action) {
     case "diff": return toggleDiff(path, staged);
     case "stage": return gitDo("stage", { paths: [path] }, button);
     case "unstage": return gitDo("unstage", { paths: [path] }, button);
-    case "discard": return discardWithConfirm([path], git?.files || [], button);
+    case "discard": return discardWithConfirm([path], repo.git?.files || [], button);
     case "stage-group": return gitDo("stage", { paths: groupPaths }, button);
     case "unstage-group": return gitDo("unstage", { paths: groupPaths }, button);
     case "discard-group": return discardWithConfirm(groupPaths, groupFiles, button);
-    case "sync": return gitDo(git?.upstream ? "sync" : "push", {}, button);
+    case "sync": return gitDo(repo.git?.upstream ? "sync" : "push", {}, button);
     case "push": return gitDo("push", {}, button);
     case "pull": return gitDo("pull", {}, button);
-    case "branch-menu": return openGitMenu(button, git?.branch || "Branches", branchMenuItems(session));
+    case "branch-menu": return openGitMenu(button, repo.git?.branch || "Branches", branchMenuItems(session));
     case "suggest": return suggestMessage(session, button);
     case "commit": return doCommit(session, button);
     case "commit-menu": return openGitMenu(button, "Commit", commitMenuItems(session));
-    case "menu": return openGitMenu(button, git?.branch || "This repository", gitMenuItems(session));
+    case "menu": return openGitMenu(button, repo.git?.branch || "This repository", gitMenuItems(session));
     default: return undefined;
   }
 }
@@ -3806,18 +3760,17 @@ function openGitMenu(button, title, items) {
 
 /* Kept between renders so the caret does not jump to the end of a message that
    is still being written when the repository moves underneath it. */
-let commitCaret = null;
 
 function wireGit(session) {
   const field = detailPane.querySelector("#commitField");
   if (field) {
     growCommit(field);
-    if (commitCaret) {
-      if (commitCaret.focused) {
+    if (repo.commitCaret) {
+      if (repo.commitCaret.focused) {
         field.focus();
-        field.setSelectionRange(commitCaret.start, commitCaret.end);
+        field.setSelectionRange(repo.commitCaret.start, repo.commitCaret.end);
       }
-      commitCaret = null;
+      repo.commitCaret = null;
     }
     field.addEventListener("input", () => {
       commitDrafts.set(session.sessionId, field.value);
@@ -3842,12 +3795,12 @@ function historyPanel(session) {
   const notice = gitNotice(session);
   if (notice) return notice;
 
-  const rows = layoutGraph(git.commits || []);
+  const rows = layoutGraph(repo.git.commits || []);
   const width = Math.max(1, rows.reduce((w, r) => Math.max(w, r.before.length, r.after.length), 1)) * LANE_W;
-  const now = Date.now() / 1000 + skew;
+  const now = Date.now() / 1000 + app.skew;
 
   return `
-    ${gitHead(git)}
+    ${gitHead(repo.git)}
     ${rows.length ? `<div class="git-graph" style="grid-template-columns: ${width}px 1fr;">
       ${rows.map((row) => `
         <div class="git-commit">
@@ -3926,11 +3879,11 @@ function usageTable(rows) {
 }
 
 function usagePanel(session) {
-  if (!usage || usageFor !== session.sessionId) {
+  if (!spend.usage || spend.usageFor !== session.sessionId) {
     return `<p class="git-empty md-body-medium">Reading the transcript…</p>`;
   }
-  const t = usage.totals;
-  const every = [...usage.models, ...usage.agentModels];
+  const t = spend.usage.totals;
+  const every = [...spend.usage.models, ...spend.usage.agentModels];
   if (!every.length) {
     return `<p class="git-empty md-body-medium">${session.kind === "child"
       ? `A session started from inside another writes no transcript of its own, so there
@@ -3942,18 +3895,18 @@ function usagePanel(session) {
   // Rounded down: a session that has written any cache at all should not read
   // as though every token came out of one.
   const share = cached ? Math.floor(t.cacheRead / cached * 100) : 0;
-  const context = usage.context || 0;
-  const limit = usage.contextWindow || 1_000_000;
+  const context = spend.usage.context || 0;
+  const limit = spend.usage.contextWindow || 1_000_000;
   const full = Math.min(100, Math.round(context / limit * 100));
-  const spanEnd = usage.lastAt ? Date.parse(usage.lastAt) / 1000 : null;
-  const spanStart = usage.firstAt ? Date.parse(usage.firstAt) / 1000 : null;
+  const spanEnd = spend.usage.lastAt ? Date.parse(spend.usage.lastAt) / 1000 : null;
+  const spanStart = spend.usage.firstAt ? Date.parse(spend.usage.firstAt) / 1000 : null;
 
   return `
     <div class="use-tiles">
-      ${usageTile("Cost so far", money(usage.cost), "at list price", true)}
+      ${usageTile("Cost so far", money(spend.usage.cost), "at list price", true)}
       ${usageTile("Requests", t.requests.toLocaleString(),
-        usage.agentModels.length
-          ? `${usage.agentModels.reduce((n, r) => n + r.requests, 0).toLocaleString()} from sub-agents`
+        spend.usage.agentModels.length
+          ? `${spend.usage.agentModels.reduce((n, r) => n + r.requests, 0).toLocaleString()} from sub-agents`
           : "")}
       ${usageTile("Tokens in", tokens(t.input + cached),
         `${share}% read from cache`)}
@@ -3965,7 +3918,7 @@ function usagePanel(session) {
       <h3 class="section__title md-title-small">Context</h3>
       <p class="md-body-medium">${context
         ? `Its last request carried <span class="md-mono">${tokens(context)}</span> tokens of
-           context${usage.contextModel ? ` into <span class="md-mono">${escapeHtml(usage.contextModel)}</span>` : ""},
+           context${spend.usage.contextModel ? ` into <span class="md-mono">${escapeHtml(spend.usage.contextModel)}</span>` : ""},
            which is ${full}% of that model's ${tokens(limit)} window.`
         : "Nothing has gone in yet."}</p>
       ${context ? `<div class="use-bar">
@@ -3978,14 +3931,14 @@ function usagePanel(session) {
 
     <section class="section">
       <h3 class="section__title md-title-small">By model</h3>
-      ${usageTable(usage.models)}
+      ${usageTable(spend.usage.models)}
     </section>
 
-    ${usage.agentModels.length ? `<section class="section">
+    ${spend.usage.agentModels.length ? `<section class="section">
       <h3 class="section__title md-title-small">Sub-agents</h3>
       <p class="md-body-medium">Work this session handed to agents of its own. It is the
         same bill, kept apart because it is not the conversation you are reading.</p>
-      ${usageTable(usage.agentModels)}
+      ${usageTable(spend.usage.agentModels)}
     </section>` : ""}
 
     <section class="section">
@@ -3994,19 +3947,19 @@ function usagePanel(session) {
         Anthropic's published per-token prices — a cache write costs ${CACHE_WRITE_5M}× fresh
         input for five minutes or ${CACHE_WRITE_1H}× for an hour, a cache read a tenth of it.
         What you are actually charged may be less: a Claude subscription bills a plan rather
-        than tokens, and a negotiated rate is not the list one.${usage.unpriced.length
+        than tokens, and a negotiated rate is not the list one.${spend.usage.unpriced.length
           ? ` No price is known here for
-            ${usage.unpriced.map((m) => `<span class="md-mono">${escapeHtml(m)}</span>`).join(", ")},
+            ${spend.usage.unpriced.map((m) => `<span class="md-mono">${escapeHtml(m)}</span>`).join(", ")},
             so its tokens are counted but its cost is not.` : ""}</p>
       ${spanStart ? `<p class="md-body-small fact-note">First request
-        ${escapeHtml(ago(Date.now() / 1000 + skew - spanStart))}, last
-        ${escapeHtml(ago(Date.now() / 1000 + skew - spanEnd))}.</p>` : ""}
+        ${escapeHtml(ago(Date.now() / 1000 + app.skew - spanStart))}, last
+        ${escapeHtml(ago(Date.now() / 1000 + app.skew - spanEnd))}.</p>` : ""}
     </section>`;
 }
 
 function aboutPanel(session, host) {
   const win = session.window;
-  const muted = mutedSessions.has(session.sessionId);
+  const muted = app.mutedSessions.has(session.sessionId);
   const started = new Date(session.startedAt * 1000);
   const facts = [
     ["Working folder", `<span class="md-mono">${escapeHtml(session.cwd)}</span>
@@ -4035,8 +3988,8 @@ function aboutPanel(session, host) {
       session.kind === "child"
         ? ` <span class="meta-sep">·</span> <span class="fact-note">the panel's own:
             a nested session publishes none</span>` : ""}`],
-    ["Started", `${started.toLocaleString()} <span class="meta-sep">·</span> up ${duration(Date.now() / 1000 + skew - session.startedAt)}`],
-    ["Transcript", transcript?.path ? `<span class="md-mono">${escapeHtml(shorten(transcript.path, 2))}</span>` : "—"],
+    ["Started", `${started.toLocaleString()} <span class="meta-sep">·</span> up ${duration(Date.now() / 1000 + app.skew - session.startedAt)}`],
+    ["Transcript", chat.transcript?.path ? `<span class="md-mono">${escapeHtml(shorten(chat.transcript.path, 2))}</span>` : "—"],
   ];
   // A stopped session owns no window, so that section would only mislead.
   const windowSection = session.status === "stopped" ? "" : `
@@ -4118,17 +4071,17 @@ function notifyWaiting(sessions) {
   const seen = new Set();
   for (const session of sessions) {
     seen.add(session.sessionId);
-    const before = lastStatuses.get(session.sessionId);
+    const before = app.lastStatuses.get(session.sessionId);
     if (before && before !== "waiting" && session.status === "waiting"
-        && !mutedSessions.has(session.sessionId)
+        && !app.mutedSessions.has(session.sessionId)
         && "Notification" in window && Notification.permission === "granted") {
       new Notification(`${session.name} needs you`, {
         body: `${shorten(session.cwd)} is waiting for an answer.`, tag: session.sessionId,
       });
     }
-    lastStatuses.set(session.sessionId, session.status);
+    app.lastStatuses.set(session.sessionId, session.status);
   }
-  for (const key of [...lastStatuses.keys()]) if (!seen.has(key)) lastStatuses.delete(key);
+  for (const key of [...app.lastStatuses.keys()]) if (!seen.has(key)) app.lastStatuses.delete(key);
 }
 
 function paintFavicon(counts) {
@@ -4162,7 +4115,7 @@ function renderSwatches() {
     button.type = "button";
     button.title = preset.name;
     button.setAttribute("aria-label", `Base colour ${preset.name}`);
-    button.setAttribute("aria-pressed", String(preset.hex.toLowerCase() === settings.seed.toLowerCase()));
+    button.setAttribute("aria-pressed", String(preset.hex.toLowerCase() === app.settings.seed.toLowerCase()));
     button.style.setProperty("--swatch", preset.hex);
     button.style.setProperty("--swatch-on", hexFromArgb(TonalPalette.fromInt(argbFromHex(preset.hex)).tone(100)));
     button.innerHTML = ICON.check;
@@ -4172,11 +4125,11 @@ function renderSwatches() {
   const custom = document.createElement("label");
   custom.className = "swatch swatch--custom md-state";
   custom.title = "Any colour";
-  custom.innerHTML = `${ICON.plus}<input type="color" value="${settings.seed}" aria-label="Custom base colour">`;
+  custom.innerHTML = `${ICON.plus}<input type="color" value="${app.settings.seed}" aria-label="Custom base colour">`;
   custom.querySelector("input").addEventListener("input", (event) => setSeed(event.target.value));
   swatchRow.appendChild(custom);
-  const hct = Hct.fromInt(argbFromHex(settings.seed));
-  seedReadout.innerHTML = `Base <span class="code">${escapeHtml(settings.seed.toUpperCase())}</span> · hue ${Math.round(hct.hue)}° · chroma ${Math.round(hct.chroma)}`;
+  const hct = Hct.fromInt(argbFromHex(app.settings.seed));
+  seedReadout.innerHTML = `Base <span class="code">${escapeHtml(app.settings.seed.toUpperCase())}</span> · hue ${Math.round(hct.hue)}° · chroma ${Math.round(hct.chroma)}`;
 }
 function renderContrast() {
   contrastGroup.innerHTML = "";
@@ -4184,15 +4137,15 @@ function renderContrast() {
     const button = document.createElement("button");
     button.className = "segmented__item md-state";
     button.type = "button";
-    button.setAttribute("aria-pressed", String(level.key === settings.contrast));
+    button.setAttribute("aria-pressed", String(level.key === app.settings.contrast));
     button.innerHTML = `${ICON.check}<span>${level.label}</span>`;
     button.addEventListener("click", () => {
-      settings.contrast = level.key; persist(); applyScheme(); renderContrast();
+      app.settings.contrast = level.key; persist(); applyScheme(); renderContrast();
     });
     contrastGroup.appendChild(button);
   }
 }
-function setSeed(hex) { settings.seed = hex; persist(); applyScheme(); renderSwatches(); }
+function setSeed(hex) { app.settings.seed = hex; persist(); applyScheme(); renderSwatches(); }
 /* ------------------------------------------------------- ending a session */
 let endTarget = null;
 function openEndDialog(session) {
@@ -4296,7 +4249,6 @@ const planChipText = document.getElementById("planChipText");
    over hours: so it is read on the clock rather than on the poll, and not at
    all while nobody is looking at the page. */
 const PLAN_POLL_MS = 300_000;
-let plan = null;
 let planBusy = false;
 let planPolledAt = 0;
 let planGone = false;      // the panel is read-only, so there is nothing to ask
@@ -4318,10 +4270,10 @@ async function fetchPlan(force) {
       return;
     }
     if (!response.ok) throw new Error(String(response.status));
-    plan = await response.json();
+    spend.plan = await response.json();
     // A reading already in flight elsewhere: come back for its answer shortly
     // rather than waiting on this request.
-    if (plan.reading) planPolledAt = Date.now() - PLAN_POLL_MS + 4000;
+    if (spend.plan.reading) planPolledAt = Date.now() - PLAN_POLL_MS + 4000;
   } catch (error) {
     /* leave the last reading on screen */
   } finally {
@@ -4334,7 +4286,7 @@ async function fetchPlan(force) {
 /* The two figures worth an app bar: how much of the current session's allowance
    has gone, and how much of the week's. Whichever is tighter colours the chip. */
 function planHeadline() {
-  const limits = plan?.limits || [];
+  const limits = spend.plan?.limits || [];
   const session = limits.find((l) => /session/i.test(l.name));
   const week = limits.find((l) => /week/i.test(l.name) && !/\(/.test(l.name))
     || limits.find((l) => /week.*all models/i.test(l.name))
@@ -4345,12 +4297,12 @@ function planHeadline() {
 function paintPlanChip() {
   if (planGone) { planButton.hidden = true; return; }
   planButton.hidden = false;
-  planButton.dataset.reading = planBusy || plan?.reading ? "1" : "0";
+  planButton.dataset.reading = planBusy || spend.plan?.reading ? "1" : "0";
   const shown = planHeadline();
   if (!shown.length) {
-    planChipText.textContent = plan?.ok === false ? "plan?" : "plan";
+    planChipText.textContent = spend.plan?.ok === false ? "plan?" : "plan";
     planButton.dataset.tight = "0";
-    planButton.title = plan?.message || "How much of your plan has gone";
+    planButton.title = spend.plan?.message || "How much of your plan has gone";
     return;
   }
   // Used, not left: it reads the same way the bars below it do, and the colour
@@ -4388,29 +4340,29 @@ function paintPlanDialog() {
   const head = document.getElementById("planHead");
   const body = document.getElementById("planBody");
   const age = document.getElementById("planAge");
-  if (!plan) {
+  if (!spend.plan) {
     head.textContent = "Reading your usage — this takes a few seconds.";
     body.innerHTML = "";
     age.textContent = "";
     return;
   }
-  head.textContent = plan.headline || plan.message || "";
-  const limits = plan.limits || [];
+  head.textContent = spend.plan.headline || spend.plan.message || "";
+  const limits = spend.plan.limits || [];
   body.innerHTML = `
     ${limits.length ? limits.map(planBar).join("")
-      : plan.text ? `<p class="plan-raw md-body-small">${escapeHtml(plan.text)}</p>`
-      : `<p class="md-body-medium">${escapeHtml(plan.message || "Nothing came back.")}</p>`}
-    ${(plan.blocks || []).map((block) => `<section class="plan-block">
+      : spend.plan.text ? `<p class="plan-raw md-body-small">${escapeHtml(spend.plan.text)}</p>`
+      : `<p class="md-body-medium">${escapeHtml(spend.plan.message || "Nothing came back.")}</p>`}
+    ${(spend.plan.blocks || []).map((block) => `<section class="plan-block">
       <h3 class="plan-block__title md-title-small">${escapeHtml(block.title)}</h3>
       ${block.lines.length ? `<ul class="md-body-small">${block.lines
         .map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>` : ""}
     </section>`).join("")}
     <p class="plan-note md-body-small">Read by running Claude Code's own
       <span class="md-mono">/usage</span>, so it is the same answer the terminal gives — and it
-      costs no tokens. The panel never touches your credentials.${limits.length && plan.message
-        ? ` The last refresh failed: ${escapeHtml(plan.message)}` : ""}</p>`;
-  age.textContent = plan.at
-    ? planBusy || plan.reading ? "reading…" : `read ${ago(Date.now() / 1000 - plan.at)}`
+      costs no tokens. The panel never touches your credentials.${limits.length && spend.plan.message
+        ? ` The last refresh failed: ${escapeHtml(spend.plan.message)}` : ""}</p>`;
+  age.textContent = spend.plan.at
+    ? planBusy || spend.plan.reading ? "reading…" : `read ${ago(Date.now() / 1000 - spend.plan.at)}`
     : "";
 }
 
@@ -4421,7 +4373,7 @@ function openPlan(open) {
   document.getElementById("closePlan").focus();
   // Opening it is asking for the figure, so a stale one is refreshed there and
   // then rather than at the next tick of the clock.
-  if (!plan || Date.now() / 1000 - (plan.at || 0) > PLAN_POLL_MS / 1000) fetchPlan(true);
+  if (!spend.plan || Date.now() / 1000 - (spend.plan.at || 0) > PLAN_POLL_MS / 1000) fetchPlan(true);
 }
 
 /* ------------------------------------------------- opening one, and the notice */
@@ -4645,7 +4597,7 @@ async function openSessionIn(folder) {
 }
 
 function paintOpenButton() {
-  openButton.hidden = !feed.canSend;
+  openButton.hidden = !app.feed.canSend;
 }
 
 planButton.addEventListener("click", () => openPlan(true));
@@ -4672,10 +4624,10 @@ document.addEventListener("keydown", (event) => {
   else clearPicked();
 });
 document.getElementById("resetTheme").addEventListener("click", () => {
-  settings = { seed: DEFAULT_SEED, dark: matchMedia("(prefers-color-scheme: dark)").matches, contrast: "standard" };
+  app.settings = { seed: DEFAULT_SEED, dark: matchMedia("(prefers-color-scheme: dark)").matches, contrast: "standard" };
   persist(); applyScheme(); renderSwatches(); renderContrast(); showSnackbar("Appearance reset");
 });
-themeToggle.addEventListener("change", () => { settings.dark = themeToggle.checked; persist(); applyScheme(); });
+themeToggle.addEventListener("change", () => { app.settings.dark = themeToggle.checked; persist(); applyScheme(); });
 backButton.addEventListener("click", () => { panes.dataset.view = "list"; });
 pickGroup.addEventListener("click", () => groupPicked());
 pickClear.addEventListener("click", () => clearPicked());
@@ -4699,13 +4651,13 @@ document.addEventListener("pointerdown", (event) => {
 /* -------------------------------------------------------------------- boot */
 loadSettings();
 applyScheme();
-if (selectedId) panes.dataset.view = "detail";
+if (app.selectedId) panes.dataset.view = "detail";
 poll();
 setInterval(poll, 1000);
 fetchPlan(true);
 setInterval(() => fetchPlan(false), 30_000);
 setInterval(() => {
-  const now = Date.now() / 1000 + skew;
+  const now = Date.now() / 1000 + app.skew;
   for (const node of document.querySelectorAll("[data-since]")) {
     node.textContent = duration(now - Number(node.dataset.since));
   }
@@ -4715,5 +4667,5 @@ document.addEventListener("visibilitychange", () => {
   poll();
   // The repository was left alone while the tab was away, so catch it up now
   // rather than at the end of an interval that started before you looked.
-  if (selectedId && isGitTab(tab)) fetchGit(true);
+  if (app.selectedId && isGitTab(app.tab)) fetchGit(true);
 });
