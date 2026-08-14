@@ -15,15 +15,19 @@
    and "nothing to redraw yet" is the truth at that point. */
 
 type Redraw = () => void;
+/* The detail pane takes one argument: whether to rebuild even when the panel
+   thinks nothing it draws from has changed. Dropping it here is invisible —
+   the call still succeeds, and the pane simply never updates. */
+type RedrawDetail = (force?: boolean) => void;
 type Reload = () => void | Promise<void>;
 
 let redraw: Redraw = () => {};
-let redrawDetail: Redraw = () => {};
+let redrawDetail: RedrawDetail = () => {};
 let reload: Reload = () => {};
 
 /** Called once by main.ts, which owns the loop. */
 export function serveRefresh(handlers: {
-  render: Redraw; renderDetail: Redraw; poll: Reload;
+  render: Redraw; renderDetail: RedrawDetail; poll: Reload;
 }): void {
   redraw = handlers.render;
   redrawDetail = handlers.renderDetail;
@@ -33,8 +37,8 @@ export function serveRefresh(handlers: {
 /** Redraw from the state the panel already has. */
 export const refresh = (): void => redraw();
 
-/** Redraw the detail pane only. */
-export const refreshDetail = (): void => redrawDetail();
+/** Redraw the detail pane only. `force` rebuilds it even if nothing changed. */
+export const refreshDetail = (force?: boolean): void => redrawDetail(force);
 
 /** Ask the server for the state again, then redraw. */
 export const reloadState = (): void | Promise<void> => reload();
