@@ -81,6 +81,15 @@ TRANSCRIPT_WINDOW = 10.0
 # well under a hundredth of one, so the gap between them is wide.
 WORKING_CPU = 0.02
 CPU_WINDOW = 5.0
+# A working turn is not steady activity. While a request is out to the API, or a
+# tool call is blocking on something slow, the process burns almost no CPU and
+# appends nothing to its transcript — both liveness signals go quiet mid-turn.
+# Read literally, that gap expires the session's `busy` reading and shows a
+# working session as "Waiting" for a few seconds until the next append puts it
+# back. So a reading of "alive" is remembered for this long after the signals
+# fall silent, which is longer than those gaps and still short enough that a
+# session whose status went stale for real settles within the minute.
+LIVENESS_GRACE = 45.0
 
 
 def cpu_seconds(pid: int) -> float | None:
@@ -1243,6 +1252,24 @@ def own_errand(pid: int, running: bool) -> None:
 def is_own_errand(pid: int) -> bool:
     with OWN_ERRANDS_LOCK:
         return pid in OWN_ERRANDS
+
+
+# Knowing our own pids only hides our own errands. A second panel on another
+# port — a test instance, a second window's server — reads the same folder, so
+# its `/usage` run is somebody else's pid and lands in the list as a session
+# that arrives, says nothing and goes; and even our own leaves a row behind for
+# the twenty seconds the store keeps a session it can no longer see.
+#
+# A headless run says what it is in its own file. `claude -p` and the SDKs write
+# an `sdk-*` entrypoint where a session you can type at writes `cli` (or
+# `claude-vscode`), and no amount of watching one will ever let you answer it.
+# So they are left out by what they are rather than by who started them, which
+# holds however many panels are running and after the process is gone.
+
+
+def is_headless(data: dict) -> bool:
+    """Is this session file a headless run rather than a session to watch."""
+    return str(data.get("entrypoint") or "").startswith("sdk-")
 # Enough patch to describe a real change. Past this the subject would be a guess
 # either way, and the diff is only there to be summarised.
 MESSAGE_DIFF_LIMIT = 40_000
@@ -2792,6 +2819,8 @@ class SessionStore:
         self._first_seen: dict[str, float] = {}
         # pid -> (sampled at, cpu seconds then, was it working)
         self._cpu: dict[int, tuple[float, float, bool]] = {}
+        # session id -> when its liveness signals last said it was working
+        self._alive_at: dict[str, float] = {}
         self._transcript_cache: dict[str, tuple[float, float | None]] = {}
 
     # --- reading
@@ -2812,8 +2841,8 @@ class SessionStore:
             pid = data.get("pid")
             if not isinstance(pid, int):
                 continue
-            if is_own_errand(pid):
-                continue  # the panel's own headless run, not a session to watch
+            if is_own_errand(pid) or is_headless(data):
+                continue  # a headless run, not a session to watch
             actual = proc_starttime(pid)
             recorded = data.get("procStart")
             if actual is None:
@@ -2915,6 +2944,20 @@ class SessionStore:
         touched = self._transcript_touched(session_id, data.get("cwd") or "", now)
         return touched is not None and now - touched < TRANSCRIPT_WINDOW
 
+    def _alive(self, data: dict, session_id: str, now: float) -> bool:
+        """Liveness, held across the quiet gaps inside a working turn.
+
+        Both signals _looks_alive reads are bursty, and neither is absent only at
+        the end of a turn — see LIVENESS_GRACE. Remembering the last time they
+        agreed is what keeps a working session from blinking to "Waiting" and back
+        while it sits on an API call.
+        """
+        if self._looks_alive(data, now):
+            self._alive_at[session_id] = now
+            return True
+        last = self._alive_at.get(session_id)
+        return last is not None and now - last < LIVENESS_GRACE
+
     # --- sampling loop
 
     def sample(self) -> None:
@@ -2923,7 +2966,7 @@ class SessionStore:
         for data in self._read_files():
             session_id = data.get("sessionId") or str(data.get("pid"))
             seen.add(session_id)
-            status = effective_status(data, now, self._looks_alive(data, now))
+            status = effective_status(data, now, self._alive(data, session_id, now))
             with self._lock:
                 self._first_seen.setdefault(session_id, now)
                 trace = self._history.setdefault(session_id, [])
@@ -2945,6 +2988,7 @@ class SessionStore:
                         self._transcript_cache.pop(session_id, None)
                         self._mode_cache.pop(session_id, None)
                         self._title_cache.pop(session_id, None)
+                        self._alive_at.pop(session_id, None)
                         self._cpu.pop(gone.get("pid"), None)
 
     def run_forever(self) -> None:
@@ -3104,7 +3148,13 @@ class SessionStore:
             session["parentName"] = named.get(session.get("parentPid"))
 
         order = {"waiting": 0, "busy": 1, "shell": 2, "idle": 3, "offline": 4, "stopped": 5}
-        out.sort(key=lambda s: (order.get(s["status"], 6), -(now - s["statusSince"])))
+        # State decides which band a row sits in; inside a band the order is the
+        # session's own identity — when it started, then its id — and never how
+        # long it has been in that state. A row therefore moves only when its
+        # state visibly changes, and comes back to the same slot afterwards. The
+        # id makes the key total, so two sessions never swap on the strength of
+        # the order they happened to be discovered in.
+        out.sort(key=lambda s: (order.get(s["status"], 6), s["startedAt"] or 0, s["sessionId"]))
         return {
             "now": now,
             "sessions": out,

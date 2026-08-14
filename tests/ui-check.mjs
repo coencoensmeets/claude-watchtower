@@ -103,6 +103,36 @@ check("each item has a host icon and a state lamp",
   list.icons === list.items && list.lamps === list.items, `${list.icons} icons, ${list.lamps} lamps`);
 check("sidebar shows distinct states", new Set(list.states).size >= 3, list.states.join(","));
 check("exactly one item is selected", list.selected === 1);
+
+/* The order the list is kept in. States decide the bands, and inside a band it
+   is when the session started and then its id — never how long it has been in
+   that state, which would move a row every time it blinked. */
+const ordering = JSON.parse(await evaluate(`(async () => {
+  const feed = await (await fetch('/api/state')).json();
+  const rank = ['waiting','busy','shell','idle','offline','stopped'];
+  const at = Object.fromEntries(feed.sessions.map((s) => [s.sessionId, s]));
+  const rowsOf = (el) => [...(el.dataset.id ? [el] : el.querySelectorAll('li[data-id]'))]
+    .map((li) => at[li.dataset.id]).filter(Boolean);
+  // A group sits at the band of its most pressing member.
+  const blocks = [...sessionList.children].map((li) => rowsOf(li)).filter((rows) => rows.length);
+  const bands = blocks.map((rows) => Math.min(...rows.map((s) => rank.indexOf(s.status))));
+  const identity = (list) => list.every((s, i) => !i
+    || (list[i - 1].startedAt || 0) < (s.startedAt || 0)
+    || ((list[i - 1].startedAt || 0) === (s.startedAt || 0) && list[i - 1].sessionId < s.sessionId));
+  // Bare rows are only ever compared with the ones sharing their band.
+  const bare = blocks.filter((rows) => rows.length === 1).map((rows) => rows[0]);
+  const perBand = [...new Set(bare.map((s) => s.status))].map((st) => bare.filter((s) => s.status === st));
+  return JSON.stringify({
+    blocks: blocks.length,
+    banded: bands.every((b, i) => !i || bands[i - 1] <= b),
+    groups: blocks.filter((rows) => rows.length > 1).length,
+    fixed: blocks.filter((rows) => rows.length > 1).every(identity) && perBand.every(identity),
+  });
+})()`));
+check("the list runs in state order, worst first",
+  ordering.banded, `${ordering.blocks} rows and groups`);
+check("rows sit in a fixed order of their own inside that",
+  ordering.fixed, `${ordering.groups} groups`);
 check("detail pane rendered for the selection", await evaluate(`!!document.querySelector('.detail-header h2')`),
   await evaluate(`document.querySelector('.detail-header h2')?.textContent || ''`));
 
@@ -552,8 +582,17 @@ if (planState.status === 403) {
     tight: planButton.dataset.tight,
     title: planButton.title,
   })`));
-  check("the plan chip shows what is left", !chip.hidden && /%/.test(chip.text), `${chip.text}`);
-  check("the chip names its limits in full", /left/.test(chip.title), chip.title);
+  check("the plan chip shows how much has gone", !chip.hidden && /%/.test(chip.text), `${chip.text}`);
+  check("the chip names its limits in full", /used/.test(chip.title), chip.title);
+  // Green, amber, red — each figure in the band its own number falls in.
+  const bands = JSON.parse(await evaluate(`JSON.stringify(
+    [...planChipText.querySelectorAll('.plan-pct')].map((s) => ({
+      text: s.textContent, band: s.dataset.band, color: window.__hex(getComputedStyle(s).color) }))
+  )`));
+  check("each figure is coloured for its band",
+    bands.length >= 1 && bands.every((b) => /^[012]$/.test(b.band)) &&
+      new Set(bands.map((b) => b.band)).size === new Set(bands.map((b) => b.color)).size,
+    bands.map((b) => `${b.text} band ${b.band} ${b.color}`).join(", "));
   await evaluate(`planButton.click()`);
   await sleep(900);
   const dialog = JSON.parse(await evaluate(`JSON.stringify({
