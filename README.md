@@ -500,20 +500,46 @@ systemctl --user enable --now claude-watchtower
 
 ## Tests
 
-1. Start a panel — a fixture directory shows every state at once:
+There are two suites: unit tests over the readers, which need nothing, and the
+UI checks, which drive a real browser against a running panel.
+
+```bash
+python3 -m unittest discover -s tests/python
+```
+
+These cover the parsing and arithmetic the panel is built on — the git status
+and log readers, the `/usage` report, how a stale status expires, what a
+transcript block summarises to, and the per-model cost. Standard library only,
+no fixtures, no panel, well under a second.
+
+The UI checks want a panel with something to show. `tests/fixtures.py` stands
+one up with a session in every state:
+
+1. Start the fixtures, and leave them running:
+
+```bash
+python3 tests/fixtures.py
+```
+
+Give it a minute before believing what you see. A session first seen gets the
+benefit of the doubt until there are two CPU readings to compare, so everything
+reads as working for the first fifty seconds or so — including the fixtures
+whose whole point is to settle to ready.
+
+2. Start a panel against them — the command is printed for you:
 
 ```bash
 CLAUDE_WATCHTOWER_SESSION_DIR=/path/to/fixtures python3 server.py --port 8788
 ```
 
-2. Start a throwaway browser with CDP open:
+3. Start a throwaway browser with CDP open:
 
 ```bash
 google-chrome --headless=new --remote-debugging-port=9333 \
   --user-data-dir=$(mktemp -d) about:blank
 ```
 
-3. Run the checks:
+4. Run the checks:
 
 ```bash
 node tests/ui-check.mjs
