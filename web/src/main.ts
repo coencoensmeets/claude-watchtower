@@ -14,6 +14,8 @@ import { showSnackbar } from "./ui/snackbar.js";
 import { DEFAULT_SEED, SEED_PRESETS, CONTRAST_LEVELS, STATE_BASE_HUES, MIN_HUE_GAP, MAX_CUSTOM_CHROMA, SYS_ROLES, kebab, hueDistance, firstFreeHue, customRoles } from "./ui/theme.js";
 import { STATE, STATE_ALIAS, stateKeyOf, stateOf, displaySince, STATE_ORDER } from "./sessions/state.js";
 import { panes, sessionList, listEmpty, detailPane, chipSet, barSupporting, themeToggle, themeLabel, snackbar, settingsScrim, endScrim, swatchRow, seedReadout, contrastGroup, backButton, pickBar, pickCount, pickGroup, pickClear } from "./ui/dom.js";
+import { run } from "./net.js";
+import { serveRefresh } from "./refresh.js";
 
 /* ==========================================================================
    Dynamic colour — one seed generates the entire scheme.
@@ -599,26 +601,6 @@ async function gitDo(action, extra, button) {
   return ok;
 }
 
-async function run(url, session, button, waitingMessage, extra) {
-  if (app.inFlight) return;
-  app.inFlight = url;
-  button.disabled = true;
-  if (waitingMessage) showSnackbar(waitingMessage, 44000);
-  try {
-    const response = await fetch(url, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId: session.sessionId, ...extra }),
-    });
-    const data = await response.json().catch(() => ({}));
-    showSnackbar(data.message || (response.ok ? "Done" : "That did not work"));
-  } catch (error) {
-    showSnackbar("Could not reach the server");
-  } finally {
-    app.inFlight = null;
-    button.disabled = false;
-    poll();
-  }
-}
 
 /* --------------------------------------------------------------- rendering */
 function render() {
@@ -4046,6 +4028,9 @@ document.addEventListener("pointerdown", (event) => {
 });
 
 /* -------------------------------------------------------------------- boot */
+// Hand the render loop to refresh.js before anything can ask for a redraw:
+// modules reach the loop through it rather than importing main back.
+serveRefresh({ render, renderDetail, poll });
 loadSettings();
 applyScheme();
 if (app.selectedId) panes.dataset.view = "detail";
