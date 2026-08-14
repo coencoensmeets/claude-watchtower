@@ -73,5 +73,28 @@ class Imports(unittest.TestCase):
                                       f"which does not define it")
 
 
+
+class Routes(unittest.TestCase):
+    """The route table, and whether the README still describes it."""
+
+    def test_every_route_resolves_to_a_real_handler(self):
+        from watchtower.http import ROUTES, Handler
+        for (method, path), name in ROUTES.items():
+            with self.subTest(route=f"{method} {path}"):
+                self.assertTrue(callable(getattr(Handler, name, None)),
+                                f"{method} {path} names {name}, which Handler does not define")
+
+    def test_the_readme_documents_exactly_the_routes_that_exist(self):
+        """A route nobody wrote down is the one nobody maintains."""
+        import re
+        from watchtower.http import ROUTES
+
+        readme = (ROOT / "README.md").read_text()
+        section = readme.split("## API", 1)[1]
+        documented = set(re.findall(r"`(GET|POST) (/api/[\w/]*)`", section))
+        self.assertEqual(documented, set(ROUTES),
+                         "the README's API table and the route table disagree")
+
+
 if __name__ == "__main__":
     unittest.main()

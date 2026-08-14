@@ -582,6 +582,7 @@ PANEL_URL=http://127.0.0.1:8787 node tests/ui-check.mjs
 | `GET /api/state` | Every live session, with status, trace, window match, and the `question` it is standing at if it is standing at one |
 | `GET /api/transcript` | `?sessionId=…&limit=…` — the recent conversation |
 | `GET /api/usage` | `?sessionId=…` — that session's token totals per model, the cost they come to, and the size of its last context |
+| `GET /api/commands` | `?sessionId=…` — the skills and slash commands that session could be asked for, read from the project's folders, yours, and any enabled plugin's. A session that has gone is answered with what is true of every session rather than a 404 |
 | `GET /api/plan` | The subscription's limits, read by running `claude --print /usage`; `?force=1` skips the five-minute cache; loopback only |
 | `GET /api/git` | `?sessionId=…` — that session's repository: branch, upstream drift, changed files, recent commits with their parents, and the branches it could switch to |
 | `GET /api/git/diff` | `?sessionId=…&path=…&staged=1` — one changed file's unified diff, one side at a time |
