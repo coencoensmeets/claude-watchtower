@@ -61,6 +61,8 @@ python3 server.py
 | [What it shows](#what-it-shows) | The four states, and why the one you care about is inferred rather than read |
 | [Layout](#layout-an-index-and-a-detail-pane) | The index, groups, the detail pane and its five tabs |
 | [Sending a message](#sending-a-message) | The composer, the unix socket behind it, and its three honest limits |
+| [The question it is asking](#the-question-it-is-asking) | The multiple-choice question a blocked session is standing at, read from the panel |
+| [Opening a session](#opening-a-session) | The native folder picker, and placing the folder it returns |
 | [Commenting on a passage](#commenting-on-a-passage) | Select what it said, and say what you think of it |
 | [Permission mode](#permission-mode) | How much rope a session has, when it was true, and why it is read-only |
 | [Git and History](#git-and-history) | Staging, committing and pushing in the editor's own Source Control layout, and a commit graph drawn from real ancestry |
@@ -154,13 +156,13 @@ Click a row and the pane shows that session in full: its name, state and how lon
 
 | Tab | What's inside |
 |---|---|
-| **Conversation** | The recent transcript, as speech bubbles, plus the composer |
+| **Conversation** | The recent transcript, as speech bubbles, plus the composer — and the question it is standing at, when it is standing at one |
 | **Git** | What the session has done to the working tree |
 | **History** | The same repository's recent commits, drawn as a graph |
 | **Usage** | Tokens and cost, per model, and how full the context is |
 | **Details** | Window pairing, notification switch, the facts, and **End session** |
 
-**Conversation.** Your prompts and Claude's replies are speech bubbles; turns that only ran tools are quiet single rows with the tool name and its target, so the actual conversation stays readable. It is read from the end backwards and stops at a page of messages, which is why a five-megabyte transcript opens as fast as a fresh one — and why the page is a page of *conversation*: a fixed tail of a working session is nearly all tool output, so it would show Claude's last twenty turns and none of your own messages. The bubbles render Markdown — headings, lists, tables, quotes, emphasis, links and code blocks — because an answer read as raw `###` and `**` is hard work. Nothing from a message reaches the page as markup: code is held aside first, every other scrap is escaped before a tag is added, links are only made for http, https and mailto, and an image becomes a link rather than a remote fetch. It follows the live session, and stays pinned to the newest message unless you scroll up. A long answer buries what you asked for, so a **Last request** pill floats over the corner whenever your most recent message is off screen; it scrolls back to it and its arrow points the way it will travel. Selecting any passage offers to quote it into the composer — see [Commenting on a passage](#commenting-on-a-passage).
+**Conversation.** Your prompts and Claude's replies are speech bubbles; turns that only ran tools are quiet single rows with the tool name and its target, so the actual conversation stays readable. It is read from the end backwards and stops at a page of messages, which is why a five-megabyte transcript opens as fast as a fresh one — and why the page is a page of *conversation*: a fixed tail of a working session is nearly all tool output, so it would show Claude's last twenty turns and none of your own messages. The bubbles render Markdown — headings, lists, tables, quotes, emphasis, links and code blocks — because an answer read as raw `###` and `**` is hard work. Nothing from a message reaches the page as markup: code is held aside first, every other scrap is escaped before a tag is added, links are only made for http, https and mailto, and an image becomes a link rather than a remote fetch. It follows the live session, and stays pinned to the newest message unless you scroll up. A long answer buries what you asked for, so a **Last request** pill floats over the corner whenever your most recent message is off screen; it scrolls back to it and its arrow points the way it will travel. Beside it, a round **jump to latest** button fades in once the end of the transcript is properly out of sight and takes you back down to it in one move. Selecting any passage offers to quote it into the composer — see [Commenting on a passage](#commenting-on-a-passage).
 
 **Git** and **History** are described under [Git and History](#git-and-history), **Usage** under [Usage and cost](#usage-and-cost). **Details** carries window pairing, a per-session switch for whether it may raise a desktop notification when it starts waiting, the facts (pid, Claude Code version, session id, start time, where the transcript lives), and **End session**.
 
@@ -174,7 +176,7 @@ Three honest limits, each stated on the composer itself rather than left to be d
 
 | Limit | Why |
 |---|---|
-| **A session blocked on a prompt cannot be answered this way** | A permission dialog or a question is modal in the terminal; a queued message waits behind it. Since "needs an answer" is exactly what this panel sorts to the top, the composer switches itself off there and says to answer in the terminal. It is the one case you might most want and cannot have. |
+| **A session blocked on a prompt cannot be answered this way** | A permission dialog or a question is modal in the terminal; a queued message waits behind it. Since "needs an answer" is exactly what this panel sorts to the top, the composer switches itself off there and points at the prompt that has to be answered — naming the question on the card above when there is one. It is the one case you might most want and cannot have. |
 | **A message arrives labelled as coming from another session**, not as something you typed | Measured, not assumed: a session that received one reported it appeared "clearly marked as coming from another session rather than from Coen". So the receiving Claude may treat it with a peer's authority rather than yours, and will not take it as approval for anything. |
 | **The protocol is internal** | The session file records `peerProtocol`, and the panel refuses to send unless it reads the version it knows, going quietly read-only after an upgrade rather than writing malformed lines at a socket. |
 
@@ -183,6 +185,42 @@ A message sent to a session that is mid-turn is queued at its prompt, exactly as
 **It then appears in the conversation above, marked with where it came from** — `you · from here` for something typed into this composer, and the sending session's name for a message from another Claude. That takes some digging out: Claude Code never writes such a message down as a turn of its own. It records the envelope it wraps it in (`<cross-session-message …>`) on the queue and hands the body to the model as an attachment, so read at face value the transcript shows Claude answering something nobody said. The panel therefore reads the queue entries too and unwraps them, and skips the duplicate the queue leaves behind when the message comes back off it.
 
 > **Sending is loopback-only, regardless of `--host`.** A prompt is an instruction to an agent holding tools and a checkout, so a panel exposed to the network keeps the transcript and loses the composer. `--no-send` switches it off on loopback too.
+
+## The question it is asking
+
+"Needs an answer" says a session is blocked on you. It does not say what it wants, and until you know that you have to go and look — which is the trip the panel exists to save.
+
+So when Claude asks a multiple-choice question, the panel shows the question. Above the composer: the header Claude gave it, the question itself, whether one answer is wanted or several, and every option with the sentence Claude wrote about it — numbered the way they are numbered at the prompt, so the card reads as a legend for what is on screen over there. The row in the index says `asks “Delete what”` beside its state, which is what tells two waiting sessions apart without opening either.
+
+Nothing in the session file says a question is up. What the transcript has is the call — an `AskUserQuestion` tool use — and, once it has been answered, a tool result carrying the same id. Walking back from the newest line, a call whose result has not been seen yet is a question still on screen. The walk is skipped entirely while the transcript's mtime has not moved, so a session that has written nothing cannot have asked or answered anything and costs nothing to check.
+
+A question a subagent asked is left out: it is not one you can answer.
+
+> **The card is a card and not a form**, and that is the same limit the composer states. The only channel into a live session is its messaging socket, and that socket takes exactly one kind of message: a user turn, which lands in the prompt queue. The queue is *behind* the question — Claude Code is waiting on a keypress at its own prompt — so an answer sent from here would go unread until somebody answered at the terminal anyway, and then arrive afterwards as a stray message. Rather than offer a button that quietly does that, the card offers **Answer there**, which raises the window. Reading it is what saves the trip; the keypress still happens at the prompt.
+
+## Opening a session
+
+**Open session**, at the head of the session list, asks for a folder and starts `claude` there.
+
+The dialog holds one way in: an outlined target that opens the **browser's own native folder dialog** — the real one your desktop draws, not a list drawn by the panel. Once a folder is placed the target gives up its room to the path, named in full under *Starting in*, because that line is the only thing on screen saying which checkout a session is about to start in. **Open session** stays disabled until there is one.
+
+Which dialog opens matters, because two exist and they do not read the same way. `showDirectoryPicker()` is the folder chooser proper: it asks to *view* the folder, returns a handle, and the panel reads only the names at the top level. A `webkitdirectory` input reaches the same place, but the browser frames it as an upload — *"Upload 12,000 files to this site?"* — and walks the entire tree to answer it. So the picker is used where it exists (Chrome, Edge) and the input only as the fallback (Firefox, Safari).
+
+**Nothing is uploaded, on either path.** What leaves the page is the folder's name and up to forty of the names directly inside it. No file is opened and no content is read — the fallback's wording is the browser's, not a description of what happens.
+
+The reason any of this is needed is that a browser will not tell a page where a folder *is*. `webkitdirectory` reports each file's path relative to whatever you chose (`Mujoco/src/main.py`); `showDirectoryPicker()` returns a handle carrying only a name. Neither yields `/home/coen/Workspace/Projects/Mujoco`, which is what a session has to start in. That boundary is deliberate and no flag lifts it.
+
+The name and those entries are a fingerprint, though, and that is enough. Both go to the server, which walks down from your home directory looking for the one folder of that name holding those entries — bounded on depth, wall clock, hits, and a skip list for the directories that hold thousands of entries nobody starts a session in. It answers in a fifth of a second on this machine. Three outcomes, and each is honest about which it is:
+
+| The fingerprint | What happens |
+|---|---|
+| Matches one folder | That is the folder. Its full path is named on the dialog before you open anything, because starting a session in the wrong checkout is the mistake worth guarding against. |
+| Matches several | It asks. A generic name with a weak fingerprint — `src` in a tree with a dozen of them — is exactly where a guess would be wrong. |
+| Matches nothing | A field appears. The search covers your home directory, so a folder somewhere else, or one picked on another machine when the panel is being read from one, has no other way to be named. |
+
+`~` and a relative path both work in that field, and the folder is checked before anything runs — a path that is missing, is a file, or cannot be read is refused by name rather than as a general failure.
+
+> **This route takes a folder from the request**, which every other form of starting a session did not — those took it from a session already on screen, so they could not be pointed anywhere the panel was not already showing. What holds it is the loopback gate, and anyone through that gate can already put a prompt into a session that holds tools and a checkout, which is the greater power of the two.
 
 ## Commenting on a passage
 
@@ -408,6 +446,8 @@ Settings also exposes MD3's three **contrast levels** (standard, medium, high), 
 
 **Typography** is Roboto, MD3's typeface, self-hosted in `static/fonts` with the baseline type scale as `--md-sys-typescale-*` tokens. Shapes come from the shape scale (chips small/8dp, chat bubbles large/16dp, list rows and buttons full, dialog extra-large/28dp) and elevation is expressed as container tone rather than shadow, with shadows reserved for the scrolled app bar, the dialog, and the snackbar.
 
+**Motion** comes from the same token set — `--md-sys-motion-duration-*` and `--md-sys-motion-easing-*` — and one rule governs everything that floats over the panel: it arrives and it leaves, rather than arriving and then blinking out. The jump buttons over the transcript, the context menu, and the quote bar all rise into place and shrink away on the standard 200ms; the panel below the tab strip fades in when it changes tab or session, and pointedly *not* when a poll rebuilds it, so a working session never has what you are reading pulsing at you. Anyone whose system asks for less of it gets none of it, smooth scrolling included: `prefers-reduced-motion` is honoured globally.
+
 Components used: top app bar, navigation-drawer style list items, filter chips, primary tabs, filled/tonal/text/outlined buttons, icon button, switch, segmented button, dialog, divider, snackbar, state layers and ripples. Everything is one static HTML file — no build step, no network at runtime.
 
 ## Options
@@ -499,7 +539,7 @@ PANEL_URL=http://127.0.0.1:8787 node tests/ui-check.mjs
 
 | Route | Purpose |
 |---|---|
-| `GET /api/state` | Every live session, with status, trace, and window match |
+| `GET /api/state` | Every live session, with status, trace, window match, and the `question` it is standing at if it is standing at one |
 | `GET /api/transcript` | `?sessionId=…&limit=…` — the recent conversation |
 | `GET /api/usage` | `?sessionId=…` — that session's token totals per model, the cost they come to, and the size of its last context |
 | `GET /api/plan` | The subscription's limits, read by running `claude --print /usage`; `?force=1` skips the five-minute cache; loopback only |
@@ -512,9 +552,11 @@ PANEL_URL=http://127.0.0.1:8787 node tests/ui-check.mjs
 | `POST /api/unpair` | Forget a manual pairing |
 | `POST /api/sticky` | `{"sessionId": "...", "sticky": true}` — keep this session's row after its process goes |
 | `POST /api/start` | `{"sessionId": "...", "text": "..."}` — resume a kept session in a terminal, delivering `text` once it listens; loopback only |
+| `POST /api/new` | `{"cwd": "~/some/folder"}` to open a session in a folder, or `{"sessionId": "..."}` to open one beside an existing session. Loopback only |
 | `POST /api/rename` | `{"sessionId": "...", "name": "..."}` — name a session yourself; an empty name puts its own name back |
 | `POST /api/end` | `{"sessionId": "...", "force": false}` — SIGTERM that session, or SIGKILL when `force` |
 | `POST /api/say` | `{"sessionId": "...", "text": "..."}` — send a message into that session; loopback only |
+| `POST /api/locate` | `{"name": "Mujoco", "children": ["src", "README.md"]}` — where that folder is on disk, from what the browser's native picker gives up. Answers with every match, since more than one is a question rather than a guess; loopback only |
 
 A dead process is never reported: each session file records the pid's start time, and the panel re-checks it against `/proc` so a recycled pid cannot masquerade as a live session.
 
