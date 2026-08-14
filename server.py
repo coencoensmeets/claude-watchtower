@@ -10,7 +10,10 @@ per running session (pid, name, cwd, status). Status is one of:
     idle     finished, waiting for your next prompt
 
 A busy or shell reading is only believed while the session keeps refreshing it;
-see effective_status.
+see effective_status. Some sessions — the VS Code extension among them — write
+no status at all, and are read from their liveness instead. A session started
+from inside another one writes no file at all; the panel builds one for it out
+of /proc — see child_session.
 
 Serves a small web UI and can raise the terminal or editor window that owns a
 session, using xdotool on X11.
@@ -113,12 +116,35 @@ def effective_status(data: dict, now: float, live: bool) -> str:
 
     Only the active states expire. `waiting` means blocked on you and stays put
     for as long as you take, which is not the same as going stale.
+
+    A session that writes no status at all is a separate case — see
+    inferred_status.
     """
-    status = data.get("status") or "idle"
+    if not data.get("status"):
+        return inferred_status(live)
+    status = data["status"]
     if status not in ACTIVE_STATUSES or live:
         return status
     age = status_age(data, now)
     return "idle" if age is not None and age > STATUS_TTL else status
+
+
+def inferred_status(live: bool) -> str:
+    """The state of a session that never reports one.
+
+    Not every entry point keeps the status field current. The VS Code extension
+    (`entrypoint: claude-vscode`) writes its session file once at startup and
+    never adds a status to it, so taking the absent field at face value pins
+    such a session to `idle` — which the panel shows as "Waiting" — for its
+    whole life, working turns included.
+
+    The liveness signals are the only reading left, and they separate the two
+    states that matter here: CPU burning or a transcript still growing means the
+    turn is running, and nothing means the turn is over. `waiting` cannot be
+    reached this way, so a permission prompt in such a session reads as done
+    rather than as blocked on you; that is the same as before this inference.
+    """
+    return "busy" if live else "idle"
 
 
 # ----------------------------------------------------------------- proc helpers
@@ -209,6 +235,198 @@ def session_tty(pid: int) -> str | None:
         if link.startswith("/dev/pts/"):
             return link
     return None
+
+
+# --------------------------------------------- sessions that write no own file
+
+
+# Claude Code's messaging sockets, one per session, named after the pid. A
+# nested session opens one of these and writes a key file beside the session
+# files, but no session file of its own — see child_session.
+SOCK_DIR = Path(os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}") / "cc-socks"
+# What a nested session calls itself in the session file the panel makes for it.
+CHILD_KIND = "child"
+
+
+def boot_time() -> float:
+    """When the machine came up, in epoch seconds.
+
+    /proc/<pid>/stat counts a process's start from here, so this is what turns
+    field 22 into a wall-clock time.
+    """
+    try:
+        for line in Path("/proc/stat").read_text().splitlines():
+            if line.startswith("btime "):
+                return float(line.split()[1])
+    except (OSError, ValueError, IndexError):
+        pass
+    return 0.0
+
+
+BOOT_TIME = boot_time()
+
+
+def proc_started_at(pid: int) -> float | None:
+    """Epoch seconds a process started, or None if that cannot be worked out."""
+    start = proc_starttime(pid)
+    if start is None or not BOOT_TIME:
+        return None
+    try:
+        return BOOT_TIME + int(start) / CLK_TCK
+    except ValueError:
+        return None
+
+
+# A process's environment is fixed at exec, so it is read once. Keyed by
+# starttime as well as pid, so a reused number cannot hand back the environment
+# of whoever held it before.
+ENVIRON_CACHE: dict[int, tuple[str, dict[str, str]]] = {}
+MAX_ENVIRONS = 200
+
+
+def proc_environ(pid: int) -> dict[str, str]:
+    """The environment a process was started with, cached."""
+    start = proc_starttime(pid)
+    if start is None:
+        ENVIRON_CACHE.pop(pid, None)
+        return {}
+    hit = ENVIRON_CACHE.get(pid)
+    if hit and hit[0] == start:
+        return hit[1]
+    try:
+        raw = (Path("/proc") / str(pid) / "environ").read_bytes()
+    except OSError:
+        return {}
+    env: dict[str, str] = {}
+    for chunk in raw.split(b"\0"):
+        name, sep, value = chunk.decode("utf-8", "replace").partition("=")
+        if sep:
+            env[name] = value
+    if len(ENVIRON_CACHE) > MAX_ENVIRONS:
+        ENVIRON_CACHE.clear()
+    ENVIRON_CACHE[pid] = (start, env)
+    return env
+
+
+def stdin_is_terminal(pid: int) -> bool:
+    """Is this process's standard input a pty — is there someone at it.
+
+    Standard input rather than the controlling terminal, which cannot tell the
+    two apart: a `claude -p` errand started from inside a session inherits that
+    session's terminal, and only its fd 0 — a pipe, or /dev/null — gives it away.
+    """
+    try:
+        return os.readlink(f"/proc/{pid}/fd/0").startswith("/dev/pts/")
+    except OSError:
+        return False
+
+
+def child_session(pid: int, protocols: dict[str, int]) -> dict | None:
+    """The session file a nested session would have written, read off /proc.
+
+    Start `claude` from inside a session — from its own shell, or from a terminal
+    that inherited its environment — and the new session marks itself a child
+    (`CLAUDE_CODE_CHILD_SESSION=1`) and writes no session file at all: only a
+    top-level session does that. It is a session in every other respect, with its
+    own process, its own terminal and its own turn, so leaving it out hides real
+    work being done on this machine.
+
+    Everything the panel reads out of a session file is on /proc instead — pid,
+    working folder, start, build, and the parent it names in CLAUDE_PID. Two
+    things are genuinely absent rather than merely elsewhere. A child publishes
+    no session id anything outside the process can read, so it is given one built
+    from its pid and starttime, unique for as long as it runs. And nothing is
+    written for it under ~/.claude/projects, so it has no transcript, and with it
+    no title, no permission mode and no chat — the panel shows what it can and
+    says so. Its status is read from its liveness, the way a session that reports
+    none is; see inferred_status.
+
+    Returns None for a pid that is not a nested session, headless errands
+    included: a `claude -p` run from inside a session is a child too, but it is
+    one turn of someone else's work rather than a session you could type at.
+    """
+    env = proc_environ(pid)
+    if env.get("CLAUDE_CODE_CHILD_SESSION") != "1":
+        return None
+    start = proc_starttime(pid)
+    if start is None:
+        return None  # gone between the scan and the read
+    if not stdin_is_terminal(pid):
+        return None
+    try:
+        cwd = os.readlink(f"/proc/{pid}/cwd")
+    except OSError:
+        return None
+    # The build is in the path it was launched from; the session file's `version`
+    # field is the same string.
+    version = os.path.basename(env.get("CLAUDE_CODE_EXECPATH") or "") or None
+    parent = env.get("CLAUDE_PID") or ""
+    folder = os.path.basename(cwd) or cwd
+    data = {
+        "pid": pid,
+        "sessionId": f"child:{pid}:{start}",
+        "procStart": start,
+        "cwd": cwd,
+        "name": f"{folder} (nested)",
+        "nameSource": "derived",
+        "kind": CHILD_KIND,
+        "entrypoint": env.get("CLAUDE_CODE_ENTRYPOINT"),
+        "version": version,
+        "parentPid": int(parent) if parent.isdigit() else None,
+        "startedAt": (proc_started_at(pid) or time.time()) * 1000,
+        # No status field on purpose: there is none to read, and an absent one is
+        # already understood — inferred_status reads the liveness signals instead.
+    }
+    sock = SOCK_DIR / f"{pid}.sock"
+    if sock.exists():
+        data["messagingSocketPath"] = str(sock)
+        # A child never states its protocol version, having written no file, but
+        # it opened the socket and published the key the protocol needs. A
+        # top-level session on the same build states it, and one build speaks one
+        # protocol, so that reading stands in. Nothing rides on it being right:
+        # say_to_session re-checks the pid and the socket before it writes, and
+        # reports a refusal like any other.
+        protocol = protocols.get(version or "")
+        if protocol is not None:
+            data["peerProtocol"] = protocol
+    return data
+
+
+def child_sessions(known: set[int], protocols: dict[str, int]) -> list[dict]:
+    """Nested sessions, found by the two things they do leave behind.
+
+    A child writes no session file, but it writes the key file that goes beside
+    one and opens a socket named after its pid. Either is enough to turn up a
+    candidate pid; child_session decides what it actually is.
+    """
+    candidates: set[int] = set()
+    for directory, suffix in ((SESSION_DIR, ".key"), (SOCK_DIR, ".sock")):
+        try:
+            entries = list(directory.glob(f"*{suffix}"))
+        except OSError:
+            continue
+        for path in entries:
+            head = path.name.split(".", 1)[0]
+            if head.isdigit():
+                candidates.add(int(head))
+    out = []
+    for pid in sorted(candidates - known):
+        if is_own_errand(pid):
+            continue  # the panel's own headless run
+        data = child_session(pid, protocols)
+        if data:
+            out.append(data)
+    return out
+
+
+def peer_protocols(sessions: list[dict]) -> dict[str, int]:
+    """Build -> the peer protocol version sessions of that build report."""
+    return {
+        data["version"]: data["peerProtocol"]
+        for data in sessions
+        if isinstance(data.get("version"), str)
+        and isinstance(data.get("peerProtocol"), int)
+    }
 
 
 def end_process(pid: int, recorded_start: str | None, force: bool) -> tuple[bool, str]:
@@ -429,7 +647,8 @@ def git_branch(cwd: str) -> str | None:
 # Only these reach the git binary. The panel builds every argument itself — the
 # allowlist is here so that a later write path has to add itself deliberately
 # rather than inheriting the ability to run anything.
-GIT_READ_COMMANDS = frozenset({"status", "log", "rev-parse", "stash", "diff"})
+GIT_READ_COMMANDS = frozenset({"status", "log", "rev-parse", "stash", "diff", "remote",
+                               "for-each-ref", "check-ref-format"})
 
 
 def git_run(root: str, args: list[str], timeout: float = 6.0) -> tuple[bool, str]:
@@ -549,6 +768,58 @@ def parse_log(text: str) -> list[dict]:
     return commits
 
 
+# One record per ref: where it is, what it tracks, and when it last moved. The
+# full refname comes along because it is the only part that says for certain
+# whether a ref is a local branch or a remote one — the short name cannot, since
+# `refs/remotes/origin/HEAD` shortens to plain `origin` and a local branch is
+# free to have a slash in it. symref marks that pointer, which is not a branch.
+REF_FORMAT = ("%(refname)%1f%(refname:short)%1f%(upstream:short)"
+              "%1f%(committerdate:unix)%1f%(HEAD)%1f%(symref)")
+
+
+def read_branches(root: str) -> dict:
+    """The branches this repository could be switched to.
+
+    Local ones first, most recently committed first — the order that matters when
+    you are moving between two or three branches all week. Then the remote ones
+    with no local branch of their own, which is what "check this out" means for a
+    branch somebody else pushed.
+    """
+    out: dict = {"local": [], "remote": []}
+    ok, text = git_run(root, ["for-each-ref", "--sort=-committerdate",
+                             f"--format={REF_FORMAT}", "refs/heads", "refs/remotes"])
+    if not ok:
+        return out
+
+    local_names = set()
+    remotes = []
+    for line in text.splitlines():
+        parts = line.split("\x1f")
+        if len(parts) < 6:
+            continue
+        full, name, upstream, when, head, symref = parts[:6]
+        if not name or symref:
+            continue          # a remote's default-branch pointer, not a branch
+        try:
+            at = int(when)
+        except ValueError:
+            at = 0
+        if full.startswith("refs/heads/"):
+            local_names.add(name)
+            out["local"].append({"name": name, "upstream": upstream or None,
+                                 "at": at, "current": head == "*"})
+        elif full.startswith("refs/remotes/"):
+            remotes.append({"name": name, "at": at})
+
+    for entry in remotes:
+        # A remote branch that already has a local counterpart is reachable by
+        # that name; listing it twice would only ask which one you meant.
+        short = entry["name"].split("/", 1)[1]
+        if short not in local_names:
+            out["remote"].append({**entry, "short": short})
+    return out
+
+
 def read_git(root: str, log_limit: int = 60) -> dict:
     """Everything the Git tab reads, in one pass over the repository."""
     out: dict = {
@@ -600,7 +871,750 @@ def read_git(root: str, log_limit: int = 60) -> dict:
 
     ok, stash = git_run(root, ["stash", "list"])
     out["stashes"] = len([line for line in stash.splitlines() if line]) if ok else 0
+
+    # Cheap enough to come along with every reading — one for-each-ref — and the
+    # branch menu has to open on the branches that exist now, not the ones that
+    # existed when the tab was opened.
+    out["branches"] = read_branches(root)
     return out
+
+
+def read_diff(root: str, path: str, staged: bool) -> dict:
+    """One file's diff, as unified text, for the pane the file rows open.
+
+    Untracked files have nothing to diff against, so they are read from disk and
+    presented as an all-added patch — which is what the editor shows too.
+    """
+    out = {"ok": True, "path": path, "staged": bool(staged), "text": "", "binary": False}
+    entry = next((f for f in read_status(root) if f["path"] == path), None)
+    if entry is None:
+        return {**out, "ok": False, "message": "That file no longer has changes"}
+
+    if entry["untracked"]:
+        full = Path(root) / path
+        # A trailing slash is git reporting a directory it will not look inside —
+        # a nested repository or a worktree. There is no patch to draw for one.
+        if path.endswith("/") or full.is_dir():
+            return {**out, "binary": True,
+                    "message": "A directory git reports whole — it does not look inside this one"}
+        try:
+            body = full.read_text(errors="strict")
+        except (OSError, UnicodeDecodeError):
+            return {**out, "binary": True, "message": "New file — not text, so there is nothing to show"}
+        lines = body.splitlines()
+        head = f"+++ b/{path}\n@@ -0,0 +1,{len(lines)} @@\n"
+        return {**out, "text": head + "".join(f"+{line}\n" for line in lines)}
+
+    args = ["diff", "--no-color", "--no-ext-diff", "--find-renames"]
+    if staged:
+        args.append("--cached")
+    ok, text = git_run(root, [*args, "--", path], timeout=10.0)
+    if not ok:
+        return {**out, "ok": False, "message": "Could not read that diff"}
+    if "Binary files" in text.split("@@", 1)[0]:
+        return {**out, "binary": True, "message": "Binary file — nothing to show line by line"}
+    return {**out, "text": text}
+
+
+# --------------------------------------------------------------- git writes
+
+
+# The writing half of the allowlist above. Split from the readers on purpose:
+# nothing here runs unless an action below names it, and the panel builds every
+# argument itself, so a path from the browser can only ever land after `--`.
+GIT_WRITE_COMMANDS = frozenset({"add", "reset", "rm", "restore", "clean", "commit",
+                                "push", "pull", "fetch", "stash", "switch"})
+
+# Anything reaching the network gets the long one; an index write is local and
+# should never take this long unless a hook is doing the work.
+GIT_WRITE_TIMEOUT = 25.0
+GIT_NETWORK_TIMEOUT = 180.0
+
+# Two writes at once would race for index.lock and one would fail for a reason
+# that has nothing to do with what was asked. The panel's own writes queue up
+# here; a session writing at the same time is still git's own lock to report.
+GIT_WRITE_LOCK = threading.Lock()
+
+
+def git_write(root: str, args: list[str], timeout: float = GIT_WRITE_TIMEOUT) -> tuple[bool, str]:
+    """Run one writing git command in root and return (ok, what git said).
+
+    Unlike git_run this wants the index lock — that is the point of it — so the
+    optional-locks flags are gone. Every interactive door git might open is shut:
+    no terminal prompt, no askpass helper, no editor. A push that needs a
+    passphrase nobody can type therefore fails with a message instead of hanging
+    until the timeout.
+    """
+    if not args or args[0] not in GIT_WRITE_COMMANDS:
+        return False, "That is not something this panel runs"
+    if not shutil.which("git"):
+        return False, "git is not installed"
+    try:
+        with GIT_WRITE_LOCK:
+            result = subprocess.run(
+                ["git", "-C", root, *args],
+                capture_output=True, text=True, timeout=timeout,
+                env={**os.environ, "GIT_PAGER": "cat", "GIT_TERMINAL_PROMPT": "0",
+                     "GIT_ASKPASS": "", "SSH_ASKPASS": "", "GIT_EDITOR": "true",
+                     "LC_ALL": "C.UTF-8"},
+            )
+    except subprocess.TimeoutExpired:
+        return False, f"git {args[0]} gave up after {int(timeout)}s"
+    except (OSError, subprocess.SubprocessError) as error:
+        return False, f"Could not run git: {error}"
+    # A failure keeps the remote's own words: a hook that rejected a push says why
+    # on `remote:` lines, and dropping them as noise would drop the reason with
+    # them. On the way through they are noise, and the tail is what matters.
+    failed = result.returncode != 0
+    said = git_said(result.stderr, remote=failed) or git_said(result.stdout, remote=failed)
+    return not failed, said
+
+
+def git_said(text: str, lines: int = 4, remote: bool = False) -> str:
+    """The last few meaningful lines of git's output, for a snackbar.
+
+    Progress lines are carriage-return rewrites of one line and would otherwise
+    arrive as one very long string; the tail is where the reason lives anyway.
+    """
+    kept = [part.strip() for chunk in text.splitlines()
+            for part in chunk.split("\r") if part.strip()]
+    if not remote:
+        kept = [line for line in kept
+                if not line.startswith(("remote:", "Everything up-to-date"))] or kept
+    return " · ".join(kept[-lines:])[:500]
+
+
+def read_status(root: str) -> list[dict]:
+    ok, text = git_run(root, ["status", "--porcelain=v2", "--untracked-files=all", "-z"])
+    return parse_status(text) if ok else []
+
+
+def known_paths(root: str, wanted: list[str]) -> tuple[list[str], list[dict]]:
+    """Keep only the paths git itself is currently reporting as changed.
+
+    The browser is not trusted to name a file: an action can only touch
+    something the panel just showed, which rules out absolute paths, `..`,
+    and anything outside this working tree by construction rather than by
+    checking for those shapes one at a time.
+    """
+    entries = read_status(root)
+    live = {}
+    for entry in entries:
+        live[entry["path"]] = entry
+        if entry["origPath"]:
+            live[entry["origPath"]] = entry
+    return [p for p in wanted if p in live], entries
+
+
+def has_commits(root: str) -> bool:
+    ok, _ = git_run(root, ["rev-parse", "--verify", "HEAD"])
+    return ok
+
+
+def stage_paths(root: str, paths: list[str]) -> tuple[bool, str]:
+    # `add` covers a deletion too — it records "this path is gone" in the index —
+    # so one command serves modified, new and deleted alike.
+    ok, said = git_write(root, ["add", "--", *paths])
+    return ok, said or f"Staged {count(len(paths), 'file')}"
+
+
+def unstage_paths(root: str, paths: list[str]) -> tuple[bool, str]:
+    # Before the first commit there is no HEAD to reset back to, so the only way
+    # out of the index is to drop the entry.
+    args = (["reset", "-q", "HEAD", "--", *paths] if has_commits(root)
+            else ["rm", "-q", "--cached", "-r", "--", *paths])
+    ok, said = git_write(root, args)
+    return ok, said or f"Unstaged {count(len(paths), 'file')}"
+
+
+def discard_paths(root: str, paths: list[str], entries: list[dict]) -> tuple[bool, str]:
+    """Throw away working-tree changes — the one action here that loses work.
+
+    A tracked file goes back to what the index holds; an untracked one has no
+    earlier version to go back to, so discarding it means deleting it. The two
+    need different commands, hence the split.
+    """
+    by_path = {e["path"]: e for e in entries}
+    untracked = [p for p in paths if by_path.get(p, {}).get("untracked")]
+    tracked = [p for p in paths if p not in untracked]
+    trouble = []
+    if tracked:
+        ok, said = git_write(root, ["restore", "--worktree", "--", *tracked])
+        if not ok:
+            trouble.append(said or "could not restore some files")
+    if untracked:
+        ok, said = git_write(root, ["clean", "-q", "-f", "--", *untracked])
+        if not ok:
+            trouble.append(said or "could not delete some new files")
+    if trouble:
+        return False, " · ".join(trouble)
+    # Only say what actually happened: "0 files" alongside a deletion reads as a
+    # failure when it is nothing of the sort.
+    said = []
+    if tracked:
+        said.append(f"Discarded changes in {count(len(tracked), 'file')}")
+    if untracked:
+        said.append(f"{'d' if said else 'D'}eleted {count(len(untracked), 'new file')}")
+    return True, ", ".join(said) or "Nothing to discard"
+
+
+def count(n: int, noun: str) -> str:
+    return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
+
+
+def git_commit(root: str, message: str, amend: bool, stage_all: bool) -> tuple[bool, str]:
+    """Commit what is staged, optionally staging everything first.
+
+    `stage_all` is the panel's version of the editor's "there is nothing staged —
+    commit all your changes?": the answer arrives as this flag rather than the
+    panel deciding for you.
+    """
+    if stage_all:
+        ok, said = git_write(root, ["add", "-A"])
+        if not ok:
+            return False, said or "Could not stage the changes"
+
+    args = ["commit", "--no-status", "--cleanup=strip"]
+    # An amend can keep the message it already has; a fresh commit cannot.
+    if amend and not message:
+        args += ["--amend", "--no-edit"]
+    elif amend:
+        args += ["--amend", "-m", message]
+    elif message:
+        args += ["-m", message]
+    else:
+        return False, "A commit needs a message"
+
+    ok, said = git_write(root, args)
+    if ok:
+        head = read_git(root, log_limit=1)["commits"]
+        subject = head[0]["subject"] if head else message
+        return True, f"Committed — {subject}"
+    if "nothing to commit" in said or "no changes added to commit" in said:
+        return False, "Nothing staged to commit"
+    if "Please tell me who you are" in said or "empty ident name" in said:
+        return False, "git has no name and email set yet — git config user.name and user.email"
+    return False, said or "Could not commit"
+
+
+def git_push(root: str, state: dict, force: bool = False) -> tuple[bool, str]:
+    """Push the current branch, publishing it if it has no upstream yet."""
+    branch = state.get("branch")
+    if state.get("detached") or not branch:
+        return False, "HEAD is detached, so there is no branch to push"
+    if state.get("upstream"):
+        args = ["push"]
+    else:
+        remote = default_remote(root)
+        if not remote:
+            return False, "This repository has no remote to push to"
+        # The editor calls this publishing, and it is the only push that decides
+        # where a branch belongs — hence --set-upstream, once.
+        args = ["push", "--set-upstream", remote, branch]
+    if force:
+        # Never plain --force: this refuses if someone else pushed in the meantime.
+        args.append("--force-with-lease")
+    ok, said = git_write(root, args, GIT_NETWORK_TIMEOUT)
+    if ok:
+        if not state.get("upstream"):
+            return True, f"Published {branch} — it now tracks its remote"
+        return True, f"Pushed {count(state.get('ahead') or 0, 'commit')} to {state['upstream']}"
+    if "rejected" in said and "fetch first" in said:
+        return False, "Rejected — the remote has commits you do not have yet. Pull first."
+    return False, said or "Could not push"
+
+
+def git_pull(root: str, state: dict) -> tuple[bool, str]:
+    if state.get("detached"):
+        return False, "HEAD is detached, so there is nothing to pull into"
+    if not state.get("upstream"):
+        return False, "This branch has no upstream yet, so there is nothing to pull"
+    ok, said = git_write(root, ["pull", "--ff-only"], GIT_NETWORK_TIMEOUT)
+    if ok:
+        # A pull prints a diffstat across several lines; how many commits arrived
+        # is the part worth saying, and the file list redraws either way.
+        return True, f"Pulled {count(state.get('behind') or 0, 'commit')} from {state['upstream']}"
+    # A pull that cannot fast-forward wants a merge or a rebase, and choosing
+    # between those under a session that is editing the same tree is not the
+    # panel's call to make.
+    if "Not possible to fast-forward" in said or "diverging" in said or "divergent" in said:
+        return False, "The branch and its upstream have diverged — merge or rebase in the terminal"
+    return False, said or "Could not pull"
+
+
+def switch_branch(root: str, payload: dict) -> tuple[bool, str]:
+    """Move HEAD to another branch, or to a new one.
+
+    `switch` rather than `checkout`: it only ever moves branches, so a branch name
+    that happens to match a path cannot turn this into a file operation. git
+    refuses on its own when the move would drop uncommitted work, and that refusal
+    is the message that comes back.
+    """
+    name = str(payload.get("branch") or "").strip()
+    if not name:
+        return False, "No branch named"
+
+    if payload.get("create"):
+        ok, why = usable_branch_name(root, name)
+        if not ok:
+            return False, why
+        start = str(payload.get("from") or "").strip()
+        args = ["switch", "--create", name]
+        if start:
+            known = read_branches(root)
+            if start not in {b["name"] for b in known["local"]} | {b["name"] for b in known["remote"]}:
+                return False, "There is no such branch to start from"
+            args.append(start)
+        ok, said = git_write(root, args)
+        return ok, (f"On a new branch, {name}" if ok else said or "Could not create that branch")
+
+    # An existing branch is only switched to by a name the repository is currently
+    # reporting — which is also what keeps a leading dash out of the argument list.
+    known = read_branches(root)
+    if name in {b["name"] for b in known["local"]}:
+        ok, said = git_write(root, ["switch", name])
+        return ok, (f"On {name}" if ok else said or "Could not switch")
+
+    remote = next((b for b in known["remote"] if b["name"] == name), None)
+    if remote:
+        # Checking out somebody else's branch means making a local one that
+        # follows it, which is what the editor does with the same click.
+        ok, said = git_write(root, ["switch", "--track", name])
+        return ok, (f"On {remote['short']}, tracking {name}" if ok
+                    else said or "Could not check that branch out")
+
+    return False, "That branch is not in this repository any more"
+
+
+# A name git would take but the panel should not: one that could be read as an
+# option, or that names nothing at all.
+BRANCH_NAME_LIMIT = 200
+
+
+def usable_branch_name(root: str, name: str) -> tuple[bool, str]:
+    if name.startswith("-"):
+        return False, "A branch name cannot start with a dash"
+    if len(name) > BRANCH_NAME_LIMIT:
+        return False, f"That name is longer than {BRANCH_NAME_LIMIT} characters"
+    if any(ch.isspace() for ch in name):
+        return False, "A branch name cannot contain spaces"
+    # git's own rules are longer than anything worth restating here, so they are
+    # the ones that decide.
+    ok, _ = git_run(root, ["check-ref-format", "--branch", name])
+    if not ok:
+        return False, f"git will not accept “{name}” as a branch name"
+    return True, ""
+
+
+def default_remote(root: str) -> str | None:
+    ok, text = git_run(root, ["remote"])
+    if not ok:
+        return None
+    remotes = [line.strip() for line in text.splitlines() if line.strip()]
+    if not remotes:
+        return None
+    return "origin" if "origin" in remotes else remotes[0]
+
+
+# ------------------------------------------------------- writing the message
+
+
+# A commit message is a small, closed job, so it goes to the quick model rather
+# than whatever the session in that folder happens to be using. It runs headless
+# — no terminal, no session — so a stopped session's repository can still have a
+# message written for it, and the session's own conversation is never disturbed.
+MESSAGE_MODEL = "haiku"
+MESSAGE_TIMEOUT = 90.0
+
+# A headless claude writes a session file like any other, so for the twenty
+# seconds it runs the panel would list it — a row that appears, says nothing and
+# vanishes, for a job the panel itself asked for and is about to throw away.
+# Every claude somebody else started still belongs in the list; these are the
+# panel's own errands, held by pid only while they run.
+OWN_ERRANDS: set[int] = set()
+OWN_ERRANDS_LOCK = threading.Lock()
+
+
+def own_errand(pid: int, running: bool) -> None:
+    with OWN_ERRANDS_LOCK:
+        OWN_ERRANDS.add(pid) if running else OWN_ERRANDS.discard(pid)
+
+
+def is_own_errand(pid: int) -> bool:
+    with OWN_ERRANDS_LOCK:
+        return pid in OWN_ERRANDS
+# Enough patch to describe a real change. Past this the subject would be a guess
+# either way, and the diff is only there to be summarised.
+MESSAGE_DIFF_LIMIT = 40_000
+
+MESSAGE_TASK = """Write a git commit message for the change below.
+
+Rules:
+- One subject line, imperative mood ("Add", not "Added"), no trailing full stop,
+  72 characters at the outside.
+- Follow the style of the recent commits shown, if they have one.
+- Add a body only if the change needs explaining, after one blank line, wrapped
+  at 72 characters. Say why, not what — the diff already says what.
+- Output the message and nothing else: no preamble, no code fences, no quotes
+  around it, no "here is".
+"""
+
+
+def message_context(root: str) -> tuple[bool, str]:
+    """What the model is shown: the patch that is about to be committed.
+
+    The same scope the commit button would use — the index if anything is in it,
+    the whole working tree otherwise — so the message describes the commit that
+    is actually going to happen.
+    """
+    entries = read_status(root)
+    staged = [e for e in entries if e["staged"]]
+    parts = []
+
+    if staged:
+        ok, patch = git_run(root, ["diff", "--cached", "--no-color", "--no-ext-diff",
+                                   "--find-renames"], timeout=15.0)
+        new_files = [e["path"] for e in entries if e["staged"] == "A"]
+    else:
+        args = ["diff", "--no-color", "--no-ext-diff", "--find-renames"]
+        # Before the first commit there is no HEAD to diff against, and nothing
+        # is tracked yet either, so the file list below is the whole story.
+        ok, patch = git_run(root, [*args, "HEAD"] if has_commits(root) else args, timeout=15.0)
+        new_files = [e["path"] for e in entries if e["untracked"]]
+
+    if not ok:
+        patch = ""
+    if new_files:
+        parts.append("New files:\n" + "\n".join(f"  {p}" for p in new_files[:40]))
+    if patch.strip():
+        clipped = patch[:MESSAGE_DIFF_LIMIT]
+        if len(patch) > MESSAGE_DIFF_LIMIT:
+            clipped += "\n[diff truncated]"
+        parts.append(f"Diff:\n{clipped}")
+    if not parts:
+        return False, "There is nothing staged or changed to describe yet"
+
+    # The repository's own habits, so the message it gets back looks like the
+    # ones around it rather than like a house style from somewhere else.
+    ok, log = git_run(root, ["log", "--max-count=10", "--pretty=format:%s"])
+    if ok and log.strip():
+        parts.insert(0, "Recent commit subjects in this repository:\n"
+                        + "\n".join(f"  {line}" for line in log.splitlines() if line.strip()))
+    return True, "\n\n".join(parts)
+
+
+def clean_message(text: str) -> str:
+    """Take the model at its word, but not at its formatting.
+
+    Asked for a bare message it usually gives one; a fenced block or a lead-in
+    sentence is common enough that stripping them is cheaper than a retry.
+    """
+    lines = [line.rstrip() for line in text.strip().splitlines()]
+    if lines and lines[0].startswith("```"):
+        lines = lines[1:]
+        while lines and not lines[-1].startswith("```"):
+            lines.pop()
+        if lines:
+            lines.pop()
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return "\n".join(lines).strip()
+
+
+def suggest_message(root: str) -> tuple[bool, str]:
+    """Ask a headless Claude for a commit message. Returns (ok, message or why)."""
+    claude = shutil.which("claude")
+    if not claude:
+        return False, "Cannot find the claude command on PATH"
+
+    ok, context = message_context(root)
+    if not ok:
+        return False, context
+
+    # Popen rather than run, only so the pid is known while it is alive: that is
+    # what keeps this errand out of the session list. See OWN_ERRANDS.
+    try:
+        process = subprocess.Popen(
+            [claude, "--print", "--model", MESSAGE_MODEL,
+             # It is handed everything it needs on stdin. No tools means no
+             # permission prompt to answer and nothing it can do to the tree.
+             "--allowed-tools", "", "--output-format", "text"],
+            cwd=root, text=True,
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        return False, f"Could not run claude: {error}"
+
+    own_errand(process.pid, True)
+    try:
+        out, err = process.communicate(f"{MESSAGE_TASK}\n{context}\n", timeout=MESSAGE_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.communicate()
+        return False, f"Claude did not answer within {int(MESSAGE_TIMEOUT)}s"
+    except (OSError, subprocess.SubprocessError) as error:
+        process.kill()
+        return False, f"Could not run claude: {error}"
+    finally:
+        # Held only for the life of the process, so a recycled pid can never
+        # inherit the hiding.
+        own_errand(process.pid, False)
+
+    if process.returncode != 0:
+        return False, git_said(err) or "Claude could not write a message"
+    message = clean_message(out)
+    if not message:
+        return False, "Claude answered with nothing"
+    return True, message
+
+
+# --------------------------------------------------------------- the plan left
+
+
+# `/usage` is the one thing in this panel that no file on this machine knows.
+# What a subscription has left is the account's, not the session's, and it lives
+# behind Anthropic's API — so it is asked for the way you would ask yourself, by
+# running Claude Code's own command and reading what it prints.
+#
+# Which is the point of doing it this way. The alternative was for the panel to
+# read the OAuth token out of ~/.claude/.credentials.json and call an undocumented
+# endpoint itself: a web server on this machine holding your credentials, for a
+# reading the official client already gives away for free. This spawns `claude`,
+# handles no secret, and asks for nothing the terminal would not have told you.
+#
+# It costs no tokens — the command fetches and prints, and samples no model, which
+# a run against a fresh transcript confirms: not one usage entry — but it does take
+# five seconds and a process, so it is asked rarely and its answer is kept.
+PLAN_TIMEOUT = 45.0
+PLAN_FRESH = 300.0
+
+PLAN_LOCK = threading.Lock()
+PLAN_HELD: dict = {}
+PLAN_RUNNING = False
+
+# "Current session: 34% used · resets Aug 12, 5:49pm (Europe/Amsterdam)", and the
+# week's two lines in the same shape. The reset clause is optional: a limit at 0%
+# has nothing to reset from yet.
+PLAN_LIMIT = re.compile(
+    r"^(?P<name>[^:]{1,60}?):\s*(?P<percent>\d{1,3})%\s*used"
+    r"(?:\s*[·|-]\s*resets\s*(?P<resets>.+?))?\s*$")
+# "Last 24h · 4141 requests · 46 sessions" — the heading of a block of bullets.
+PLAN_BLOCK = re.compile(r"^(Last\s.+|What's contributing.*)$")
+
+
+def parse_plan(text: str) -> dict:
+    """Read `/usage`'s report into figures, keeping the text it came from.
+
+    The output is a human's report rather than an interface, so nothing here
+    insists on it. Every line that reads as a limit becomes one; anything else is
+    kept in order as prose, and a run that parses to nothing still hands back
+    what it was given rather than an empty panel.
+    """
+    headline, limits, blocks = "", [], []
+    for raw in text.splitlines():
+        line = raw.rstrip()
+        if not line.strip():
+            continue
+        match = PLAN_LIMIT.match(line.strip())
+        if match:
+            limits.append({
+                "name": match.group("name").strip(),
+                "percent": min(100, int(match.group("percent"))),
+                "resets": (match.group("resets") or "").strip(),
+            })
+            continue
+        if PLAN_BLOCK.match(line.strip()):
+            blocks.append({"title": line.strip(), "lines": []})
+            continue
+        if blocks and raw.startswith((" ", "\t")):
+            blocks[-1]["lines"].append(line.strip())
+            continue
+        if not headline:
+            headline = line.strip()
+        elif blocks:
+            blocks[-1]["lines"].append(line.strip())
+    return {"headline": headline, "limits": limits, "blocks": blocks, "text": text.strip()}
+
+
+def run_plan() -> dict:
+    """Run `claude /usage` once and read the answer."""
+    claude = shutil.which("claude")
+    if not claude:
+        return {"ok": False, "message": "Cannot find the claude command on PATH"}
+    try:
+        # Same shape as the commit-message errand: printing, no tools, so there is
+        # no permission prompt to answer and nothing it can touch. Run from home
+        # rather than a repository — this is the account's reading, not a folder's.
+        process = subprocess.Popen(
+            [claude, "--print", "/usage", "--model", MESSAGE_MODEL,
+             "--allowed-tools", "", "--output-format", "text"],
+            cwd=str(HOME), text=True,
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        return {"ok": False, "message": f"Could not run claude: {error}"}
+
+    own_errand(process.pid, True)
+    try:
+        out, err = process.communicate(timeout=PLAN_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.communicate()
+        return {"ok": False, "message": f"Claude did not answer within {int(PLAN_TIMEOUT)}s"}
+    except (OSError, subprocess.SubprocessError) as error:
+        process.kill()
+        return {"ok": False, "message": f"Could not run claude: {error}"}
+    finally:
+        own_errand(process.pid, False)
+
+    if process.returncode != 0:
+        return {"ok": False, "message": git_said(err) or "Claude could not read your usage"}
+    if not out.strip():
+        return {"ok": False, "message": "Claude answered with nothing"}
+    return {"ok": True, **parse_plan(out)}
+
+
+def read_plan(force: bool = False) -> dict:
+    """The account's remaining plan, read at most every few minutes.
+
+    A reading costs five seconds and a process, and the figure moves in
+    percentage points over hours, so it is kept and handed back until it is stale.
+    Two people opening the dialog at once get the same answer rather than two
+    runs: the second is told one is on its way and shown what there is.
+    """
+    global PLAN_RUNNING
+    now = time.time()
+    with PLAN_LOCK:
+        held = dict(PLAN_HELD)
+        fresh = held.get("ok") and now - held.get("at", 0) < PLAN_FRESH
+        if fresh and not force:
+            return {**held, "reading": False}
+        if PLAN_RUNNING:
+            # Somebody's run is already in flight. Hand back what we have and say
+            # so, rather than starting a second `claude` for the same answer.
+            return {**held, "reading": True} if held else {"ok": False, "reading": True,
+                                                          "message": "Reading your usage…"}
+        PLAN_RUNNING = True
+
+    try:
+        answer = run_plan()
+    finally:
+        with PLAN_LOCK:
+            PLAN_RUNNING = False
+
+    answer["at"] = time.time()
+    if answer.get("ok"):
+        with PLAN_LOCK:
+            PLAN_HELD.clear()
+            PLAN_HELD.update(answer)
+        return {**answer, "reading": False}
+    # A failed read does not throw away a good one: the last figures with the
+    # reason the refresh failed is more use than the reason alone.
+    if held.get("ok"):
+        return {**held, "reading": False, "message": answer.get("message", "")}
+    return {**answer, "reading": False}
+
+
+def git_action(root: str, action: str, payload: dict) -> tuple[bool, str, int]:
+    """One Source-Control action, named by the browser, run against one repo.
+
+    Returns (ok, message, http status). Everything the browser sends is either a
+    fixed action name, a message string, or a path that git is already reporting
+    as changed — see known_paths.
+    """
+    if not shutil.which("git"):
+        return False, "git is not installed", 409
+
+    wanted = [p for p in (payload.get("paths") or []) if isinstance(p, str) and p]
+
+    if action in ("stage", "unstage", "discard"):
+        paths, entries = known_paths(root, wanted)
+        if not paths:
+            return False, "Those files have no changes any more", 409
+        if action == "stage":
+            ok, said = stage_paths(root, paths)
+        elif action == "unstage":
+            ok, said = unstage_paths(root, paths)
+        else:
+            ok, said = discard_paths(root, paths, entries)
+        return ok, said, 200 if ok else 409
+
+    if action == "stageAll":
+        entries = read_status(root)
+        if not entries:
+            return False, "Nothing to stage", 409
+        ok, said = git_write(root, ["add", "-A"])
+        return ok, said or f"Staged {count(len(entries), 'file')}", 200 if ok else 409
+
+    if action == "unstageAll":
+        # A bare mixed reset puts the whole index back to HEAD, which is exactly
+        # "unstage everything" and needs no path list.
+        ok, said = (git_write(root, ["reset", "-q"]) if has_commits(root)
+                    else git_write(root, ["rm", "-q", "--cached", "-r", "--", "."]))
+        return ok, said or "Unstaged everything", 200 if ok else 409
+
+    if action == "discardAll":
+        entries = read_status(root)
+        keep_new = not payload.get("includeUntracked")
+        paths = [e["path"] for e in entries if not (keep_new and e["untracked"])]
+        if not paths:
+            return False, "Nothing to discard", 409
+        ok, said = discard_paths(root, paths, entries)
+        return ok, said, 200 if ok else 409
+
+    if action == "switch":
+        ok, said = switch_branch(root, payload)
+        return ok, said, 200 if ok else 409
+
+    if action == "commit":
+        ok, said = git_commit(root, str(payload.get("message") or "").strip(),
+                              bool(payload.get("amend")), bool(payload.get("stageAll")))
+        return ok, said, 200 if ok else 409
+
+    state = read_git(root, log_limit=0)
+
+    if action == "push":
+        ok, said = git_push(root, state, bool(payload.get("force")))
+        return ok, said, 200 if ok else 409
+
+    if action == "pull":
+        ok, said = git_pull(root, state)
+        return ok, said, 200 if ok else 409
+
+    if action == "fetch":
+        remote = default_remote(root)
+        if not remote:
+            return False, "This repository has no remote to fetch from", 409
+        ok, said = git_write(root, ["fetch", "--prune", remote], GIT_NETWORK_TIMEOUT)
+        return ok, said or f"Fetched {remote}", 200 if ok else 409
+
+    if action == "sync":
+        # Sync is the editor's one button for "catch up, then hand over": pull
+        # first so a push cannot be rejected for being behind.
+        if state.get("upstream") and state.get("behind"):
+            ok, said = git_pull(root, state)
+            if not ok:
+                return False, said, 409
+            state = read_git(root, log_limit=0)
+        if not state.get("upstream") or state.get("ahead"):
+            ok, said = git_push(root, state)
+            return ok, said, 200 if ok else 409
+        return True, "Already up to date", 200
+
+    if action == "stash":
+        ok, said = git_write(root, ["stash", "push", "--include-untracked",
+                                    *(["-m", str(payload["message"])] if payload.get("message") else [])])
+        return ok, said or "Stashed the changes", 200 if ok else 409
+
+    if action == "stashPop":
+        # A successful pop prints the whole working-tree status; the file list is
+        # about to be redrawn anyway, so only a failure is worth repeating.
+        ok, said = git_write(root, ["stash", "pop"])
+        return ok, "Restored the latest stash" if ok else (said or "Could not restore the stash"), 200 if ok else 409
+
+    return False, "Unknown action", 400
 
 
 # --------------------------------------------------------------- last activity
@@ -992,6 +2006,251 @@ def read_transcript(session_id: str, cwd: str, limit: int = 60) -> dict:
     return {"sessionId": session_id, "title": None, "messages": [], "truncated": False, "path": None}
 
 
+# ------------------------------------------------------------- tokens and cost
+
+
+# List price per million tokens, input and output, as the API charges them. The
+# multipliers below turn the input price into the other three rates: a cache
+# write costs more than fresh input, a cache read a tenth of it.
+#
+# Keys are matched longest-first as a prefix of the model the transcript names,
+# so a dated or suffixed id (`claude-opus-5[1m]`) prices as its family. A model
+# with no entry is still counted — its tokens are real — but contributes no cost
+# and is named as unpriced, which is honest and says what to fix.
+MODEL_PRICES = {
+    "claude-fable-5": (10.0, 50.0),
+    "claude-mythos-5": (10.0, 50.0),
+    "claude-mythos-preview": (10.0, 50.0),
+    "claude-opus-5": (5.0, 25.0),
+    "claude-opus-4": (5.0, 25.0),
+    "claude-sonnet-5": (3.0, 15.0),
+    "claude-sonnet-4": (3.0, 15.0),
+    "claude-haiku-4-5": (1.0, 5.0),
+    "claude-3-5-haiku": (0.8, 4.0),
+}
+
+# Fast mode is the same model at a premium, and the transcript says which one ran.
+FAST_PRICES = {"claude-opus-5": (10.0, 50.0), "claude-opus-4-8": (10.0, 50.0)}
+
+CACHE_WRITE_5M = 1.25
+CACHE_WRITE_1H = 2.0
+CACHE_READ = 0.1
+WEB_SEARCH_PER_1K = 10.0
+
+# What a full context is, for the reading of how much of one this session is
+# carrying. Haiku's is the small one; everything current is a million.
+SMALL_WINDOW = 200_000
+BIG_WINDOW = 1_000_000
+
+
+def price_of(model: str, fast: bool) -> tuple[float, float] | None:
+    if fast:
+        for name, rate in FAST_PRICES.items():
+            if model.startswith(name):
+                return rate
+    for name in sorted(MODEL_PRICES, key=len, reverse=True):
+        if model.startswith(name):
+            return MODEL_PRICES[name]
+    return None
+
+
+def context_window(model: str) -> int:
+    if "haiku" in model or "claude-3" in model:
+        return SMALL_WINDOW
+    return BIG_WINDOW
+
+
+def blank_counters() -> dict:
+    return {"requests": 0, "input": 0, "output": 0, "thinking": 0,
+            "cacheWrite5m": 0, "cacheWrite1h": 0, "cacheRead": 0, "webSearch": 0}
+
+
+def add_usage(bucket: dict, usage: dict) -> None:
+    """Fold one request's usage into a model's running totals.
+
+    Only the top-level figures are read. A response that took several passes
+    also carries an `iterations` list holding the same numbers broken up, so
+    counting both would bill every such turn twice.
+    """
+    bucket["requests"] += 1
+    bucket["input"] += int(usage.get("input_tokens") or 0)
+    bucket["output"] += int(usage.get("output_tokens") or 0)
+    details = usage.get("output_tokens_details")
+    if isinstance(details, dict):
+        bucket["thinking"] += int(details.get("thinking_tokens") or 0)
+    bucket["cacheRead"] += int(usage.get("cache_read_input_tokens") or 0)
+    written = int(usage.get("cache_creation_input_tokens") or 0)
+    split = usage.get("cache_creation")
+    if isinstance(split, dict):
+        hour = int(split.get("ephemeral_1h_input_tokens") or 0)
+        minutes = int(split.get("ephemeral_5m_input_tokens") or 0)
+        bucket["cacheWrite1h"] += hour
+        # Trust the total over the split: an unfamiliar bucket would otherwise
+        # go uncounted rather than merely unclassified.
+        bucket["cacheWrite5m"] += max(minutes, written - hour)
+    else:
+        bucket["cacheWrite5m"] += written
+    tools = usage.get("server_tool_use")
+    if isinstance(tools, dict):
+        bucket["webSearch"] += int(tools.get("web_search_requests") or 0)
+
+
+def cost_of(model: str, counters: dict, fast: bool = False) -> float | None:
+    rate = price_of(model, fast)
+    searches = counters["webSearch"] / 1000 * WEB_SEARCH_PER_1K
+    if rate is None:
+        return searches or None
+    inp, out = rate
+    return (
+        counters["input"] / 1e6 * inp
+        + counters["output"] / 1e6 * out
+        + counters["cacheWrite5m"] / 1e6 * inp * CACHE_WRITE_5M
+        + counters["cacheWrite1h"] / 1e6 * inp * CACHE_WRITE_1H
+        + counters["cacheRead"] / 1e6 * inp * CACHE_READ
+        + searches
+    )
+
+
+# A transcript only ever grows, so the scan remembers where it stopped and picks
+# up from there. Without this, every poll would re-read and re-total a file that
+# is megabytes long within an hour of work.
+USAGE_SCANS: dict[str, dict] = {}
+USAGE_LOCK = threading.Lock()
+
+
+def scan_usage(path: Path) -> dict:
+    """Every model request in this transcript, totalled, read once.
+
+    A turn is written down more than once — one line per content block, all
+    carrying the same `requestId` — so the id is what keeps a turn from being
+    counted as many times as it had things to say. Sub-agent turns are marked as
+    sidechains and are kept apart: they are the session's spend, but not the
+    session's conversation, and the two are worth telling apart.
+    """
+    try:
+        stat = path.stat()
+    except OSError:
+        return {}
+    key = str(path)
+    with USAGE_LOCK:
+        held = USAGE_SCANS.get(key)
+        # Replaced or truncated rather than appended to: start over.
+        if held is None or stat.st_size < held["offset"]:
+            held = {"offset": 0, "seen": set(), "main": {}, "agents": {},
+                    "context": None, "contextModel": None, "contextAt": None,
+                    "firstAt": None, "lastAt": None}
+            USAGE_SCANS[key] = held
+        if stat.st_size == held["offset"]:
+            return held
+
+        start = held["offset"]
+        try:
+            with path.open("rb") as handle:
+                handle.seek(start)
+                chunk = handle.read()
+        except OSError:
+            return held
+
+        # A line still being written has no newline yet. Stop at the last one
+        # there is and leave the remainder for the next pass, so the scan never
+        # sees half a turn and never skips it either.
+        cut = chunk.rfind(b"\n")
+        if cut < 0:
+            return held
+        held["offset"] = start + cut + 1
+        for line in chunk[:cut].decode("utf-8", "replace").split("\n"):
+            line = line.strip()
+            if not line.startswith("{"):
+                continue
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            if entry.get("type") != "assistant":
+                continue
+            message = entry.get("message")
+            if not isinstance(message, dict):
+                continue
+            usage = message.get("usage")
+            if not isinstance(usage, dict):
+                continue
+            model = str(message.get("model") or "unknown")
+            if model.startswith("<"):
+                continue          # a synthetic turn the API never billed
+            mark = entry.get("requestId") or entry.get("uuid")
+            if mark in held["seen"]:
+                continue
+            held["seen"].add(mark)
+            fast = usage.get("speed") == "fast"
+            name = f"{model} (fast)" if fast else model
+            side = bool(entry.get("isSidechain"))
+            where = held["agents"] if side else held["main"]
+            add_usage(where.setdefault(name, blank_counters()), usage)
+            at = entry.get("timestamp")
+            if at:
+                held["firstAt"] = held["firstAt"] or at
+                held["lastAt"] = at
+            if not side:
+                # What the model was carrying on its last turn: everything that
+                # went in, cached or not. This is the session's context size.
+                held["context"] = (int(usage.get("input_tokens") or 0)
+                                   + int(usage.get("cache_read_input_tokens") or 0)
+                                   + int(usage.get("cache_creation_input_tokens") or 0))
+                held["contextModel"] = model
+                held["contextAt"] = at
+        return held
+
+
+def read_usage(session_id: str, cwd: str) -> dict:
+    """What this session has spent, per model, with the cost that implies."""
+    for path in transcript_paths(session_id, cwd):
+        if not path.exists():
+            continue
+        held = scan_usage(path)
+        if not held:
+            break
+
+        def rows(bucket: dict) -> list[dict]:
+            out = []
+            for name, counters in sorted(bucket.items(), key=lambda kv: -sum(
+                    (kv[1]["input"], kv[1]["output"], kv[1]["cacheRead"],
+                     kv[1]["cacheWrite5m"], kv[1]["cacheWrite1h"]))):
+                fast = name.endswith(" (fast)")
+                model = name[:-7] if fast else name
+                out.append({**counters, "model": name,
+                            "cost": cost_of(model, counters, fast),
+                            "priced": price_of(model, fast) is not None})
+            return out
+
+        main, agents = rows(held["main"]), rows(held["agents"])
+        every = main + agents
+        totals = blank_counters()
+        for row in every:
+            for field in totals:
+                totals[field] += row[field]
+        cost = sum(row["cost"] or 0.0 for row in every)
+        return {
+            "ok": True,
+            "sessionId": session_id,
+            "models": main,
+            "agentModels": agents,
+            "totals": totals,
+            "cost": cost,
+            "unpriced": sorted({row["model"] for row in every if not row["priced"]}),
+            "context": held["context"],
+            "contextModel": held["contextModel"],
+            "contextWindow": context_window(held["contextModel"] or ""),
+            "contextAt": held["contextAt"],
+            "firstAt": held["firstAt"],
+            "lastAt": held["lastAt"],
+            "path": str(path),
+        }
+    return {"ok": True, "sessionId": session_id, "models": [], "agentModels": [],
+            "totals": blank_counters(), "cost": 0.0, "unpriced": [], "context": None,
+            "contextModel": None, "contextWindow": BIG_WINDOW, "contextAt": None,
+            "firstAt": None, "lastAt": None, "path": None}
+
+
 # ------------------------------------------------------------------- X11 windows
 
 
@@ -1241,6 +2500,39 @@ TERMINALS = [
 ]
 
 
+# The environment Claude Code stamps on everything it starts, and what makes a
+# session started from inside another one call itself a child: see
+# child_session. The panel is often itself started from inside a session, so
+# without this the terminal it opens inherits that stamp and the fresh session it
+# was asked for comes up nested — no session file, no transcript, no title, no
+# chat, and a parent it does not really belong to. Only session-scoped names are
+# dropped; the CLAUDE_CODE_* settings a user puts in their profile (model,
+# config dir, output limits) are not ours to throw away.
+SESSION_ENV = (
+    "CLAUDECODE",
+    "CLAUDE_CODE_CHILD_SESSION",
+    "CLAUDE_CODE_ENTRYPOINT",
+    "CLAUDE_CODE_EXECPATH",
+    "CLAUDE_CODE_MESSAGING_SOCKET",
+    "CLAUDE_CODE_MESSAGING_TOKEN",
+    "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_CODE_SSE_PORT",
+    "CLAUDE_EFFORT",
+    "CLAUDE_PID",
+    "AI_AGENT",
+)
+
+
+def top_level_env() -> dict[str, str]:
+    """Our environment with the marks of the session we may be running in removed.
+
+    What a new `claude` needs to start as a session in its own right rather than
+    as a child of ours. Also right for a resume: a resumed session that comes up
+    nested writes nothing to the transcript it was resumed on.
+    """
+    return {k: v for k, v in os.environ.items() if k not in SESSION_ENV}
+
+
 def terminal_argv(command: list[str], cwd: str) -> list[str] | None:
     """A terminal invocation that runs `command`, or None if none is installed.
 
@@ -1283,6 +2575,7 @@ def start_session(entry: dict) -> tuple[bool, str]:
         subprocess.Popen(
             argv, cwd=cwd, stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+            env=top_level_env(),
         )
     except OSError as exc:
         return False, f"Could not start it: {exc}"
@@ -1303,6 +2596,7 @@ def new_session(cwd: str) -> tuple[bool, str]:
         subprocess.Popen(
             argv, cwd=cwd, stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+            env=top_level_env(),
         )
     except OSError as exc:
         return False, f"Could not start it: {exc}"
@@ -1507,7 +2801,7 @@ class SessionStore:
         try:
             files = sorted(SESSION_DIR.glob("*.json"))
         except OSError:
-            return []
+            files = []  # nested sessions are found without it — read on
         for path in files:
             try:
                 data = json.loads(path.read_text())
@@ -1518,6 +2812,8 @@ class SessionStore:
             pid = data.get("pid")
             if not isinstance(pid, int):
                 continue
+            if is_own_errand(pid):
+                continue  # the panel's own headless run, not a session to watch
             actual = proc_starttime(pid)
             recorded = data.get("procStart")
             if actual is None:
@@ -1525,6 +2821,10 @@ class SessionStore:
             if recorded not in (None, "", actual):
                 continue  # this pid belongs to something else now
             live.append(data)
+        # Sessions started from inside another one write no file of their own, so
+        # they are read off /proc and appended here, as ordinary sessions.
+        known = {data["pid"] for data in live}
+        live.extend(child_sessions(known, peer_protocols(live)))
         return live
 
     def _branch(self, cwd: str) -> str | None:
@@ -1713,6 +3013,10 @@ class SessionStore:
                     and Path(data["messagingSocketPath"]).exists()
                 ),
                 "ancestors": chain,
+                # Set for a nested session: the session it was started from. Its
+                # own process parent is usually the terminal, not that session,
+                # so the chain above does not lead back to it.
+                "parentPid": data.get("parentPid"),
                 # The pty is what tells two tabs of one terminal apart, and what
                 # the window probe writes to.
                 "tty": session_tty(pid) if isinstance(pid, int) else None,
@@ -1791,6 +3095,14 @@ class SessionStore:
                 "window": None,
             })
 
+        # Whose child a nested session is, said by name rather than by pid — the
+        # row has no room for a number nobody recognises. Resolved here because it
+        # takes every session to answer, and a parent may not be on the list at
+        # all: it can have closed while its child kept running.
+        named = {s["pid"]: s["name"] for s in out if s.get("pid")}
+        for session in out:
+            session["parentName"] = named.get(session.get("parentPid"))
+
         order = {"waiting": 0, "busy": 1, "shell": 2, "idle": 3, "offline": 4, "stopped": 5}
         out.sort(key=lambda s: (order.get(s["status"], 6), -(now - s["statusSince"])))
         return {
@@ -1863,6 +3175,16 @@ class Handler(BaseHTTPRequestHandler):
                 return session
         return None
 
+    def _session_repo(self, session_id: str) -> str | None:
+        """The working tree a git request may act in — the session's own, or none.
+
+        The root never comes from the request. Everything git runs against what
+        the panel already discovered for the session it was asked about, so no
+        request can point git at a repository the panel is not showing.
+        """
+        session = self._session_by_id(session_id)
+        return (session or {}).get("repoRoot") or None
+
     # --- routes
 
     def do_GET(self) -> None:
@@ -1883,6 +3205,26 @@ class Handler(BaseHTTPRequestHandler):
                 limit = 60
             self._json(read_transcript(session_id, session["cwd"], limit))
             return
+        if path == "/api/usage":
+            query = parse_qs(urlparse(self.path).query)
+            session_id = (query.get("sessionId") or [""])[0]
+            session = self._session_by_id(session_id)
+            if not session:
+                self._json({"ok": False, "message": "That session is no longer running"}, 404)
+                return
+            self._json(read_usage(session_id, session["cwd"]))
+            return
+        if path == "/api/plan":
+            # Reading this runs a command on this machine, which is the same order
+            # of risk as the panel's other errands — so it sits behind the same
+            # loopback gate, however read-only the answer is.
+            if not SAY_ENABLED:
+                self._json({"ok": False, "message": "Reading your plan is off because the panel "
+                                                    "is not bound to loopback"}, 403)
+                return
+            query = parse_qs(urlparse(self.path).query)
+            self._json(read_plan((query.get("force") or [""])[0] == "1"))
+            return
         if path == "/api/git":
             query = parse_qs(urlparse(self.path).query)
             session_id = (query.get("sessionId") or [""])[0]
@@ -1895,7 +3237,19 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": False, "isRepo": False,
                             "message": "This session's folder is not in a git repository"})
                 return
-            self._json({**read_git(root), "isRepo": True})
+            self._json({**read_git(root), "isRepo": True, "canWrite": SAY_ENABLED})
+            return
+        if path == "/api/git/diff":
+            query = parse_qs(urlparse(self.path).query)
+            root = self._session_repo((query.get("sessionId") or [""])[0])
+            if not root:
+                self._json({"ok": False, "message": "That session is not in a git repository"}, 404)
+                return
+            file_path = (query.get("path") or [""])[0]
+            if not file_path:
+                self._json({"ok": False, "message": "No file asked for"}, 400)
+                return
+            self._json(read_diff(root, file_path, (query.get("staged") or [""])[0] == "1"))
             return
         if path in ("/", "/index.html"):
             self._serve_static("index.html", "text/html; charset=utf-8")
@@ -1987,6 +3341,29 @@ class Handler(BaseHTTPRequestHandler):
                 return
             ok, message = say_to_session(data, str(payload.get("text") or ""))
             self._json({"ok": ok, "message": message}, 200 if ok else 409)
+            return
+
+        if path == "/api/git":
+            # Committing, pushing and discarding change a checkout on this
+            # machine, which is the same order of risk as prompting the session
+            # that lives in it — so they sit behind the same loopback gate.
+            if not SAY_ENABLED:
+                self._json({"ok": False, "message": "Git actions are off — this panel is serving read-only"}, 403)
+                return
+            root = self._session_repo(session_id)
+            if not root:
+                self._json({"ok": False, "message": "That session is not in a git repository"}, 404)
+                return
+            action = str(payload.get("action") or "")
+            # The one action that answers with something other than a sentence
+            # about what it did: the message it wrote, for the box to hold.
+            if action == "suggestMessage":
+                ok, said = suggest_message(root)
+                self._json({"ok": ok, "text": said if ok else "",
+                            "message": "" if ok else said}, 200 if ok else 409)
+                return
+            ok, message, status = git_action(root, action, payload)
+            self._json({"ok": ok, "message": message}, status)
             return
 
         if path == "/api/sticky":

@@ -224,6 +224,29 @@ const about = JSON.parse(await evaluate(`JSON.stringify({
 })`));
 check("details tab switches and shows facts", about.selected === "true" && about.facts >= 6, `${about.facts} facts`);
 check("details tab exposes window pairing and notifications", about.window && about.mute);
+
+/* The Usage tab totals the transcript, so a fixture with no recorded model
+   request has nothing to add up. Either way the tab must be there and must say
+   which of the two it is rather than drawing an empty page. */
+await evaluate(`document.querySelector('[data-tab="usage"]').click()`);
+await sleep(1200);
+const use = JSON.parse(await evaluate(`JSON.stringify({
+  selected: document.querySelector('[data-tab="usage"]').getAttribute('aria-selected'),
+  tiles: document.querySelectorAll('.use-tile').length,
+  cost: document.querySelector('.use-tile--lead .use-tile__value')?.textContent.trim() || "",
+  rows: document.querySelectorAll('.use-table tbody tr').length,
+  note: document.querySelector('.git-empty')?.textContent.trim().slice(0, 40) || "",
+  wide: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+})`));
+check("usage tab switches", use.selected === "true");
+if (use.tiles) {
+  check("usage shows a cost and a row per model", /^\$/.test(use.cost) && use.rows >= 1,
+    `${use.cost}, ${use.rows} models`);
+  check("the usage tab does not push the page sideways", !use.wide);
+} else {
+  check("usage says plainly when there is nothing to total", !!use.note, use.note);
+}
+
 await evaluate(`document.querySelector('[data-tab="chat"]').click()`);
 await sleep(800);
 
@@ -250,14 +273,151 @@ if (!gitSession) {
       selected: document.querySelector('[data-tab="git"]').getAttribute('aria-selected'),
       branch: (document.querySelector('.git-badge')?.textContent || '').trim(),
       files: document.querySelectorAll('.git-file').length,
-      marked: [...document.querySelectorAll('.git-file')].every((f) => (f.querySelector('.git-file__xy')?.textContent || '').length === 2),
+      // One letter per row, for the side of the file that row stands for.
+      marked: [...document.querySelectorAll('.git-file')].every((f) => (f.querySelector('.git-file__xy')?.textContent || '').length === 1),
+      // Every row names a file and opens it.
+      named: [...document.querySelectorAll('.git-file')].every((f) =>
+        f.dataset.path && f.querySelector('.git-file__name')?.textContent.trim()
+        && f.querySelector('[data-git="diff"]')),
+      // The groups the editor uses, in its order.
+      groups: [...document.querySelectorAll('.scm-group')].map((s) => s.dataset.group).join(','),
       // The graph belongs to the other tab now; finding it here means the split
       // did not take.
       graph: document.querySelectorAll('.git-commit').length,
     })`));
     check("git tab switches and reads the repository", git.selected === "true" && !!git.branch, git.branch);
-    check("every changed file shows two status letters", git.marked, `${git.files} files`);
+    check("every changed file shows its status letter and opens", git.marked && git.named, `${git.files} files`);
+    check("files are grouped the way the editor groups them",
+      git.groups.split(',').filter(Boolean).every((g) => ["merge", "staged", "changes"].includes(g)),
+      git.groups || "clean tree");
     check("the git tab carries no history", git.graph === 0);
+
+    /* --- Source control: the controls, and what they are wired to ---
+
+       Nothing here presses stage or commit. This suite runs against whatever
+       real sessions are on the machine, and a test that commits in somebody's
+       checkout to prove a button works has done more than it was asked. What is
+       checked is that the controls are there when writing is on, gone when it is
+       off, and that the one read-only action — opening a diff — actually reads. */
+    const scm = JSON.parse(await evaluate(`(async () => {
+      const canWrite = (await (await fetch('/api/git?sessionId=' + encodeURIComponent(${JSON.stringify(gitSession)}), { cache: 'no-store' })).json()).canWrite;
+      const row = document.querySelector('.git-file');
+      return JSON.stringify({
+        canWrite,
+        commitField: Boolean(document.querySelector('#commitField')),
+        splitButton: Boolean(document.querySelector("[data-git='commit']") && document.querySelector("[data-git='commit-menu']")),
+        // The sparkle has to sit inside the field it fills in. It is only ever
+        // measured here — pressing it would spend tokens to test a layout.
+        sparkleInside: (() => {
+          const f = document.querySelector('#commitField');
+          const s = document.querySelector("[data-git='suggest']");
+          if (!f || !s) return false;
+          const a = f.getBoundingClientRect(), b = s.getBoundingClientRect();
+          return b.left >= a.left && b.right <= a.right + 1 && b.top >= a.top
+            && parseFloat(getComputedStyle(f).paddingRight) >= b.width;
+        })(),
+        headButtons: [...document.querySelectorAll('.git-head [data-git]')].map((b) => b.dataset.git).join(','),
+        // A drift count is a button when there is drift to act on, and says which
+        // upstream it means.
+        driftActs: [...document.querySelectorAll('.git-head [data-git="push"], .git-head [data-git="pull"]')]
+          .every((b) => /^(Push|Pull) \\d+ commits? (to|from) /.test(b.title)),
+        // And it has to look like work waiting: a filled pill, saying what to do
+        // about it, not another transparent line of description.
+        driftFilled: [...document.querySelectorAll('.git-badge--drift')].every((b) => {
+          const bg = getComputedStyle(b).backgroundColor;
+          return bg && bg !== 'rgba(0, 0, 0, 0)' && !bg.endsWith(', 0)')
+            && /to (push|pull)/.test(b.textContent);
+        }),
+        driftCount: document.querySelectorAll('.git-badge--drift').length,
+        readOnlyBadge: Boolean([...document.querySelectorAll('.git-head span')].some((s) => s.textContent.trim() === 'read-only')),
+        groupActions: [...document.querySelectorAll('.scm-group__head [data-git]')].map((b) => b.dataset.git).join(','),
+        rowActions: row ? [...row.querySelectorAll(".scm-actions [data-git]")].map((b) => b.dataset.git).join(',') : "",
+        hasRow: Boolean(row),
+      });
+    })()`));
+    if (scm.canWrite) {
+      check("the commit box and its split button are there when writing is on",
+        scm.commitField && scm.splitButton);
+      check("the sparkle sits inside the message box, with room kept for it",
+        scm.sparkleInside);
+      check("any drift count on show is a button that says what it would do",
+        scm.driftActs, scm.headButtons);
+      check("a drift count is a filled pill, not a quiet annotation",
+        scm.driftFilled, scm.driftCount ? `${scm.driftCount} on show` : "none to show");
+      check("the header offers sync and an overflow",
+        scm.headButtons.includes("sync") && scm.headButtons.includes("menu"), scm.headButtons);
+
+      /* The branch badge opens the branch list. It is opened and read, never
+         picked from: switching a branch under a real session to prove a menu
+         works is not this suite's business. */
+      const branches = JSON.parse(await evaluate(`(async () => {
+        const reading = await (await fetch('/api/git?sessionId=' + encodeURIComponent(${JSON.stringify(gitSession)}), { cache: 'no-store' })).json();
+        document.querySelector("[data-git='branch-menu']").click();
+        await new Promise((r) => setTimeout(r, 250));
+        const items = [...document.querySelectorAll('#sessionMenu .menu__item')];
+        const answer = {
+          open: document.getElementById('sessionMenu').dataset.open,
+          creates: items.filter((b) => b.dataset.key === 'new' || b.dataset.key === 'new-from').length,
+          listed: items.filter((b) => b.dataset.key?.startsWith('local:')).length,
+          current: items.filter((b) => b.dataset.key?.startsWith('local:') && b.disabled).length,
+          fromGit: (reading.branches?.local ?? []).length,
+          onABranch: Boolean(reading.branch),
+          // A remote's default-branch pointer is not a branch. refs/remotes/origin/HEAD
+          // shortens to plain "origin" -- no backticks in here, this is inside a
+          // template literal -- so it once landed in the local list and was offered
+          // as somewhere to switch to.
+          noRemotePointers: (reading.branches?.remote ?? [])
+            .map((b) => b.name.split('/')[0])
+            .every((remote) => !(reading.branches?.local ?? []).some((b) => b.name === remote)),
+        };
+        // Put it away, so the checks after this one are not measuring a menu.
+        // Dispatched on an element, not on document: listeners here reasonably
+        // expect a pointer event to have an Element for a target.
+        document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+        return JSON.stringify(answer);
+      })()`));
+      check("the branch badge opens the branch list",
+        branches.open === "true" && branches.creates === 2
+        && branches.listed === branches.fromGit,
+        `${branches.listed} branches, ${branches.creates} ways to make one`);
+      // Detached HEAD has no current branch to mark, which is not a failure.
+      check("the branch you are on is marked, not offered",
+        branches.current === (branches.onABranch ? 1 : 0));
+      check("no remote's default-branch pointer is listed as a branch",
+        branches.noRemotePointers);
+      if (scm.hasRow) {
+        check("a file row carries stage or unstage",
+          /(^|,)(stage|unstage)(,|$)/.test(scm.rowActions), scm.rowActions);
+        check("a group header carries its own actions", scm.groupActions.length > 0, scm.groupActions);
+      } else {
+        console.log("SKIP  row and group actions — the tree is clean");
+      }
+    } else {
+      check("a read-only panel says so and offers no actions",
+        scm.readOnlyBadge && !scm.commitField && scm.headButtons === "");
+      check("a read-only panel offers no sparkle either",
+        await evaluate(`!document.querySelector("[data-git='suggest']")`));
+    }
+
+    // Clicking a row opens that file's diff underneath it, and only that one.
+    if (scm.hasRow) {
+      await evaluate(`document.querySelector('.git-file [data-git="diff"]').click()`);
+      await sleep(1400);
+      const diff = JSON.parse(await evaluate(`JSON.stringify({
+        open: document.querySelectorAll('.git-file[data-open="1"]').length,
+        // Either real lines, or the one line saying why there are none.
+        lines: document.querySelectorAll('.scm-diff__line').length,
+        note: document.querySelector('.scm-diff') ? "" : (document.querySelector('.git-empty')?.textContent.trim() || "nothing at all"),
+      })`));
+      check("a row opens one diff, and only its own", diff.open === 1, `${diff.open} open`);
+      check("the diff reads something back", diff.lines > 0 || diff.note.length > 0,
+        diff.lines ? `${diff.lines} lines` : diff.note);
+      // Put it away again, so the checks below measure the list and not a patch.
+      await evaluate(`document.querySelector('.git-file[data-open="1"] [data-git="diff"]').click()`);
+      await sleep(700);
+      check("clicking the same row again closes it",
+        await evaluate(`document.querySelectorAll('.git-file[data-open="1"]').length === 0`));
+    }
 
     /* --- History: the graph --- */
     await evaluate(`document.querySelector('[data-tab="history"]').click()`);
@@ -304,13 +464,19 @@ if (!gitSession) {
       const measure = (label, el) => { if (!el) return;
         out.push({ label, ratio: +window.__ratio(window.__hex(getComputedStyle(el).color), window.__bgOf(el)).toFixed(2) }); };
       measure('file status', document.querySelector('.git-file__xy'));
-      measure('file path', document.querySelector('.git-file__path'));
+      measure('file name', document.querySelector('.git-file__name'));
+      measure('file folder', document.querySelector('.git-file__dir'));
+      measure('group title', document.querySelector('.scm-group__title'));
+      measure('drift count', document.querySelector('.git-badge--drift'));
+      measure('drift verb', document.querySelector('.git-badge__verb'));
+      measure('row action', document.querySelector('.scm-actions .scm-icon'));
       return out;
     })())`));
     const fileWorst = fileContrast.length ? Math.min(...fileContrast.map((r) => r.ratio)) : 99;
-    check("git file rows clear 4.5:1", fileWorst >= 4.5, `worst ${fileWorst}:1`);
+    check("git file rows clear 4.5:1", fileWorst >= 4.5,
+      `worst ${fileWorst}:1 over ${fileContrast.length} spots`);
 
-    // Every tab has to stay reachable once there are four of them.
+    // Every tab has to stay reachable once there are five of them.
     const reach = JSON.parse(await evaluate(`JSON.stringify((() => {
       const strip = document.querySelector('.tabs');
       const tabs = [...document.querySelectorAll('.tab')];
@@ -320,8 +486,8 @@ if (!gitSession) {
         tall: tabs.every((t) => t.getBoundingClientRect().height >= 44),
       };
     })())`));
-    check("all four tabs stay reachable and 48dp tall",
-      reach.count === 4 && reach.scrollable && reach.tall, `${reach.count} tabs`);
+    check("all five tabs stay reachable and 48dp tall",
+      reach.count === 5 && reach.scrollable && reach.tall, `${reach.count} tabs`);
   }
   await evaluate(`document.querySelector('[data-tab="chat"]')?.click()`);
   await sleep(800);
@@ -371,6 +537,61 @@ if (!filterChip) {
   check("filter chip narrows the list", afterFilter >= 1 && afterFilter < beforeFilter, `${beforeFilter} -> ${afterFilter}`);
   await evaluate(`[...document.querySelectorAll('.chip')].find(c => c.textContent.includes('all'))?.click()`);
   await sleep(600);
+}
+
+/* ---------------------------------------------------------------- the plan */
+/* The plan chip reads /usage through the server, which takes a few seconds and
+   only answers a loopback panel at all. So this waits for it, and says which of
+   the three it got rather than failing for whichever one it is. */
+const planState = JSON.parse(await evaluate(`(async () => {
+  const answer = await fetch('/api/plan', { cache: 'no-store' });
+  const body = answer.status === 200 ? await answer.json() : null;
+  return JSON.stringify({ status: answer.status, ok: !!body?.ok });
+})()`));
+if (planState.status === 403) {
+  console.log("SKIP  plan chip — this panel is read-only, so it does not read your plan");
+} else if (!planState.ok) {
+  console.log("SKIP  plan chip — /usage did not answer on this machine");
+} else {
+  // The chip appears once the reading lands; the page asks for it on boot.
+  for (let i = 0; i < 20 && await evaluate(`planButton.hidden`); i++) await sleep(1000);
+  const chip = JSON.parse(await evaluate(`JSON.stringify({
+    hidden: planButton.hidden,
+    text: planChipText.textContent,
+    tight: planButton.dataset.tight,
+    title: planButton.title,
+  })`));
+  check("the plan chip shows what is left", !chip.hidden && /%/.test(chip.text), `${chip.text}`);
+  check("the chip names its limits in full", /left/.test(chip.title), chip.title);
+  await evaluate(`planButton.click()`);
+  await sleep(900);
+  const dialog = JSON.parse(await evaluate(`JSON.stringify({
+    open: planScrim.dataset.open,
+    bars: document.querySelectorAll('#planBody .plan-limit').length,
+    fills: [...document.querySelectorAll('#planBody .use-bar__fill')].map(f => f.style.width),
+    age: document.getElementById('planAge').textContent,
+    refresh: !!document.getElementById('planRefresh'),
+  })`));
+  check("the chip opens a dialog with one bar per limit",
+    dialog.open === "true" && dialog.bars >= 1, `${dialog.bars} limits`);
+  check("each bar is drawn to its own figure and says how old the reading is",
+    dialog.fills.every((w) => /%$/.test(w)) && /read|reading/.test(dialog.age),
+    `${dialog.fills.join(" ")} — ${dialog.age}`);
+  check("the dialog offers a refresh", dialog.refresh);
+  const planContrast = JSON.parse(await evaluate(`JSON.stringify((() => {
+    const out = [];
+    for (const el of document.querySelectorAll('#planHead, .plan-limit__pct, .plan-limit__resets, .plan-block li, .plan-note')) {
+      const fg = window.__hex(getComputedStyle(el).color);
+      out.push({ ratio: Math.round(window.__ratio(fg, window.__bgOf(el)) * 100) / 100 });
+    }
+    return out;
+  })())`));
+  const planWorst = planContrast.length ? Math.min(...planContrast.map((r) => r.ratio)) : 99;
+  check("plan dialog text clears 4.5:1", planWorst >= 4.5,
+    `worst ${planWorst}:1 over ${planContrast.length} spots`);
+  await evaluate(`document.getElementById('closePlan').click()`);
+  await sleep(500);
+  check("the plan dialog closes", await evaluate(`planScrim.dataset.open === 'false'`));
 }
 
 /* ------------------------------------------------- settings / dynamic colour */
@@ -990,7 +1211,7 @@ if (!chatSession) {
 /* ---------------------------------------------------------- touch targets */
 const smallTargets = JSON.parse(await evaluate(`(() => {
   const small = [];
-  for (const el of document.querySelectorAll('.chip, .icon-button, .button, .swatch, .session-item, .tab')) {
+  for (const el of document.querySelectorAll('.chip, .icon-button, .button, .swatch, .session-item, .tab, .scm-icon')) {
     if (el.closest('.scrim[data-open="false"]')) continue;   // scaled down while closed
     const r = el.getBoundingClientRect();
     if (!r.height) continue;
