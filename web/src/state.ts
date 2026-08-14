@@ -88,3 +88,8 @@ export const ui = {
   cmdOff: false,  // Escape puts the list away without touching the text
 };
 
+export const selected = () => app.feed.sessions.find((s) => s.sessionId === app.selectedId) || null;
+
+export const sessionById = (id) => app.feed.sessions.find((s) => s.sessionId === id) || null;
+
+export const CHAT_LIMIT_MAX = 500;
