@@ -1644,6 +1644,218 @@ def git_action(root: str, action: str, payload: dict) -> tuple[bool, str, int]:
     return False, "Unknown action", 400
 
 
+# ------------------------------------------------------ what it can be asked for
+
+
+# A leading /name is expanded by the terminal, not by the session. A message
+# injected over the messaging socket is queued as a peer turn with slash commands
+# switched off — deliberately, since command markdown can carry inline shell, and
+# an inbox that ran it would be a way to run anything in someone else's checkout.
+#
+# So the panel does not try to be the terminal. It reads the same folders Claude
+# Code reads, offers what it finds by name, and sends a sentence asking for it.
+# Asking is the one thing an injected turn can do, and it is enough: a skill is
+# invoked by name anyway. Nothing here expands anything, substitutes arguments,
+# or runs a line of a file it read.
+CATALOG_FRESH = 20.0
+CATALOG_LOCK = threading.Lock()
+CATALOG_HELD: dict[str, tuple[float, dict]] = {}
+# A walk of folders that are meant to be small. The caps are here so a stray
+# checkout under ~/.claude/commands cannot turn one composer keystroke into a
+# thousand-line answer.
+MAX_ENTRIES = 400
+MAX_DESCRIPTION = 240
+MAX_SCAN = 600
+
+PLUGIN_INSTALLS = HOME / ".claude" / "plugins" / "installed_plugins.json"
+USER_SETTINGS = HOME / ".claude" / "settings.json"
+
+# Commands that live in the terminal's own head — its screen, its model, its
+# history — and that no message can reach, whatever it says. The panel names them
+# rather than sending text that would quietly do nothing.
+TERMINAL_ONLY = (
+    "clear", "compact", "context", "model", "resume", "exit", "quit", "login", "logout",
+    "config", "help", "doctor", "status", "cost", "upgrade", "release-notes", "plugin",
+    "mcp", "agents", "ide", "terminal-setup", "vim", "memory", "permissions", "hooks",
+    "add-dir", "export", "privacy-settings", "bashes", "statusline", "output-style",
+    "todos", "install-github-app", "migrate-installer",
+)
+
+FRONT_FIELD = re.compile(r"^(name|description)\s*:\s*(.+?)\s*$")
+
+
+def read_front_matter(path: Path) -> dict:
+    """The `name:` and `description:` at the head of a skill or command file.
+
+    A hand-rolled reader rather than a YAML one, and no dependency for it: these
+    files are written by hand and read by half a dozen tools, so both fields are
+    plain scalars, quoted or not — or a folded block, which a long description
+    often is, and which is gathered from the indented lines under it. Anything
+    more elaborate is left alone rather than guessed at.
+    """
+    found: dict[str, str] = {}
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            if handle.readline().strip() != "---":
+                return found
+            lines = []
+            for _ in range(80):
+                line = handle.readline()
+                if not line or line.rstrip() == "---":
+                    break
+                lines.append(line.rstrip("\n"))
+    except OSError:
+        return {}
+
+    for index, line in enumerate(lines):
+        match = FRONT_FIELD.match(line)
+        if not match:
+            continue
+        value = match.group(2)
+        if value in (">", "|", ">-", "|-", ">+", "|+"):
+            # A block scalar: everything indented under it, as one line, which is
+            # what a folded description means anyway.
+            gathered = []
+            for follower in lines[index + 1:]:
+                if follower.strip() and not follower[:1].isspace():
+                    break
+                gathered.append(follower.strip())
+            value = " ".join(part for part in gathered if part)
+        elif len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        found[match.group(1)] = value[:MAX_DESCRIPTION]
+    return found
+
+
+def scan_skills(root: Path, source: str, prefix: str = "") -> list[dict]:
+    """Every SKILL.md one folder down, which is the only shape a skill has."""
+    out: list[dict] = []
+    try:
+        folders = sorted(p for p in root.iterdir() if p.is_dir())
+    except OSError:
+        return out
+    for folder in folders[:MAX_SCAN]:
+        file = folder / "SKILL.md"
+        if not file.is_file():
+            continue
+        front = read_front_matter(file)
+        out.append({"name": prefix + (front.get("name") or folder.name),
+                    "description": front.get("description", ""),
+                    "source": source, "kind": "skill"})
+    return out
+
+
+def scan_commands(root: Path, source: str, prefix: str = "") -> list[dict]:
+    """Command markdown, with a subfolder read as the namespace it stands for."""
+    out: list[dict] = []
+    try:
+        files = sorted(p for p in root.rglob("*.md") if p.is_file())
+    except OSError:
+        return out
+    for file in files[:MAX_SCAN]:
+        try:
+            parts = list(file.relative_to(root).with_suffix("").parts)
+        except ValueError:
+            continue
+        front = read_front_matter(file)
+        out.append({"name": prefix + ":".join(parts),
+                    "description": front.get("description", ""),
+                    "source": source, "kind": "command"})
+    return out
+
+
+def enabled_plugins(cwd: str | None) -> list[str]:
+    """The plugin keys switched on, which is the terminal's own answer.
+
+    `enabledPlugins` is keyed `plugin@marketplace` and a project can turn one on
+    or off for itself, the nearer file winning — the order Claude Code reads them
+    in. Reading the same switch is what keeps the panel from offering something
+    the session would not answer to.
+    """
+    enabled: dict[str, bool] = {}
+    files = [USER_SETTINGS]
+    if cwd:
+        files += [Path(cwd) / ".claude" / "settings.json",
+                  Path(cwd) / ".claude" / "settings.local.json"]
+    for file in files:
+        try:
+            data = json.loads(file.read_text())
+        except (OSError, ValueError):
+            continue
+        block = data.get("enabledPlugins")
+        if not isinstance(block, dict):
+            continue
+        for key, value in block.items():
+            if isinstance(value, bool):
+                enabled[key] = value
+    return [key for key, on in enabled.items() if on]
+
+
+def plugin_paths(keys: list[str]) -> list[tuple[str, Path]]:
+    """Where each enabled plugin's files landed, taking its newest install."""
+    try:
+        data = json.loads(PLUGIN_INSTALLS.read_text())
+    except (OSError, ValueError):
+        return []
+    plugins = data.get("plugins")
+    if not isinstance(plugins, dict):
+        return []
+    out: list[tuple[str, Path]] = []
+    for key in keys:
+        installs = plugins.get(key)
+        if not isinstance(installs, list) or not installs:
+            continue
+        newest = max(installs, key=lambda item: str(
+            item.get("lastUpdated") or item.get("installedAt") or ""))
+        where = newest.get("installPath")
+        if isinstance(where, str) and where:
+            out.append((key.split("@", 1)[0], Path(where)))
+    return out
+
+
+def read_catalog(cwd: str | None) -> dict:
+    """Everything this session could be asked for by name, from every source.
+
+    Named the way it is addressed — bare for your own and the project's, prefixed
+    `plugin:` for a plugin's — so what the picker shows is what the session
+    answers to. Only names, descriptions and where they came from: no path on
+    this machine leaves the server, and nothing is read but the head of each file.
+    """
+    key = cwd or ""
+    now = time.monotonic()
+    with CATALOG_LOCK:
+        held = CATALOG_HELD.get(key)
+        if held and now - held[0] < CATALOG_FRESH:
+            return held[1]
+
+    found: list[dict] = []
+    found += scan_skills(HOME / ".claude" / "skills", "yours")
+    found += scan_commands(HOME / ".claude" / "commands", "yours")
+    for name, where in plugin_paths(enabled_plugins(cwd)):
+        found += scan_skills(where / "skills", name, f"{name}:")
+        found += scan_commands(where / "commands", name, f"{name}:")
+    if cwd:
+        found += scan_skills(Path(cwd) / ".claude" / "skills", "this project")
+        found += scan_commands(Path(cwd) / ".claude" / "commands", "this project")
+
+    # Scanned nearest last, so a project's own copy of a name overwrites the one
+    # further away — which is the copy the session would use.
+    by_name: dict[str, dict] = {}
+    for entry in found:
+        if entry["name"]:
+            by_name[entry["name"]] = entry
+    answer = {"ok": True,
+              "entries": sorted(by_name.values(), key=lambda e: e["name"])[:MAX_ENTRIES],
+              "terminalOnly": list(TERMINAL_ONLY)}
+    with CATALOG_LOCK:
+        CATALOG_HELD[key] = (now, answer)
+        # One entry per folder the panel has looked at, and it only ever looks at
+        # folders it was asked about, so this stays the size of the session list.
+        if len(CATALOG_HELD) > 64:
+            CATALOG_HELD.clear()
+    return answer
+
+
 # --------------------------------------------------------------- last activity
 
 
@@ -1665,14 +1877,10 @@ def summarise_block(block: dict) -> str | None:
         return " ".join(text.split())[:160] or None
     if kind == "tool_use":
         name = block.get("name") or "tool"
-        args = block.get("input") or {}
-        detail = ""
-        if isinstance(args, dict):
-            for key in ("description", "command", "file_path", "pattern", "path", "prompt"):
-                value = args.get(key)
-                if isinstance(value, str) and value.strip():
-                    detail = " ".join(value.split())[:110]
-                    break
+        # The same reading the conversation view takes, cut to the width of a
+        # one-line summary — including the question a session is asking, which
+        # names no file and runs no command.
+        detail = tool_detail(block.get("input"))[:110]
         return f"{name}: {detail}" if detail else str(name)
     if kind == "thinking":
         return "thinking"
@@ -1764,6 +1972,111 @@ def read_permission_mode(session_id: str, cwd: str) -> str | None:
     return None
 
 
+# --------------------------------------------------------- the question on screen
+
+
+# How far back to look for an unanswered question. A pending one is close to the
+# tail by construction — nothing follows a question but its own answer — so this
+# only has to clear whatever else lands after it: a message queued at the prompt
+# while it stands, a snapshot, a re-written title. The walk is deliberately short
+# because the lines it reads are tool results, and one of those can be a whole
+# file.
+QUESTION_PATIENCE = 200
+MAX_QUESTION_OPTIONS = 12
+
+
+def question_asked(block: dict) -> dict | None:
+    """The questions in an AskUserQuestion call, trimmed to what a card shows."""
+    args = block.get("input")
+    if not isinstance(args, dict):
+        return None
+    raw = args.get("questions")
+    if not isinstance(raw, list) or not raw:
+        return None
+    questions = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("question") or "").strip()
+        options = []
+        for option in item.get("options") or []:
+            if not isinstance(option, dict):
+                continue
+            label = str(option.get("label") or "").strip()
+            if not label:
+                continue
+            options.append({
+                "label": label[:200],
+                "description": str(option.get("description") or "").strip()[:400],
+            })
+            if len(options) >= MAX_QUESTION_OPTIONS:
+                break
+        if not text and not options:
+            continue
+        questions.append({
+            "question": text[:400],
+            "header": str(item.get("header") or "").strip()[:40],
+            "multiSelect": bool(item.get("multiSelect")),
+            "options": options,
+        })
+    if not questions:
+        return None
+    return {"toolUseId": str(block.get("id") or ""), "questions": questions}
+
+
+def read_pending_question(session_id: str, cwd: str) -> dict | None:
+    """The AskUserQuestion this session is sitting on, if it is sitting on one.
+
+    Claude Code shows the options in the terminal and blocks there; nothing in the
+    session file says so. What the transcript has is the call itself — an
+    `AskUserQuestion` tool_use — and, once it has been answered, a tool_result
+    carrying the same id. Walking back from the newest line, a call whose result
+    has not been seen yet is a question still on screen.
+
+    Read like the mode and the title, from the tail, so the cost does not grow
+    with the transcript. The walk stops at the first AskUserQuestion either way:
+    an older, answered one is not what is being asked now.
+    """
+    for path in transcript_paths(session_id, cwd):
+        answered: set[str] = set()
+        seen = 0
+        for line in reverse_lines(path):
+            seen += 1
+            if seen > QUESTION_PATIENCE:
+                return None
+            line = line.strip()
+            if not line.startswith("{"):
+                continue
+            if "AskUserQuestion" not in line and "tool_result" not in line:
+                continue
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            if entry.get("isSidechain"):
+                continue  # a subagent's question is not one you can answer
+            message = entry.get("message")
+            content = message.get("content") if isinstance(message, dict) else None
+            if not isinstance(content, list):
+                continue
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                if block.get("type") == "tool_result":
+                    used = block.get("tool_use_id")
+                    if isinstance(used, str):
+                        answered.add(used)
+                    continue
+                if block.get("type") != "tool_use" or block.get("name") != "AskUserQuestion":
+                    continue
+                asked = question_asked(block)
+                if asked is None or asked["toolUseId"] in answered:
+                    return None
+                asked["at"] = entry.get("timestamp")
+                return asked
+    return None
+
+
 # ------------------------------------------------------------------ the subject
 
 
@@ -1812,6 +2125,15 @@ def tool_detail(args: object) -> str:
         value = args.get(key)
         if isinstance(value, str) and value.strip():
             return " ".join(value.split())[:200]
+    # A question carries none of the keys above: what it is about is the question
+    # itself, which is a list of them a level down. Without this the busiest line
+    # in the transcript — the one you are being asked to answer — reads as a bare
+    # tool name.
+    asked = args.get("questions")
+    if isinstance(asked, list):
+        for item in asked:
+            if isinstance(item, dict) and str(item.get("question") or "").strip():
+                return " ".join(str(item["question"]).split())[:200]
     return ""
 
 
@@ -1896,6 +2218,10 @@ def reverse_lines(path: Path, cap: int = 3_000_000, block: int = 262_144):
 # before giving up on it: it rides in a metadata block, which recurs often.
 TITLE_PATIENCE = 4000
 
+# As far back as the panel will go when asked for more. Past this the reading is
+# no longer cheap — and reverse_lines has its own byte cap under it anyway.
+TRANSCRIPT_LIMIT_MAX = 500
+
 
 def read_transcript(session_id: str, cwd: str, limit: int = 60) -> dict:
     """The recent conversation: what you said, what Claude said, what it ran.
@@ -1930,7 +2256,9 @@ def read_transcript(session_id: str, cwd: str, limit: int = 60) -> dict:
                      "tools": [], "from": came["from"] or ""}
             sent[came["text"]] = shown
             entries.append(shown)
-        for line in reverse_lines(path):
+        # A bigger ask reads further back: the byte cap is what usually ends the
+        # walk on a long transcript, not the message count.
+        for line in reverse_lines(path, cap=max(3_000_000, limit * 50_000)):
             line = line.strip()
             if not line.startswith("{"):
                 continue
@@ -2026,7 +2354,7 @@ def read_transcript(session_id: str, cwd: str, limit: int = 60) -> dict:
         return {
             "sessionId": session_id,
             "title": title,
-            "messages": entries[-max(1, min(limit, 200)):],
+            "messages": entries[-max(1, min(limit, TRANSCRIPT_LIMIT_MAX)):],
             "truncated": more or len(entries) > limit,
             "path": str(path),
         }
@@ -2609,8 +2937,124 @@ def start_session(entry: dict) -> tuple[bool, str]:
     return True, "Starting it up…"
 
 
+def resolve_folder(raw: str) -> tuple[str | None, str]:
+    """A folder a person typed, made absolute, or why it will not do.
+
+    `~` and a relative path are what anyone types, so both are accepted; a file,
+    a path that is not there, and one that cannot be read are all refused by
+    name, because "could not open a session there" on its own leaves you guessing
+    which of the three it was.
+    """
+    text = (raw or "").strip()
+    if not text:
+        return None, "No folder was given"
+    try:
+        path = Path(text).expanduser()
+        if not path.is_absolute():
+            path = (HOME / path).resolve()
+        else:
+            path = path.resolve()
+    except (OSError, RuntimeError) as exc:
+        return None, f"That path will not resolve: {exc}"
+    if not path.exists():
+        return None, f"There is no {path}"
+    if not path.is_dir():
+        return None, f"{path} is a file, not a folder"
+    if not os.access(path, os.R_OK | os.X_OK):
+        return None, f"{path} cannot be opened"
+    return str(path), ""
+
+
+# Finding a folder the browser named but would not place. See locate_folder.
+LOCATE_DEADLINE = 4.0
+LOCATE_DEPTH = 7
+LOCATE_MAX_HITS = 12
+# Directories never worth walking into: they hold thousands of entries and no
+# project anybody starts a session in.
+LOCATE_SKIP = frozenset({
+    "node_modules", ".git", ".venv", "venv", "__pycache__", ".cache", ".local",
+    "site-packages", ".npm", ".cargo", "target", "build", "dist", ".next",
+    ".mypy_cache", ".pytest_cache", "snap", ".steam", ".rustup", ".nvm",
+})
+
+
+def locate_folder(name: str, children: list[str]) -> tuple[list[str], str]:
+    """Where on disk the folder the browser let you pick actually is.
+
+    The native picker is the browser's own, which is the point — but it will not
+    say where the folder is. `webkitdirectory` hands back each file's path
+    *relative* to the chosen folder, so what reaches us is the folder's name and
+    the names directly inside it, and never the absolute path.
+
+    Those two together are a fingerprint, and this is the search for it: walk down
+    from home looking for a directory of that name holding those children. Almost
+    always one thing matches. Where more than one does, the caller is given all of
+    them and asks — a wrong guess would start a session in the wrong checkout,
+    which is exactly the mistake worth a question.
+
+    Bounded on every axis, because it is a filesystem walk answering a click:
+    depth, wall clock, hits, and a skip list for the directories that hold
+    thousands of entries nobody starts a session in.
+    """
+    name = (name or "").strip().strip("/")
+    if not name or "/" in name or name in (".", ".."):
+        return [], "That is not a folder name this can look for"
+    wanted = {child for child in children if child and "/" not in child}
+    deadline = time.time() + LOCATE_DEADLINE
+    hits: list[str] = []
+    ran_out = False
+
+    # Home first and on its own: a folder you pick is almost always under it, and
+    # starting there keeps the walk small enough to answer a click.
+    stack: list[tuple[Path, int]] = [(HOME, 0)]
+    while stack:
+        if time.time() > deadline or len(hits) >= LOCATE_MAX_HITS:
+            ran_out = True
+            break
+        here, depth = stack.pop()
+        try:
+            with os.scandir(here) as scan:
+                for entry in scan:
+                    try:
+                        if not entry.is_dir(follow_symlinks=False):
+                            continue
+                    except OSError:
+                        continue
+                    if entry.name in LOCATE_SKIP:
+                        continue
+                    child = Path(entry.path)
+                    if entry.name == name and folder_matches(child, wanted):
+                        hits.append(str(child))
+                    # A match is still walked past: a name can repeat further down.
+                    if depth + 1 <= LOCATE_DEPTH and not entry.name.startswith("."):
+                        stack.append((child, depth + 1))
+        except OSError:
+            continue
+
+    if hits:
+        return sorted(hits), ""
+    return [], ("Could not find that folder under your home directory"
+                + (" within the time this can spend looking" if ran_out else ""))
+
+
+def folder_matches(here: Path, wanted: set[str]) -> bool:
+    """Does this directory hold the entries the browser said were inside?
+
+    Only the names the picker actually reported have to be present. It reports
+    files, and a folder holding nothing but empty subfolders reports none at all —
+    so an empty fingerprint matches on the name alone, and the caller asks.
+    """
+    if not wanted:
+        return True
+    try:
+        here_names = {entry.name for entry in os.scandir(here)}
+    except OSError:
+        return False
+    return wanted.issubset(here_names)
+
+
 def new_session(cwd: str) -> tuple[bool, str]:
-    """Open a terminal running a fresh `claude` in an existing session's folder."""
+    """Open a terminal running a fresh `claude` in a folder."""
     if not cwd or not Path(cwd).is_dir():
         return False, f"That folder is gone: {cwd}" if cwd else "That session has no folder"
     claude = shutil.which("claude")
@@ -2816,6 +3260,8 @@ class SessionStore:
         self._activity_cache: dict[str, tuple[float, dict | None]] = {}
         self._mode_cache: dict[str, tuple[float, str | None]] = {}
         self._title_cache: dict[str, tuple[float, str | None]] = {}
+        # session id -> (read at, transcript mtime then, the question or None)
+        self._question_cache: dict[str, tuple[float, float | None, dict | None]] = {}
         self._first_seen: dict[str, float] = {}
         # pid -> (sampled at, cpu seconds then, was it working)
         self._cpu: dict[int, tuple[float, float, bool]] = {}
@@ -2909,6 +3355,24 @@ class SessionStore:
         self._title_cache[session_id] = (now, value)
         return value
 
+    def _question(self, session_id: str, cwd: str, now: float) -> dict | None:
+        """The question this session is blocked on, re-read only when it could
+        have changed.
+
+        Unlike the mode and the title, this one is polled for its own sake — the
+        panel wants to know the moment a question goes up — so it cannot sit
+        behind a twenty-second cache. The transcript's mtime is what makes that
+        affordable: a session that has written nothing since the last read cannot
+        have asked or answered anything, and the walk is skipped.
+        """
+        touched = self._transcript_touched(session_id, cwd, now)
+        hit = self._question_cache.get(session_id)
+        if hit and hit[1] == touched and now - hit[0] < 30:
+            return hit[2]
+        value = read_pending_question(session_id, cwd)
+        self._question_cache[session_id] = (now, touched, value)
+        return value
+
     def _burning_cpu(self, pid: int, now: float) -> bool:
         """Is this process actually doing something, judged over a few seconds?"""
         current = cpu_seconds(pid)
@@ -2988,6 +3452,7 @@ class SessionStore:
                         self._transcript_cache.pop(session_id, None)
                         self._mode_cache.pop(session_id, None)
                         self._title_cache.pop(session_id, None)
+                        self._question_cache.pop(session_id, None)
                         self._alive_at.pop(session_id, None)
                         self._cpu.pop(gone.get("pid"), None)
 
@@ -3048,6 +3513,14 @@ class SessionStore:
                 # What Claude says this session is about, for the line under its
                 # name — the detail pane reads the same thing off the transcript.
                 "title": self._title(session_id, cwd) if cwd else None,
+                # The multiple-choice question this session is blocked on, so a
+                # row can show what is being asked rather than only that
+                # something is. See read_pending_question.
+                "question": self._question(session_id, cwd, now) if cwd and alive else None,
+                # The pane holding this session's prompt open, and so whether its
+                # question can be answered from here at all. A session under a
+                # bare terminal emulator has no pane and reads as null, which is
+                # what the card says out loud rather than offering a dead button.
                 "trace": self._trace(history.get(session_id), now),
                 "alive": alive,
                 "canSay": bool(
@@ -3127,6 +3600,9 @@ class SessionStore:
                 # the last thing it was working on.
                 "permissionMode": self._mode(session_id, cwd) if cwd else None,
                 "title": self._title(session_id, cwd) if cwd else None,
+                # A stopped session is not waiting for an answer, however its
+                # transcript ends.
+                "question": None,
                 "trace": [],
                 "alive": False,
                 "canSay": False,
@@ -3250,7 +3726,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": False, "message": "That session is no longer running"}, 404)
                 return
             try:
-                limit = int((query.get("limit") or ["60"])[0])
+                limit = max(1, min(TRANSCRIPT_LIMIT_MAX, int((query.get("limit") or ["60"])[0])))
             except ValueError:
                 limit = 60
             self._json(read_transcript(session_id, session["cwd"], limit))
@@ -3263,6 +3739,14 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": False, "message": "That session is no longer running"}, 404)
                 return
             self._json(read_usage(session_id, session["cwd"]))
+            return
+        if path == "/api/commands":
+            # A session that has gone still leaves the folders it could be asked
+            # about, so a missing one is answered with what is true of every
+            # session — your own skills and commands — rather than a 404.
+            query = parse_qs(urlparse(self.path).query)
+            session = self._session_by_id((query.get("sessionId") or [""])[0])
+            self._json(read_catalog((session or {}).get("cwd")))
             return
         if path == "/api/plan":
             # Reading this runs a command on this machine, which is the same order
@@ -3393,6 +3877,23 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": ok, "message": message}, 200 if ok else 409)
             return
 
+        if path == "/api/locate":
+            # Where the folder you picked in the browser's own dialog actually is.
+            # Same gate as the listing it feeds: it reads this machine's
+            # filesystem, and exists only to start a session.
+            if not SAY_ENABLED:
+                self._json({"ok": False, "message": "Browsing folders is off because the panel "
+                                                    "is not bound to loopback"}, 403)
+                return
+            children = payload.get("children")
+            found, why = locate_folder(str(payload.get("name") or ""),
+                                       [str(c) for c in children] if isinstance(children, list) else [])
+            if not found:
+                self._json({"ok": False, "message": why}, 404)
+                return
+            self._json({"ok": True, "folders": found})
+            return
+
         if path == "/api/git":
             # Committing, pushing and discarding change a checkout on this
             # machine, which is the same order of risk as prompting the session
@@ -3463,11 +3964,25 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/new":
             # Same risk as /api/start — it runs a command on this machine — so it
-            # sits behind the same loopback gate. The folder comes from the session
-            # we were given, never from the request, so this cannot be pointed
-            # anywhere the panel is not already showing.
+            # sits behind the same loopback gate.
             if not SAY_ENABLED:
                 self._json({"ok": False, "message": "Starting is off because the panel is not bound to loopback"}, 403)
+                return
+            # A folder named in the request opens a session there. This is a real
+            # widening: every other form of this route took the folder from a
+            # session already on screen, so it could not be pointed anywhere the
+            # panel was not already showing. What is left holding it is the
+            # loopback gate — and anyone through that gate can already put a
+            # prompt into a session that holds tools and a checkout, which is the
+            # greater power of the two. The path is still resolved and checked
+            # before anything runs.
+            if isinstance(payload.get("cwd"), str) and payload["cwd"].strip():
+                folder, why = resolve_folder(payload["cwd"])
+                if not folder:
+                    self._json({"ok": False, "message": why}, 400)
+                    return
+                ok, message = new_session(folder)
+                self._json({"ok": ok, "message": message}, 200 if ok else 409)
                 return
             session = self._session_by_id(session_id)
             entry = load_sticky().get(session_id) or {}

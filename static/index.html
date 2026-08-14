@@ -271,6 +271,11 @@
     position: sticky; top: 0; z-index: 2;
     background: var(--md-sys-color-surface-container-low);
   }
+  /* Full width, because it is the one action at the head of the list rather than
+     one of several competing for the row. */
+  .list-actions { padding: var(--md-sys-spacing-3) var(--md-sys-spacing-4) 0; }
+  .list-actions__open { width: 100%; }
+  .list-actions__open[hidden] { display: none; }
   .chip-set {
     display: flex; flex-wrap: wrap; gap: var(--md-sys-spacing-2);
     margin: 0; padding: var(--md-sys-spacing-3) var(--md-sys-spacing-4); list-style: none;
@@ -527,23 +532,204 @@
     background: var(--md-sys-color-primary);
     border-radius: var(--md-sys-shape-corner-full) var(--md-sys-shape-corner-full) 0 0;
   }
-  /* Holds the scrolling panel and the floating jump button over it. */
+  /* Holds the scrolling panel and the floating jump buttons over it. */
   .panel-wrap { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; position: relative; }
+  /* Moving between tabs, or between sessions, replaces everything below the tab
+     strip at once. Fading it in is what makes that read as the panel changing
+     what it is showing rather than the page being redrawn under you.
+     Opacity only, and deliberately: a transform here would make this box the
+     containing block for the comment cards, which are fixed to the passages they
+     belong to, and they would ride the animation away from their own text. */
+  .panel-wrap--entering { animation: panel-enter var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-standard); }
+  @keyframes panel-enter { from { opacity: 0; } }
   .tab-panel { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
     padding: var(--md-sys-spacing-4) var(--md-sys-spacing-6) var(--md-sys-spacing-6); }
 
-  .jump-last {
+  /* Both floating buttons ride in one right-anchored row. The row is laid out
+     left to right and ends at the right edge, so the round button keeping its
+     space while faded out cannot nudge the pill beside it. */
+  .jump-dock {
     position: absolute; right: var(--md-sys-spacing-6); bottom: var(--md-sys-spacing-4);
+    display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+    pointer-events: none;
+  }
+  .jump-dock > * { pointer-events: auto; }
+
+  /* Both buttons come and go on the same motion as every other thing that floats
+     over the panel — the menu, the quote chip, the dialogs. They rise into place
+     rather than appearing, and shrink away rather than being cut, which is what
+     stops a pill that comes and goes with the scroll from reading as a flicker
+     at the corner of your eye. */
+  .jump-dock > [data-open] {
+    opacity: 0; transform: scale(0.85) translateY(6px); pointer-events: none;
+    transition: opacity var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+                transform var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-emphasized-decelerate);
+  }
+  .jump-dock > [data-open="true"] { opacity: 1; transform: none; pointer-events: auto; }
+
+  /* Back to the end of the conversation. Round and unlabelled: it is the one
+     move you make often enough that the arrow alone says it, and a pill here
+     would compete with the labelled button next to it. */
+  .jump-bottom {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 40px; height: 40px; flex: none;
+    border: 0; border-radius: var(--md-sys-shape-corner-full); cursor: pointer;
+    background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);
+    box-shadow: 0 2px 6px rgb(0 0 0 / 0.18);
+  }
+  .jump-bottom svg { width: 20px; height: 20px; }
+
+  .jump-last {
     display: inline-flex; align-items: center; gap: 6px;
     height: 36px; padding: 0 var(--md-sys-spacing-4);
     border: 0; border-radius: var(--md-sys-shape-corner-full); cursor: pointer;
     background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container);
     box-shadow: 0 2px 6px rgb(0 0 0 / 0.18);
   }
-  .jump-last[hidden] { display: none; }
-  .jump-last svg { width: 16px; height: 16px; flex: none; }
-  /* One icon, turned over when the message sits below instead of above. */
+  .jump-last svg { width: 16px; height: 16px; flex: none;
+    transition: transform var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized); }
+  /* One icon, turned over when the message sits below instead of above. Turned
+     rather than swapped: watching it come about is what tells you the direction
+     changed, on a pill whose words did not. */
   .jump-last[data-dir="down"] svg { transform: rotate(180deg); }
+
+  /* ============================ the question ============================== */
+  /* When Claude asks a multiple-choice question it blocks at its own prompt, and
+     until now the panel could only say that the session was waiting. This is the
+     question itself: what was asked, and every option with the sentence Claude
+     wrote about it. Above the composer, outside the scrolling panel, because it
+     is the thing that needs answering rather than part of the conversation. */
+  .ask {
+    flex: none; margin: 0;
+    padding: var(--md-sys-spacing-3) var(--md-sys-spacing-6) var(--md-sys-spacing-4);
+    border-top: 1px solid var(--md-sys-color-outline-variant);
+    background: var(--md-sys-color-surface);
+    max-height: 45vh; overflow-y: auto;
+  }
+  .ask__card {
+    padding: var(--md-sys-spacing-3) var(--md-sys-spacing-4);
+    border-radius: var(--md-sys-shape-corner-medium);
+    background: var(--md-sys-color-tertiary-container);
+    color: var(--md-sys-color-on-tertiary-container);
+  }
+  .ask__head {
+    display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+    margin: 0 0 var(--md-sys-spacing-2);
+  }
+  .ask__head svg { width: 18px; height: 18px; flex: none; }
+  .ask__head-label { flex: 1 1 auto; }
+  /* The one thing the panel can do about it: raise the window that is holding
+     the prompt. Read why answering happens there and not here in questionCard. */
+  /* Inherits the container's colour rather than taking the primary a text button
+     is normally drawn in, which would fight the tertiary it sits on. */
+  .ask__go { flex: none; padding-inline: var(--md-sys-spacing-3); color: inherit; }
+  .ask__go svg { width: 16px; height: 16px; }
+  .ask__q + .ask__q { margin-top: var(--md-sys-spacing-4); }
+  .ask__text { margin: 0 0 var(--md-sys-spacing-1); }
+  /* Says whether one option is wanted or several — the difference decides what
+     an answer even looks like, and only Claude knows which it asked for. */
+  .ask__how { margin: 0 0 var(--md-sys-spacing-2); opacity: 0.75; }
+  .ask__options { margin: 0; padding: 0; list-style: none;
+    display: flex; flex-direction: column; gap: var(--md-sys-spacing-2); }
+  .ask__option {
+    padding: var(--md-sys-spacing-2) var(--md-sys-spacing-3);
+    border-radius: var(--md-sys-shape-corner-small);
+    border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+    display: flex; gap: var(--md-sys-spacing-2);
+  }
+  /* The number beside each option is the key that picks it at the prompt, so the
+     card reads as a legend for what is on screen over there. */
+  .ask__index { flex: none; opacity: 0.6; }
+  .ask__label { display: block; }
+  .ask__why { display: block; margin-top: 2px; opacity: 0.8; }
+  .ask__note { margin: var(--md-sys-spacing-2) 0 0; opacity: 0.8; }
+
+  /* ============================== folder picker ============================= */
+  /* Taller than a confirm dialog because its middle is a list you scroll — and
+     capped, so it cannot grow past the window on a folder with hundreds of
+     children. */
+  .dialog--tall { display: flex; flex-direction: column; max-height: min(78vh, 640px); }
+  .dialog--tall .folder-choices { flex: 0 1 auto; }
+  /* The folder the pick landed on, named plainly: nothing else on the dialog says
+     where it is now that there is no walk to look at. */
+  /* --- the target ---
+     Dashed while empty and solid once filled: the one place this dialog spends any
+     character, and the state change is the whole of it. Full width and tall enough
+     to be the obvious thing to press, since it is the only way in. */
+  .folder-target {
+    display: flex; align-items: center; gap: var(--md-sys-spacing-4);
+    width: 100%; padding: var(--md-sys-spacing-4);
+    margin-bottom: var(--md-sys-spacing-3);
+    border: 2px dashed var(--md-sys-color-outline-variant);
+    border-radius: var(--md-sys-shape-corner-medium);
+    background: none; color: var(--md-sys-color-on-surface);
+    font: inherit; text-align: start; cursor: pointer; position: relative;
+    transition: border-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+                background var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+  }
+  .folder-target:hover {
+    border-color: var(--md-sys-color-primary);
+    background: color-mix(in srgb, var(--md-sys-color-primary) 6%, transparent);
+  }
+  .folder-target:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: 2px; }
+  /* display:flex would otherwise beat the attribute's own display:none. */
+  .folder-target[hidden] { display: none; }
+  .folder-target__mark {
+    flex: none; display: grid; place-items: center; width: 44px; height: 44px;
+    border-radius: var(--md-sys-shape-corner-full);
+    background: var(--md-sys-color-secondary-container);
+    color: var(--md-sys-color-on-secondary-container);
+  }
+  .folder-target__mark svg { width: 24px; height: 24px; }
+  .folder-target__words { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .folder-target__hint { color: var(--md-sys-color-on-surface-variant); }
+  /* Chosen: the dashes close up and the path takes the room the invitation had. */
+  .folder-chosen {
+    display: grid; grid-template-columns: 1fr auto; align-items: center;
+    gap: var(--md-sys-spacing-1) var(--md-sys-spacing-3);
+    padding: var(--md-sys-spacing-3) var(--md-sys-spacing-3) var(--md-sys-spacing-3) var(--md-sys-spacing-4);
+    margin-bottom: var(--md-sys-spacing-3);
+    border-radius: var(--md-sys-shape-corner-medium);
+    border-inline-start: 3px solid var(--md-sys-color-primary);
+    background: var(--md-sys-color-surface-container-high);
+  }
+  .folder-chosen[hidden] { display: none; }
+  .folder-chosen__label { grid-column: 1; color: var(--md-sys-color-on-surface-variant); }
+  .folder-chosen__path { grid-column: 1; overflow-wrap: anywhere; }
+  .folder-chosen__again { grid-column: 2; grid-row: 1 / span 2; }
+  .folder-note { margin: 0 0 var(--md-sys-spacing-3); color: var(--md-sys-color-on-surface-variant); }
+  .folder-note:empty { display: none; }
+  .folder-typed[hidden] { display: none; }
+  /* Shown only when the fingerprint matched more than one folder, which is the
+     one case the panel will not guess at. */
+  .folder-choices { list-style: none; margin: 0 0 var(--md-sys-spacing-3); padding: var(--md-sys-spacing-1);
+    border: 1px solid var(--md-sys-color-tertiary); border-radius: var(--md-sys-shape-corner-small);
+    max-height: 30vh; overflow-y: auto; }
+  .folder-choices[hidden] { display: none; }
+  .folder-row {
+    width: 100%; display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+    padding: var(--md-sys-spacing-2) var(--md-sys-spacing-2);
+    border: 0; border-radius: var(--md-sys-shape-corner-extra-small);
+    background: none; color: var(--md-sys-color-on-surface); font: inherit;
+    text-align: start; cursor: pointer;
+  }
+  .folder-row:hover { background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent); }
+  .folder-row:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: -2px; }
+  .folder-row svg { width: 18px; height: 18px; flex: none; opacity: 0.75; }
+  .folder-row__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* A folder that is a repository is usually the one you want, so it says so. */
+  .folder-row__repo { margin-inline-start: auto; opacity: 0.7; flex: none; display: inline-flex; }
+  .folder-row__repo svg { width: 15px; height: 15px; }
+  .folder-typed { display: flex; flex-direction: column; gap: var(--md-sys-spacing-1);
+    color: var(--md-sys-color-on-surface-variant); }
+  .folder-typed__field {
+    padding: var(--md-sys-spacing-2) var(--md-sys-spacing-3);
+    border: 1px solid var(--md-sys-color-outline);
+    border-radius: var(--md-sys-shape-corner-extra-small);
+    background: transparent; color: var(--md-sys-color-on-surface);
+  }
+  .folder-typed__field:focus-visible { outline: 2px solid var(--md-sys-color-primary);
+    outline-offset: -2px; border-color: transparent; }
 
   /* =============================== composer ================================ */
   /* Sits outside the scrolling panel so it stays put as the conversation moves. */
@@ -584,9 +770,44 @@
   /* Why it is off, in the place the reader is already looking. */
   .composer__why { flex: 1 1 auto; margin: 0; color: var(--md-sys-color-on-surface-variant); }
 
+  /* --------------------------- what you can ask for ----------------------- */
+  /* Floats over the conversation rather than sitting in the flow: the box below
+     must not jump as the list grows and shrinks under the typing. */
+  .cmdbar {
+    position: absolute; z-index: 8;
+    left: var(--md-sys-spacing-6); right: var(--md-sys-spacing-6);
+    bottom: calc(100% - var(--md-sys-spacing-3));
+    background: var(--md-sys-color-surface-container);
+    border-radius: var(--md-sys-shape-corner-medium);
+    box-shadow: 0 2px 6px 2px color-mix(in srgb, var(--md-sys-color-shadow) 15%, transparent),
+                0 1px 2px 0 color-mix(in srgb, var(--md-sys-color-shadow) 30%, transparent);
+    overflow: hidden;
+  }
+  .cmdbar__list { list-style: none; margin: 0; padding: var(--md-sys-spacing-2) 0;
+    max-height: min(40vh, 320px); overflow-y: auto; overscroll-behavior: contain; }
+  .cmdbar__item {
+    display: flex; align-items: baseline; gap: var(--md-sys-spacing-3);
+    width: 100%; border: 0; background: none; cursor: pointer; text-align: left;
+    padding: var(--md-sys-spacing-2) var(--md-sys-spacing-4);
+    color: var(--md-sys-color-on-surface);
+  }
+  .cmdbar__item[aria-selected="true"] { background: var(--md-sys-color-secondary-container);
+    color: var(--md-sys-color-on-secondary-container); }
+  .cmdbar__name { flex: none; font-family: var(--md-ref-typeface-mono); }
+  .cmdbar__desc { flex: 1 1 auto; min-width: 0; color: var(--md-sys-color-on-surface-variant);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cmdbar__item[aria-selected="true"] .cmdbar__desc { color: inherit; opacity: 0.85; }
+  .cmdbar__source { flex: none; color: var(--md-sys-color-on-surface-variant); opacity: 0.8; }
+  /* The sentence that will actually be sent, said before it is. */
+  .cmdbar__as { margin: 0; padding: var(--md-sys-spacing-3) var(--md-sys-spacing-4);
+    color: var(--md-sys-color-on-surface-variant);
+    border-top: 1px solid var(--md-sys-color-outline-variant); }
+  .cmdbar__list:empty + .cmdbar__as, .cmdbar > .cmdbar__as:first-child { border-top: 0; }
+
   /* ================================== chat ================================= */
   .chat { display: flex; flex-direction: column; gap: var(--md-sys-spacing-3); }
   .chat__note { align-self: center; color: var(--md-sys-color-on-surface-variant); padding: var(--md-sys-spacing-2) 0; }
+  .chat__more { min-height: 28px; padding: 0 var(--md-sys-spacing-2); margin-inline-start: var(--md-sys-spacing-1); font: inherit; }
   .msg { max-width: min(76%, 720px); padding: var(--md-sys-spacing-3) var(--md-sys-spacing-4); border-radius: var(--md-sys-shape-corner-large); }
   .msg--user {
     align-self: flex-end;
@@ -693,6 +914,15 @@
   .facts { display: grid; grid-template-columns: minmax(120px, 180px) 1fr; gap: 0; margin: 0; }
   .facts dt { padding: var(--md-sys-spacing-2) 0; color: var(--md-sys-color-on-surface-variant); border-top: 1px solid var(--md-sys-color-outline-variant); }
   .facts dd { padding: var(--md-sys-spacing-2) 0; margin: 0; border-top: 1px solid var(--md-sys-color-outline-variant); overflow-wrap: anywhere; }
+  /* Copying moved out of the row menu and into the facts it copies, so the
+     value and the way to take it sit together. */
+  /* Same copy glyph as everywhere else, sized to sit inside a line of text. */
+  .fact-copy {
+    width: 24px; height: 24px; display: inline-grid; vertical-align: -6px;
+    margin-left: var(--md-sys-spacing-1); color: var(--md-sys-color-primary);
+  }
+  .fact-copy::after { inset: -8px; }
+  .fact-copy svg { width: 16px; height: 16px; }
   .row { display: flex; align-items: center; gap: var(--md-sys-spacing-4); flex-wrap: wrap; }
   /* Identify and pair sit side by side when a window cannot be told apart. */
   .detail-window-actions { display: flex; gap: var(--md-sys-spacing-2); flex-wrap: wrap; }
@@ -1349,6 +1579,16 @@
   <div class="panes" id="panes" data-view="list">
     <nav class="list-pane" aria-label="Sessions">
       <div class="list-sticky">
+        <!-- Above the list rather than in the app bar: what it makes is another
+             row here, so it belongs at the head of the thing it adds to. Inside
+             the sticky block, so it stays reachable however far the list scrolls. -->
+        <div class="list-actions">
+          <button class="button button--tonal md-state list-actions__open" id="openButton" hidden
+                  title="Open a Claude Code session in a folder">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+            Open session
+          </button>
+        </div>
         <ul class="chip-set" id="chipSet"></ul>
         <div class="pick-bar" id="pickBar" hidden>
           <span class="pick-bar__count md-label-large" id="pickCount" role="status" aria-live="polite"></span>
@@ -1397,6 +1637,52 @@
       <span class="plan-age md-label-small dialog__actions-start" id="planAge"></span>
       <button class="button button--text md-state" id="planRefresh">Refresh</button>
       <button class="button button--filled md-state" id="closePlan">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- Picking a folder to start a session in, through the browser's own native
+     dialog. What that dialog will not give up is where the folder is — a
+     `webkitdirectory` input reports each file's path relative to whatever you
+     chose — so the name and the entries directly inside it go to the server,
+     which finds the one folder on disk that matches. See locate_folder. -->
+<div class="scrim" id="folderScrim" data-open="false">
+  <div class="dialog dialog--tall" role="dialog" aria-modal="true" aria-labelledby="folderHeadline">
+    <h2 class="dialog__headline md-headline-small" id="folderHeadline">Open a session</h2>
+    <p class="dialog__supporting md-body-medium">Pick the folder it should start in.</p>
+    <!-- The one shape carrying this dialog: an outlined target while there is
+         nothing to open, the folder's real path once there is. Emptiness here is an
+         invitation, so it is the button — not a label with a button beside it. -->
+    <button class="folder-target md-state" id="folderBrowse" type="button">
+      <span class="folder-target__mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h3.6l2 2H19a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 16v-5M9.5 13.5 12 11l2.5 2.5"/></svg>
+      </span>
+      <span class="folder-target__words">
+        <span class="folder-target__lead md-title-small">Choose folder</span>
+        <span class="folder-target__hint md-label-small">your file browser opens — nothing is uploaded</span>
+      </span>
+    </button>
+    <input type="file" id="folderNative" webkitdirectory directory multiple hidden>
+    <!-- Where the pick landed. Named in full, because this is the only thing on
+         screen that says which checkout a session is about to start in. -->
+    <div class="folder-chosen" id="folderChosen" hidden>
+      <span class="folder-chosen__label md-label-small">Starting in</span>
+      <span class="folder-chosen__path md-body-medium md-mono" id="folderChosenPath"></span>
+      <button class="button button--text md-state folder-chosen__again" id="folderAgain" type="button">Choose another</button>
+    </div>
+    <p class="folder-note md-label-small" id="folderBrowseNote"></p>
+    <ul class="folder-choices" id="folderChoices" hidden></ul>
+    <!-- Shown only when the pick could not be placed: the search covers your home
+         directory, so a folder outside it — or one picked on another machine, when
+         the panel is read from one — has nowhere else to be named. -->
+    <label class="folder-typed" id="folderTyped" hidden>
+      <span class="md-label-medium">That one could not be placed. Type where it is:</span>
+      <input class="folder-typed__field md-body-medium md-mono" id="folderField" type="text"
+             autocomplete="off" spellcheck="false" placeholder="/opt/work/something">
+    </label>
+    <div class="dialog__actions">
+      <button class="button button--text md-state" id="folderCancel">Cancel</button>
+      <button class="button button--filled md-state" id="folderOpen" disabled>Open session</button>
     </div>
   </div>
 </div>
@@ -1599,6 +1885,9 @@ const ICON = {
   pin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3z"/></svg>',
   pinOff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3z"/><path d="M3 3l18 18"/></svg>',
   up: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
+  // An arrow onto a floor, rather than a plain arrow: it travels to the end of
+  // the transcript, not one screen down.
+  toBottom: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5"/><path d="M5 20h14"/></svg>',
   pencil: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10-10a2.8 2.8 0 0 0-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg>',
   bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 9a6 6 0 1 0-12 0c0 5-2 6-2 6h16s-2-1-2-6"/><path d="M10.3 20a2 2 0 0 0 3.4 0"/></svg>',
   bellOff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 9a6 6 0 0 0-9-5.2"/><path d="M6.3 6.3A6 6 0 0 0 6 9c0 5-2 6-2 6h13"/><path d="M10.3 20a2 2 0 0 0 3.4 0"/><path d="m3 3 18 18"/></svg>',
@@ -1618,6 +1907,8 @@ const ICON = {
   more: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>',
   // A coin, for what the conversation has cost.
   coin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M15 9.2A2.8 2.8 0 0 0 12.4 7.5h-.8a2.2 2.2 0 0 0 0 4.4h.8a2.2 2.2 0 0 1 0 4.4h-.8A2.8 2.8 0 0 1 9 14.8M12 6v12"/></svg>',
+  // A question, for the prompt a session is standing at.
+  ask: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.3 9.4A2.8 2.8 0 0 1 12 7.4c1.5 0 2.8 1 2.8 2.4 0 1.8-2.3 2.1-2.8 3.7"/><path d="M12 17h.01"/></svg>',
   // Two stars, the mark every editor now uses for "a model did this".
   sparkle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3.5 11.7 8 16 9.8 11.7 11.5 10 16l-1.7-4.5L4 9.8 8.3 8z"/><path d="m17.5 15 .8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></svg>',
 };
@@ -1667,6 +1958,53 @@ const pickCount = document.getElementById("pickCount");
 const pickGroup = document.getElementById("pickGroup");
 const pickClear = document.getElementById("pickClear");
 
+/* --------------------------------------------------- coming and going ------ */
+/* Everything that floats over the panel is written to fade in and out, and until
+   now none of it faded out: the close paths set data-open="false" and `hidden`
+   in the same breath, `hidden` is display:none, and a box that is display:none
+   is not drawn — so the exit each of these was given a transition for never got
+   a single frame. Things arrived gently and then blinked out of existence.
+
+   These two keep the attribute and the transition in step. Opening flushes the
+   closed style first, the way the menu already did by measuring itself between
+   the two lines; closing holds the box on screen for exactly as long as the fade
+   it is playing, and only then takes it out of the layout. */
+const EXIT_MS = 200; /* --md-sys-motion-duration-short4 */
+const exitTimers = new WeakMap();
+
+function reveal(el) {
+  if (!el) return;
+  // Already open. Worth the check rather than setting it again: these are called
+  // from a scroll handler, and the reflow below on every frame of a flick is a
+  // measurable cost for no change at all.
+  if (!el.hidden && el.dataset.open === "true") return;
+  clearTimeout(exitTimers.get(el));
+  exitTimers.delete(el);
+  el.hidden = false;
+  // A box arriving from display:none has no previous style to move from, and
+  // would land open on the first frame. Reading a layout value forces the closed
+  // state to be computed, which gives the transition its starting point.
+  void el.offsetWidth;
+  el.dataset.open = "true";
+}
+
+function conceal(el) {
+  if (!el || el.hidden) return;
+  // Already on its way out. Without this a scroll handler calling it every frame
+  // would restart the timer every frame, and the box would sit there faded to
+  // nothing but still holding its place for as long as you kept scrolling.
+  if (el.dataset.open === "false") return;
+  el.dataset.open = "false";
+  clearTimeout(exitTimers.get(el));
+  // Hidden on a timer rather than on transitionend: a box whose parent is torn
+  // out mid-fade — the detail pane rebuilds under these on any poll — never
+  // fires the event, and would be left behind holding its space forever.
+  exitTimers.set(el, setTimeout(() => {
+    el.hidden = true;
+    exitTimers.delete(el);
+  }, EXIT_MS));
+}
+
 let feed = { sessions: [], now: Date.now() / 1000, historySeconds: 1800, canFocus: true, canSend: false };
 let skew = 0;
 let lastGood = 0;
@@ -1676,6 +2014,17 @@ let tab = localStorage.getItem("cbu-tab") || "chat";
 let transcript = null;
 let transcriptFor = null;
 let transcriptBusy = false;
+/* How much conversation the chat tab asks for. A page at a time, because the
+   whole point of reading backwards is that a long session costs no more than a
+   short one — but a truncated transcript can be asked for more, up to what the
+   server will read back. Reset per session: the depth you dug to in one
+   conversation says nothing about the next. */
+const CHAT_PAGE = 80;
+const CHAT_LIMIT_MAX = 500;
+let chatLimit = CHAT_PAGE;
+// Set when "show more" is what caused the re-render, so the pane can hold the
+// message you were reading in place instead of jumping.
+let chatGrew = false;
 let git = null;
 let gitFor = null;
 let gitBusy = false;
@@ -2130,6 +2479,7 @@ async function poll() {
     feed = data;
     lastGood = Date.now();
     notifyWaiting(data.sessions);
+    paintOpenButton();
     render();
     if (selectedId && (transcriptFor !== selectedId || tab === "chat")) fetchTranscript();
     if (selectedId && isGitTab(tab)) fetchGit();
@@ -2145,7 +2495,8 @@ async function fetchTranscript() {
   if (tab !== "chat" && transcriptFor === id) return;
   transcriptBusy = true;
   try {
-    const response = await fetch(`/api/transcript?sessionId=${encodeURIComponent(id)}&limit=80`, { cache: "no-store" });
+    const asked = chatLimit;
+    const response = await fetch(`/api/transcript?sessionId=${encodeURIComponent(id)}&limit=${asked}`, { cache: "no-store" });
     if (!response.ok) throw new Error(String(response.status));
     const data = await response.json();
     if (selectedId !== id) return;             // selection moved on while fetching
@@ -2166,6 +2517,20 @@ async function fetchTranscript() {
   } finally {
     transcriptBusy = false;
   }
+}
+
+/* Another page of the conversation. The reading itself is the server's — this
+   only raises what is asked for, and marks the re-render as a growth so the pane
+   holds its place. A fetch already in flight is not waited on: the chat tab
+   re-fetches on the next poll a moment later, now at the larger limit. */
+function showMoreChat(event) {
+  const button = event.currentTarget;
+  if (chatLimit >= CHAT_LIMIT_MAX) return;
+  chatLimit = Math.min(CHAT_LIMIT_MAX, chatLimit + CHAT_PAGE);
+  chatGrew = true;
+  button.disabled = true;
+  button.textContent = "reading…";
+  fetchTranscript();
 }
 
 /* Reading a repository costs a subprocess or three, unlike the transcript's file
@@ -2548,10 +2913,15 @@ function paintListItem(item, session) {
   // Claude chose. Saying whose child it is puts the row in context instead.
   const nested = session.kind === "child"
     ? `in ${session.parentName || `pid ${session.parentPid || "?"}`}` : "";
-  const supporting = [state.short, session.folder, nested].filter(Boolean)
+  // A multiple-choice question on screen is more particular than "waiting", and
+  // naming it is what makes several waiting sessions tellable apart from the
+  // list — the header Claude gave the question is written to be a label.
+  const asked = session.question?.questions?.[0];
+  const asking = asked ? `asks “${clip(asked.header || asked.question || "a question", 40)}”` : "";
+  const supporting = [state.short, asking, session.folder, nested].filter(Boolean)
     .map(escapeHtml).join(" · ");
   const signature = [stateKeyOf(session.status), session.name, session.folder, host.label,
-                     isSelected, session.sticky, subject, nested].join(" ");
+                     isSelected, session.sticky, subject, nested, asking].join(" ");
   if (item.dataset.signature !== signature) {
     item.dataset.signature = signature;
     item.innerHTML = `
@@ -2589,6 +2959,8 @@ function selectSession(id) {
   localStorage.setItem("cbu-selected", id);
   transcript = null;
   transcriptFor = null;
+  chatLimit = CHAT_PAGE;
+  chatGrew = false;
   git = null;
   gitFor = null;
   closeDiff();
@@ -2657,44 +3029,22 @@ async function copyText(text, done) {
 /* What this session can actually have done to it, in the order you reach for it.
    Anything that cannot apply right now is left out rather than shown dead —
    except focusing, which is disabled with its reason, because its absence would
-   otherwise look like a missing feature. */
+   otherwise look like a missing feature. Kept short on purpose: opening the
+   session, pairing a window and copying its ids all live in the details pane,
+   where there is room to explain them. */
 function menuItemsFor(session) {
   const win = session.window;
   const muted = mutedSessions.has(session.sessionId);
-  const items = [
-    { key: "open", icon: ICON.chat, label: "Open conversation",
-      run: () => { selectSession(session.sessionId); setTab("chat"); } },
-    { key: "details", icon: ICON.info, label: "Show details",
-      run: () => { selectSession(session.sessionId); setTab("about"); } },
-    { divider: true },
-  ];
+  const items = [];
   // Window actions mean nothing for a session with no process behind it.
   if (session.status === "stopped") {
-    // nothing to focus or pair
+    // nothing to focus
   } else if (!feed.canFocus) {
     items.push({ key: "focus", icon: ICON.focus, label: "Focus window", hint: "needs xdotool", disabled: true });
   } else if (win) {
-    const paired = isRemembered(win);
     items.push({ key: "focus", icon: ICON.focus, label: "Focus window",
       hint: windowSays(win, "short"),
       run: (el) => run("/api/focus", session, el, isAmbiguous(win) ? IDENTIFY_NOTE : undefined) });
-    if (!paired && session.tty) {
-      items.push({ key: "identify", icon: ICON.pair, label: "Identify window",
-        hint: "ask the terminal",
-        run: (el) => run("/api/identify", session, el, IDENTIFY_NOTE) });
-    }
-    items.push(paired
-      ? { key: "unpair", icon: ICON.pair, label: "Clear pairing", run: (el) => run("/api/unpair", session, el) }
-      : { key: "pair", icon: ICON.pair, label: "Pair another window",
-          run: (el) => run("/api/pair", session, el, "Click the window that belongs to this session") });
-  } else {
-    if (session.tty) {
-      items.push({ key: "identify", icon: ICON.pair, label: "Identify window",
-        hint: "ask the terminal",
-        run: (el) => run("/api/identify", session, el, IDENTIFY_NOTE) });
-    }
-    items.push({ key: "pair", icon: ICON.pair, label: "Pair window",
-      run: (el) => run("/api/pair", session, el, "Click the window that belongs to this session") });
   }
   if (session.status === "stopped") {
     items.push({ key: "start", icon: ICON.play, label: "Start it up",
@@ -2717,14 +3067,6 @@ function menuItemsFor(session) {
   items.push({ key: "mute", icon: muted ? ICON.bell : ICON.bellOff,
     label: muted ? "Unmute notifications" : "Mute notifications",
     run: () => { setMuted(session.sessionId, !muted); showSnackbar(muted ? "Notifications on" : "Notifications muted"); } });
-  items.push({ divider: true });
-  if (session.cwd) {
-    items.push({ key: "copy-path", icon: ICON.copy, label: "Copy folder path",
-      hint: session.folder || shorten(session.cwd, 1),
-      run: () => copyText(session.cwd, "Folder path copied") });
-  }
-  items.push({ key: "copy-id", icon: ICON.copy, label: "Copy session id",
-    run: () => copyText(session.sessionId, "Session id copied") });
   // Grouping acts on the rows you picked, so it is offered where the picking is.
   const group = groupOf(session.sessionId);
   if (picked.size > 1 && picked.has(session.sessionId)) {
@@ -2783,7 +3125,9 @@ function openMenu({ title, label, items, forId = null, forGroup = null }, x, y) 
   const height = sessionMenu.offsetHeight;
   sessionMenu.style.left = `${Math.max(pad, Math.min(x, window.innerWidth - width - pad))}px`;
   sessionMenu.style.top = `${Math.max(pad, Math.min(y, window.innerHeight - height - pad))}px`;
-  sessionMenu.dataset.open = "true";
+  // Opened only now it is in the right place, so a menu reopened before the last
+  // one finished leaving does not slide across from where that one stood.
+  reveal(sessionMenu);
 
   const mark = forId
     ? sessionList.querySelector(`li[data-id="${CSS.escape(forId)}"]`)
@@ -2896,8 +3240,7 @@ function startGroupRename(block) {
 function closeSessionMenu({ restoreFocus = true } = {}) {
   if (!menuIsOpen()) return;
   for (const row of sessionList.querySelectorAll('[data-menu="open"]')) delete row.dataset.menu;
-  sessionMenu.dataset.open = "false";
-  sessionMenu.hidden = true;
+  conceal(sessionMenu);
   menuFor = null;
   menuGroup = null;
   const back = menuReturn;
@@ -2998,6 +3341,9 @@ function renderDetail(force) {
     usageFor === session.sessionId ? usageStamp(usage) : "",
     mutedSessions.has(session.sessionId), feed.canFocus, feed.canSend, session.canSay, session.sticky,
     session.permissionMode ?? "", session.title ?? "", session.parentName ?? "",
+    // A question going up or being answered has to redraw the pane; the tool use
+    // it came in on is what tells one question from the next.
+    session.question?.toolUseId ?? "",
   ].join(" ");
   if (!force && detailPane.dataset.signature === signature) {
     const clock = detailPane.querySelector("[data-since]");
@@ -3023,6 +3369,11 @@ function renderDetail(force) {
   // Preserve chat scroll position across re-renders.
   const chatBefore = detailPane.querySelector("#chatScroll");
   const wasAtBottom = !chatBefore || chatBefore.scrollHeight - chatBefore.scrollTop - chatBefore.clientHeight < 80;
+  // Older messages are added above what you were reading, so holding scrollTop
+  // would slide the whole conversation out from under you. Hold the distance to
+  // the bottom instead, which is the part that did not move.
+  const chatFromBottom = chatGrew && chatBefore
+    ? chatBefore.scrollHeight - chatBefore.scrollTop : null;
   // A half-typed message must survive a re-render — the poll re-renders every time
   // the status changes or a message lands, which is exactly while you are typing.
   // The text itself lives in sayDrafts under the session it was written for; only
@@ -3054,7 +3405,14 @@ function renderDetail(force) {
   // exists, so it goes with the rebuild rather than floating over the new one.
   if (menuIsOpen() && !menuFor && !menuGroup) closeSessionMenu({ restoreFocus: false });
   detailPane.dataset.signature = signature;
+  // What the pane was showing a moment ago, for the fade below. Read before the
+  // rebuild overwrites it.
+  // Not data-tab: the pane wraps the tab strip and comes first in document
+  // order, so a data-tab here answers every [data-tab="…"] lookup meant for the
+  // buttons inside it — including the ones the tests click.
+  const cameFrom = `${detailPane.dataset.sessionId || ""}/${detailPane.dataset.showing || ""}`;
   detailPane.dataset.sessionId = session.sessionId;
+  detailPane.dataset.showing = tab;
   detailPane.innerHTML = `
     ${detailHeader(session, state, host)}
     <div class="tabs" role="tablist">
@@ -3073,9 +3431,13 @@ function renderDetail(force) {
           : tab === "usage" ? usagePanel(session)
           : aboutPanel(session, host)}
       </div>
-      ${tab === "chat" ? `<button class="jump-last md-state md-label-large" id="jumpLast" hidden>${ICON.up}Last request</button>
+      ${tab === "chat" ? `<div class="jump-dock">
+          <button class="jump-bottom md-state" id="jumpBottom" title="Jump to latest" aria-label="Jump to latest" data-open="false" tabindex="-1" hidden>${ICON.toBottom}</button>
+          <button class="jump-last md-state md-label-large" id="jumpLast" data-open="false" tabindex="-1" hidden>${ICON.up}Last request</button>
+        </div>
         <div class="rail" id="commentRail" hidden><div class="rail__inner" id="commentRailInner"></div></div>` : ""}
     </div>
+    ${tab === "chat" ? questionCard(session) : ""}
     ${tab === "chat" ? composer(session) : ""}`;
 
   const header = detailPane.querySelector(".detail-header");
@@ -3095,7 +3457,10 @@ function renderDetail(force) {
   }
   detailPane.querySelector("[data-act='rename']")?.addEventListener("click", (e) => startRename(session, e.currentTarget));
   detailPane.querySelector("[data-act='start']")?.addEventListener("click", (e) => run("/api/start", session, e.currentTarget));
-  detailPane.querySelector("[data-act='focus']")?.addEventListener("click", (e) => run("/api/focus", session, e.currentTarget));
+  // Two of these when a question is up: the header's button and the card's.
+  for (const button of detailPane.querySelectorAll("[data-act='focus']")) {
+    button.addEventListener("click", (e) => run("/api/focus", session, e.currentTarget));
+  }
   detailPane.querySelector("[data-act='pair']")?.addEventListener("click", (e) =>
     run("/api/pair", session, e.currentTarget, "Click the window that belongs to this session"));
   detailPane.querySelector("[data-act='identify']")?.addEventListener("click", (e) =>
@@ -3108,6 +3473,11 @@ function renderDetail(force) {
     else mutedSessions.add(session.sessionId);
     localStorage.setItem("cbu-muted", JSON.stringify([...mutedSessions]));
   });
+  for (const button of detailPane.querySelectorAll(".fact-copy")) {
+    button.addEventListener("click", () => button.dataset.copy === "cwd"
+      ? copyText(session.cwd, "Folder path copied")
+      : copyText(session.sessionId, "Session id copied"));
+  }
   detailPane.querySelector("[data-act='end']")?.addEventListener("click", () => openEndDialog(session));
   detailPane.querySelector("#openAppearance")?.addEventListener("click", () => openSettings(true));
 
@@ -3128,53 +3498,132 @@ function renderDetail(force) {
     field.addEventListener("input", () => {
       setSayDraft(session.sessionId, field.value);
       growField(field);
+      // Typing past a name the list was hiding from is a new question, so a
+      // dismissed list comes back rather than staying shut for the whole draft.
+      cmdOff = false;
+      syncCmdBar(session);
     });
     field.addEventListener("keydown", (event) => {
+      // The /-picker owns its keys while it stands, including Enter — which
+      // takes the highlighted name rather than sending a half-typed one.
+      if (cmdKey(event, session)) { event.preventDefault(); return; }
       // Enter sends, as it does in the terminal; Shift-Enter for a newline.
       if (event.key === "Enter" && !event.shiftKey && !event.altKey) {
         event.preventDefault();
         sendMessage(session, detailPane.querySelector("[data-act='say']"));
       }
     });
+    // A draft that was left mid-name gets its list back with the pane.
+    syncCmdBar(session);
   }
   detailPane.querySelector("[data-act='say']")?.addEventListener("click", (e) => sendMessage(session, e.currentTarget));
 
   // Both git tabs carry the same header, and the header has buttons in it.
   if (isGitTab(tab)) wireGit(session);
 
+  detailPane.querySelector("[data-act='more']")?.addEventListener("click", showMoreChat);
+
   const chatAfter = detailPane.querySelector("#chatScroll");
-  if (chatAfter && tab === "chat" && wasAtBottom) chatAfter.scrollTop = chatAfter.scrollHeight;
-  if (chatAfter && tab === "chat") wireJumpLast(chatAfter);
+  if (chatAfter && tab === "chat" && chatFromBottom !== null) {
+    chatAfter.scrollTop = chatAfter.scrollHeight - chatFromBottom;
+    chatGrew = false;
+  } else if (chatAfter && tab === "chat" && wasAtBottom) {
+    chatAfter.scrollTop = chatAfter.scrollHeight;
+  }
+  if (chatAfter && tab === "chat") wireJumpDock(chatAfter);
+
+  // Fade the panel in when it is showing something genuinely different — another
+  // tab, another session. Not on every rebuild: the pane is rebuilt whenever a
+  // message lands or a state changes, and a working session would have the thing
+  // you are reading pulsing at you every few seconds.
+  if (cameFrom !== `${session.sessionId}/${tab}`) panelChangedAt = Date.now();
+  const since = Date.now() - panelChangedAt;
+  if (since < PANEL_FADE_MS) {
+    const wrap = detailPane.querySelector(".panel-wrap");
+    if (wrap) {
+      wrap.classList.add("panel-wrap--entering");
+      // A tab that has to fetch its contents renders twice — once empty, once
+      // filled — and the second rebuild would otherwise restart the fade from
+      // nothing, which is the flicker this was meant to remove. Winding the
+      // animation back by the time already served picks it up where the last
+      // one left off.
+      if (since) wrap.style.animationDelay = `-${since}ms`;
+      // Taken off once it has played, so the pane is not left claiming to be
+      // arriving long after it arrived.
+      wrap.addEventListener("animationend", () => {
+        wrap.classList.remove("panel-wrap--entering");
+        wrap.style.animationDelay = "";
+      }, { once: true });
+    }
+  }
 }
 
-/* "Last request" — a long answer buries the thing you asked for, so this jumps
-   back to your last message. It only shows when that message is off screen, and
-   the arrow points the way it will travel. */
-function wireJumpLast(scroller) {
-  const button = detailPane.querySelector("#jumpLast");
-  if (!button) return;
+/* When the pane last began showing something new, and how long it takes to
+   arrive — the fade lives across renders, so it is timed rather than one-shot. */
+let panelChangedAt = 0;
+const PANEL_FADE_MS = 300; /* --md-sys-motion-duration-medium2 */
+
+/* The two buttons that float over the transcript:
+
+   "Last request" — a long answer buries the thing you asked for, so this jumps
+   back to your last message. It shows only when that message is off screen, and
+   the arrow points the way it will travel.
+
+   "Jump to latest" — the other direction. Reading back through a long answer
+   leaves you a long way from the newest message, and dragging the whole way is
+   the one scroll nobody wants to make by hand.
+
+   Both are driven off the same scroll, so they are wired together: two listeners
+   measuring the same box on every frame of a flick is work for nothing. */
+/* Far enough from the end to be worth a button. Generous, so nudging around near
+   the bottom does not have it flickering in and out at the corner of your eye. */
+const AT_BOTTOM = 120;
+
+function wireJumpDock(scroller) {
+  const last = detailPane.querySelector("#jumpLast");
+  const bottom = detailPane.querySelector("#jumpBottom");
+  if (!last || !bottom) return;
   const target = () => [...scroller.querySelectorAll(".msg--user")].pop() || null;
 
-  const sync = () => {
-    const mark = target();
-    if (!mark) { button.hidden = true; return; }
-    const box = scroller.getBoundingClientRect();
-    const spot = mark.getBoundingClientRect();
-    const above = spot.bottom < box.top + 8;
-    const below = spot.top > box.bottom - 8;
-    button.hidden = !(above || below);
-    button.dataset.dir = above ? "up" : "down";
+  // Out of the tab order while faded out: an invisible stop between the
+  // transcript and the composer is a trap for anyone arriving by keyboard.
+  const show = (button, on) => {
+    (on ? reveal : conceal)(button);
+    button.tabIndex = on ? 0 : -1;
   };
 
-  button.addEventListener("click", () => {
+  const sync = () => {
+    const box = scroller.getBoundingClientRect();
+    const mark = target();
+    if (!mark) show(last, false);
+    else {
+      const spot = mark.getBoundingClientRect();
+      const above = spot.bottom < box.top + 8;
+      const below = spot.top > box.bottom - 8;
+      show(last, above || below);
+      // Only while it is on screen: turning the arrow over on a pill that is
+      // already fading out is motion nobody asked to watch.
+      if (above || below) last.dataset.dir = above ? "up" : "down";
+    }
+    show(bottom, scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight > AT_BOTTOM);
+  };
+
+  last.addEventListener("click", () => {
     const mark = target();
     if (!mark) return;
     const top = mark.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
-    scroller.scrollTo({ top: scroller.scrollTop + top - 12, behavior: "smooth" });
+    scroller.scrollTo({ top: scroller.scrollTop + top - 12, behavior: glide() });
+  });
+  bottom.addEventListener("click", () => {
+    scroller.scrollTo({ top: scroller.scrollHeight, behavior: glide() });
   });
   scroller.addEventListener("scroll", sync, { passive: true });
   sync();
 }
+
+/* Smooth scrolling is motion like any other, and someone who has asked their
+   system for less of it means this too. */
+const glide = () => (matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth");
 
 /* One line, matching the send button beside it. */
 const COMPOSER_MIN = 48;
@@ -3261,11 +3710,23 @@ async function sendMessage(session, button) {
   if (!field || !button) return;
   const text = field.value.trim();
   if (!text) return;
+  const asked = slashOf(text);
+  // A terminal-only command would go out as a sentence nobody acts on, so it is
+  // stopped here rather than sent into the dark.
+  if (asked && terminalOnly(asked.name)) {
+    showSnackbar(`/${asked.name} only works at this session's own prompt`);
+    return;
+  }
+  // What actually goes over the wire: a request for a skill by name, if that is
+  // what was typed, since an injected turn is never expanded the way the
+  // terminal expands one. The box keeps what you wrote, and so does the draft.
+  const sent = sentAs(text);
   // Clear optimistically so typing the next one is not blocked on the round trip,
   // and put it back if the send fails — a lost message is worse than a stale box.
   field.value = "";
   setSayDraft(session.sessionId, "");
   growField(field);
+  syncCmdBar(session);
   const restore = () => {
     setSayDraft(session.sessionId, text);
     // The pane may have moved to another session while the send was in flight —
@@ -3284,7 +3745,7 @@ async function sendMessage(session, button) {
   try {
     const response = await fetch(url, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId: session.sessionId, text }),
+      body: JSON.stringify({ sessionId: session.sessionId, text: sent }),
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.ok) restore();
@@ -3297,6 +3758,180 @@ async function sendMessage(session, button) {
     button.disabled = false;
     poll();
   }
+}
+
+/* ==========================================================================
+   Asking for a skill by name.
+
+   A leading /name is expanded by the terminal, not by the session, and a message
+   arriving over the messaging socket is never expanded — Claude Code queues it
+   with slash commands switched off on purpose, since command markdown can carry
+   inline shell. So the panel does not pretend to be the terminal. It offers what
+   the session could be asked for, and turns what you typed into the sentence
+   that asks for it, which is the one thing an injected turn can do.
+
+   The rewrite is shown before it is sent. Nothing is expanded behind your back.
+   ========================================================================== */
+let catalog = null;       // { entries, terminalOnly } from /api/commands
+let catalogFor = null;    // the session it was read for
+let catalogWaiting = false;
+let cmdRows = [];         // what the picker is showing, in the order it shows it
+let cmdIndex = 0;         // which of those the keyboard is on
+let cmdOff = false;       // Escape puts the list away without touching the text
+
+/* The walk costs a few dozen file heads, so it is paid for by the first "/" of a
+   session rather than by opening the conversation. */
+async function loadCatalog(session) {
+  if (catalogFor === session.sessionId || catalogWaiting) return;
+  catalogWaiting = true;
+  try {
+    const response = await fetch(`/api/commands?sessionId=${encodeURIComponent(session.sessionId)}`);
+    const data = await response.json();
+    if (data && data.ok) catalog = data;
+  } catch (error) {
+    // The picker is a convenience; the box sends with or without it.
+  } finally {
+    catalogWaiting = false;
+    catalogFor = session.sessionId;
+    if (detailPane.dataset.sessionId === session.sessionId) syncCmdBar(session);
+  }
+}
+
+/* What the box holds, read as a request for something by name: the name while it
+   is still being typed, and the arguments once a space has been typed after it.
+   The slash has to be the first character, as it is in the terminal — a message
+   that happens to open with a path is a message. */
+function slashOf(text) {
+  const match = /^\/([A-Za-z0-9:._-]*)(\s([\s\S]*))?$/.exec(text);
+  if (!match) return null;
+  return { name: match[1], args: (match[3] || "").trim(), chosen: match[2] !== undefined };
+}
+
+const cmdEntry = (name) => (catalog?.entries || [])
+  .find((entry) => entry.name.toLowerCase() === name.toLowerCase()) || null;
+
+const terminalOnly = (name) => (catalog?.terminalOnly || []).includes(name.toLowerCase());
+
+/* Everything the typed name could still become. A plugin's entries are addressed
+   `plugin:name`, so what you type is matched against both halves — typing the
+   skill's own name finds it without knowing which plugin it came from. */
+function cmdMatches(typed) {
+  const needle = typed.toLowerCase();
+  const rank = (name) => {
+    const whole = name.toLowerCase();
+    if (whole.startsWith(needle)) return 0;
+    if (whole.split(":").pop().startsWith(needle)) return 1;
+    return 2;
+  };
+  return (catalog?.entries || [])
+    .filter((entry) => entry.name.toLowerCase().includes(needle))
+    .sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name))
+    .slice(0, 40);
+}
+
+/* The sentence that goes out. Anything the catalog does not know is left exactly
+   as it was written — a typo is better sent as itself than as a guess. */
+function sentAs(text) {
+  const asked = slashOf(text);
+  if (!asked || !asked.name) return text;
+  const entry = cmdEntry(asked.name);
+  if (!entry) return text;
+  const what = entry.kind === "command" ? "command" : "skill";
+  return asked.args
+    ? `Use the ${entry.name} ${what}: ${asked.args}`
+    : `Use the ${entry.name} ${what}.`;
+}
+
+/* The line under the list: what will be sent, or why nothing useful would be. */
+function cmdNote(asked) {
+  if (!asked.name) return "";
+  if (terminalOnly(asked.name)) {
+    return `<span class="md-mono">/${escapeHtml(asked.name)}</span> only works at this session's
+      own prompt — the terminal keeps that one to itself.`;
+  }
+  const entry = cmdEntry(asked.name);
+  if (entry) return `Sends as “${escapeHtml(sentAs(`/${asked.name} ${asked.args}`.trim()))}”`;
+  if (!asked.chosen) return "";
+  return `Nothing here is called <span class="md-mono">/${escapeHtml(asked.name)}</span> —
+    it will be sent as plain text.`;
+}
+
+function syncCmdBar(session) {
+  const bar = detailPane.querySelector("#cmdBar");
+  const field = detailPane.querySelector("#sayField");
+  if (!bar || !field) return;
+  const asked = slashOf(field.value);
+  if (!asked) {
+    bar.hidden = true;
+    bar.innerHTML = "";
+    cmdRows = [];
+    cmdIndex = 0;
+    cmdOff = false;
+    return;
+  }
+  loadCatalog(session);
+
+  // Once a space has been typed the name is settled, so the list stands down and
+  // leaves the line saying what will be sent.
+  cmdRows = (asked.chosen || cmdOff) ? [] : cmdMatches(asked.name);
+  cmdIndex = Math.min(cmdIndex, Math.max(0, cmdRows.length - 1));
+  const note = cmdNote(asked);
+  bar.hidden = !cmdRows.length && !note;
+  bar.innerHTML =
+    (cmdRows.length
+      ? `<ul class="cmdbar__list" role="listbox" aria-label="Skills and commands">${cmdRows
+          .map((entry, index) => `<li role="none">
+            <button class="cmdbar__item md-body-small" type="button" role="option"
+              data-index="${index}" aria-selected="${index === cmdIndex}">
+              <span class="cmdbar__name md-label-large">/${escapeHtml(entry.name)}</span>
+              <span class="cmdbar__desc">${escapeHtml(entry.description)}</span>
+              <span class="cmdbar__source md-label-small">${escapeHtml(entry.source)}</span>
+            </button></li>`).join("")}</ul>`
+      : "")
+    + (note ? `<p class="cmdbar__as md-label-medium">${note}</p>` : "");
+
+  for (const button of bar.querySelectorAll(".cmdbar__item")) {
+    // Taking one with the pointer must not take the caret out of the box.
+    button.addEventListener("mousedown", (event) => event.preventDefault());
+    button.addEventListener("click", () => takeCmd(session, cmdRows[Number(button.dataset.index)]));
+  }
+  bar.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
+}
+
+function takeCmd(session, entry) {
+  const field = detailPane.querySelector("#sayField");
+  if (!field || !entry) return;
+  // A trailing space is the point: it settles the name and moves the bar on to
+  // saying what will be sent, with the caret where the arguments go.
+  field.value = `/${entry.name} `;
+  setSayDraft(session.sessionId, field.value);
+  field.focus();
+  field.setSelectionRange(field.value.length, field.value.length);
+  cmdIndex = 0;
+  growField(field);
+  syncCmdBar(session);
+}
+
+/* The picker gets first refusal on the keys it owns, and only while it is
+   standing — Enter is the send key every other moment. */
+function cmdKey(event, session) {
+  if (event.key === "Escape" && !detailPane.querySelector("#cmdBar")?.hidden) {
+    cmdOff = true;
+    syncCmdBar(session);
+    return true;
+  }
+  if (!cmdRows.length) return false;
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    const step = event.key === "ArrowDown" ? 1 : cmdRows.length - 1;
+    cmdIndex = (cmdIndex + step) % cmdRows.length;
+    syncCmdBar(session);
+    return true;
+  }
+  if (event.key === "Enter" || event.key === "Tab") {
+    takeCmd(session, cmdRows[cmdIndex]);
+    return true;
+  }
+  return false;
 }
 
 /* ==========================================================================
@@ -3320,9 +3955,7 @@ let pendingQuote = null;
 
 function hideQuoteChip() {
   pendingQuote = null;
-  if (quoteChip.hidden) return;
-  quoteChip.dataset.open = "false";
-  quoteChip.hidden = true;
+  conceal(quoteChip);
 }
 
 /* What can be commented on: a speech bubble's body, and a tool row — the only
@@ -3421,7 +4054,7 @@ function showQuoteChip(quote) {
     : Math.min(rect.bottom + gap, box.bottom - height - gap, window.innerHeight - height - gap);
   quoteChip.style.left = `${Math.round(left)}px`;
   quoteChip.style.top = `${Math.round(Math.max(gap, top))}px`;
-  quoteChip.dataset.open = "true";
+  reveal(quoteChip);
 }
 
 /* The chip is placed against a viewport rectangle, so anything that moves the
@@ -4297,9 +4930,61 @@ function sendBlockedReason(session) {
   if (session.status === "offline") return "that session has closed";
   if (!session.canSay) return "this session is not listening for messages";
   // A blocked session cannot read a queued message: the prompt in front of it is
-  // modal. Queuing one anyway would look like it was ignored.
-  if (session.status === "waiting") return "answer the prompt in the terminal — a queued message cannot reach it";
+  // modal. Queuing one anyway would look like it was ignored. What it says next
+  // depends on whether the prompt can be answered from here, because "answer it in
+  // the terminal" is wrong advice for a question with buttons right above the
+  // composer.
+  if (session.status === "waiting") {
+    // A question is on the card above, so point at it rather than at "the
+    // terminal" in the abstract; a permission prompt has no card and no options.
+    return session.question
+      ? "answer the question above at this session's own prompt — a message sent from here would queue up behind it"
+      : "answer the prompt in the terminal — a queued message cannot reach it";
+  }
   return null;
+}
+
+/* The multiple-choice question a session is standing at, drawn above the
+   composer.
+
+   It is a card and not a form, and that is not a shortcut. The only channel into a
+   live session is its messaging socket, and the socket takes exactly one kind of
+   message: a user turn, which lands in the prompt queue. The queue is behind the
+   question — Claude Code is waiting on a keypress at its own prompt — so an answer
+   sent from here would sit unread until somebody answered at the terminal anyway,
+   and then arrive afterwards as a stray message. Rather than offer a button that
+   quietly does that, the card shows what was asked, numbers the options the way the
+   prompt does, and offers the window. Reading it is what saves the trip; the
+   keypress still happens there. */
+function questionCard(session) {
+  const asked = session.question;
+  if (!asked || !asked.questions?.length) return "";
+  const rows = asked.questions.map((q) => {
+    const options = (q.options || []).map((option, i) => `<li class="ask__option">
+        <span class="ask__index md-label-medium md-mono">${i + 1}</span>
+        <span><span class="ask__label md-body-medium">${escapeHtml(option.label)}</span>
+        ${option.description ? `<span class="ask__why md-body-small">${escapeHtml(option.description)}</span>` : ""}</span>
+      </li>`).join("");
+    return `<div class="ask__q">
+        ${q.question ? `<p class="ask__text md-body-medium">${escapeHtml(q.question)}</p>` : ""}
+        ${options ? `<p class="ask__how md-label-small">${q.multiSelect ? "several answers can be picked" : "one answer"}
+          <span class="meta-sep">·</span> ${q.options.length} options</p>
+          <ul class="ask__options">${options}</ul>` : ""}
+      </div>`;
+  }).join("");
+  // Raising the window is the whole of what the panel can do here, so it is only
+  // offered when there is a window to raise.
+  const go = session.window && feed.canFocus
+    ? `<button class="button button--text md-state ask__go" data-act="focus">${ICON.focus}Answer there</button>`
+    : "";
+  return `<div class="ask">
+      <div class="ask__card">
+        <p class="ask__head md-label-large">${ICON.ask}
+          <span class="ask__head-label">${escapeHtml(asked.questions[0].header || "Claude asked you something")}</span>${go}</p>
+        ${rows}
+        <p class="ask__note md-label-small">Pick it at this session's own prompt — a message sent from here would queue up behind the question rather than answer it.</p>
+      </div>
+    </div>`;
 }
 
 function composer(session) {
@@ -4313,6 +4998,7 @@ function composer(session) {
     ? "Write here and it starts back up…"
     : queued ? "Queue a message for when it finishes…" : "Send a message…";
   return `<div class="composer">
+      <div class="cmdbar" id="cmdBar" hidden></div>
       <div class="composer-grip" id="composerGrip" role="separator" aria-orientation="horizontal"
         tabindex="0" aria-label="Resize the message box"
         title="Drag to resize · double-click to fit the text"></div>
@@ -4349,7 +5035,10 @@ function chatPanel(session) {
       : "Nothing in this transcript yet."}</p>`;
   }
   const rows = transcript.truncated
-    ? [`<p class="chat__note md-label-small">showing the last ${transcript.messages.length} messages</p>`]
+    ? [`<p class="chat__note md-label-small">showing the last ${transcript.messages.length} messages${
+        chatLimit < CHAT_LIMIT_MAX
+          ? ` <button class="button button--text md-state chat__more" data-act="more">show ${CHAT_PAGE} more</button>`
+          : " — as far back as this panel reads"}</p>`]
     : [];
   const toolLines = (tools) => (tools || []).map((tool) => `<span class="tool-line md-mono md-body-small">
       <span class="tool-line__name">${escapeHtml(tool.name)}</span>
@@ -5297,7 +5986,9 @@ function aboutPanel(session, host) {
   const muted = mutedSessions.has(session.sessionId);
   const started = new Date(session.startedAt * 1000);
   const facts = [
-    ["Working folder", `<span class="md-mono">${escapeHtml(session.cwd)}</span>`],
+    ["Working folder", `<span class="md-mono">${escapeHtml(session.cwd)}</span>
+      <button class="icon-button md-state fact-copy" data-copy="cwd" type="button"
+        title="Copy folder path" aria-label="Copy folder path">${ICON.copy}</button>`],
     ["Git branch", session.branch ? `<span class="md-mono">${escapeHtml(session.branch)}</span>` : "—"],
     ["Runs in", escapeHtml(host.label)],
     // Only a nested session has one of these, and it is the fact that explains
@@ -5315,7 +6006,9 @@ function aboutPanel(session, host) {
       : "not written down yet"],
     ["Process", session.pid ? `<span class="md-mono">pid ${session.pid}</span>` : "not running"],
     ["Claude Code", escapeHtml(session.version || "—")],
-    ["Session id", `<span class="md-mono">${escapeHtml(session.sessionId)}</span>${
+    ["Session id", `<span class="md-mono">${escapeHtml(session.sessionId)}</span>
+      <button class="icon-button md-state fact-copy" data-copy="id" type="button"
+        title="Copy session id" aria-label="Copy session id">${ICON.copy}</button>${
       session.kind === "child"
         ? ` <span class="meta-sep">·</span> <span class="fact-note">the panel's own:
             a nested session publishes none</span>` : ""}`],
@@ -5708,6 +6401,230 @@ function openPlan(open) {
   if (!plan || Date.now() / 1000 - (plan.at || 0) > PLAN_POLL_MS / 1000) fetchPlan(true);
 }
 
+/* ------------------------------------------------- opening one, and the notice */
+
+const openButton = document.getElementById("openButton");
+
+/* The folder picker: the browser's own native dialog and nothing else.
+
+   What it hands back is a folder name and the names directly inside it — never
+   where it is — so the panel asks the server to place it. Where the fingerprint
+   matches once, that is the folder. Where it matches several, this asks. Where it
+   matches nothing, a field appears, because a folder outside your home directory
+   has no other way to be named. */
+const folderScrim = document.getElementById("folderScrim");
+const folderField = document.getElementById("folderField");
+const folderTyped = document.getElementById("folderTyped");
+const folderChosen = document.getElementById("folderChosen");
+const folderTarget = document.getElementById("folderBrowse");
+let folderPicked = null;
+
+function openFolderPicker(open) {
+  folderScrim.dataset.open = String(open);
+  if (open) {
+    resetFolderPicker();
+    folderTarget.focus();
+  } else {
+    openButton.focus();
+  }
+}
+
+function resetFolderPicker() {
+  folderPicked = null;
+  folderChoices.hidden = true;
+  folderTyped.hidden = true;
+  folderChosen.hidden = true;
+  folderTarget.hidden = false;
+  folderField.value = "";
+  folderBrowseNote.textContent = "";
+  document.getElementById("folderOpen").disabled = true;
+}
+
+/* The folder this will open, once there is one. Naming it on screen matters more
+   here than it did with a walk: nothing else on the dialog says where the pick
+   landed, and starting a session in the wrong checkout is the mistake to avoid. */
+function setFolderPicked(path) {
+  folderPicked = path;
+  document.getElementById("folderChosenPath").textContent = path;
+  folderChosen.hidden = false;
+  // The invitation has been taken, so it gives up its room to the answer.
+  folderTarget.hidden = true;
+  folderChoices.hidden = true;
+  document.getElementById("folderOpen").disabled = false;
+  document.getElementById("folderOpen").focus();
+}
+
+/* The browser's native folder dialog.
+
+   It is the real OS picker, which is what makes it worth having. What it will not
+   give up is where the folder is: `webkitdirectory` reports each file's path
+   relative to whatever you chose, so the page learns the folder's name and what is
+   directly inside it and nothing more. Both halves go to the server, which looks
+   for the one folder on disk that matches — and where more than one does, this
+   asks rather than guessing, because the wrong answer starts a session in the
+   wrong checkout.
+
+   The walk below is not a fallback for a missing feature; it is what answers when
+   the fingerprint is ambiguous, when the folder is empty enough to have no
+   fingerprint at all, and when the panel is being read from another machine, where
+   no local dialog can help. */
+const folderNative = document.getElementById("folderNative");
+const folderBrowseNote = document.getElementById("folderBrowseNote");
+const folderChoices = document.getElementById("folderChoices");
+
+/* Two native dialogs exist, and which one opens matters.
+
+   `showDirectoryPicker()` is the folder chooser proper: it asks to *view* the
+   folder, hands back a handle, and reads only the names at the top level — which
+   is all the fingerprint needs. Nothing is uploaded and nothing is enumerated
+   below the first rung, so a repository with a hundred thousand files under
+   node_modules costs the same as an empty one.
+
+   A `webkitdirectory` input is the fallback for browsers without it (Firefox,
+   Safari). It reaches the same place, but the browser frames it as an upload —
+   "Upload N files to this site?" — and walks the whole tree to answer. Nothing
+   leaves the page either way: only the folder's name and the names directly
+   inside it are ever sent. It is second because of how it reads, not what it
+   does. */
+document.getElementById("folderBrowse").addEventListener("click", async () => {
+  resetFolderPicker();
+  if (typeof window.showDirectoryPicker !== "function") {
+    folderNative.value = "";     // so picking the same folder twice still fires
+    folderNative.click();
+    return;
+  }
+  let handle;
+  try {
+    handle = await window.showDirectoryPicker({ mode: "read" });
+  } catch (error) {
+    // Cancelling is not a failure and must not leave a message behind.
+    if (error?.name !== "AbortError") folderBrowseNote.textContent = "Your file browser would not open";
+    return;
+  }
+  folderBrowseNote.textContent = `Looking for ${handle.name}…`;
+  const children = [];
+  try {
+    for await (const name of handle.keys()) {
+      children.push(name);
+      if (children.length >= 40) break;
+    }
+  } catch (error) {
+    // A handle without read permission still names itself, and the name alone is
+    // often enough — so this goes on rather than stopping.
+  }
+  placeFolder(handle.name, children);
+});
+
+folderNative.addEventListener("change", () => {
+  const files = [...folderNative.files];
+  if (!files.length) { folderBrowseNote.textContent = "Nothing came back from that"; return; }
+  // "Project/src/main.py" — the first segment is the folder you chose, the second
+  // is what is directly inside it.
+  const parts = files.map((file) => (file.webkitRelativePath || "").split("/")).filter((p) => p.length > 1);
+  const name = parts[0]?.[0];
+  if (!name) { folderBrowseNote.textContent = "That folder came back without a name"; return; }
+  folderBrowseNote.textContent = `Looking for ${name}…`;
+  placeFolder(name, [...new Set(parts.map((p) => p[1]).filter(Boolean))].slice(0, 40));
+});
+
+/* Turn a folder's name and what is inside it into the one place on disk it can
+   be — see locate_folder for why that is what the browser leaves us to work
+   with. */
+async function placeFolder(name, children) {
+  try {
+    const response = await fetch("/api/locate", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, children }),
+    });
+    const found = await response.json().catch(() => ({}));
+    if (!response.ok || !found.folders?.length) {
+      folderBrowseNote.textContent = found.message || "Could not place that folder";
+      folderTyped.hidden = false;
+      folderField.value = `/${name}`;
+      folderField.focus();
+      folderField.select();
+      return;
+    }
+    if (found.folders.length === 1) {
+      folderBrowseNote.textContent = "";
+      setFolderPicked(found.folders[0]);
+      return;
+    }
+    // More than one folder of that name holds those entries. Which one is a
+    // question, not a guess.
+    folderBrowseNote.textContent = `${found.folders.length} folders match — pick the right one`;
+    folderChoices.innerHTML = "";
+    for (const candidate of found.folders) {
+      const row = document.createElement("li");
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "folder-row md-state";
+      button.title = candidate;
+      button.innerHTML = `${ICON.folder}<span class="folder-row__name">${escapeHtml(candidate)}</span>`;
+      button.addEventListener("click", () => {
+        folderBrowseNote.textContent = "";
+        setFolderPicked(candidate);
+      });
+      row.append(button);
+      folderChoices.append(row);
+    }
+    folderChoices.hidden = false;
+  } catch (error) {
+    folderBrowseNote.textContent = "Could not reach the server";
+  }
+}
+
+openButton.addEventListener("click", () => openFolderPicker(true));
+document.getElementById("folderAgain").addEventListener("click", () => {
+  resetFolderPicker();
+  folderTarget.click();
+});
+document.getElementById("folderCancel").addEventListener("click", () => openFolderPicker(false));
+folderScrim.addEventListener("click", (event) => { if (event.target === folderScrim) openFolderPicker(false); });
+// A typed path is only ever the one the picker could not place, so Enter opens
+// rather than browsing — there is nothing left to browse.
+folderField.addEventListener("input", () => {
+  document.getElementById("folderOpen").disabled = !folderField.value.trim();
+});
+folderField.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  const typed = folderField.value.trim();
+  if (typed) openSessionIn(typed);
+});
+
+document.getElementById("folderOpen").addEventListener("click", () => {
+  const folder = folderTyped.hidden ? folderPicked : (folderField.value.trim() || folderPicked);
+  if (folder) openSessionIn(folder);
+});
+
+/* Start a session in a folder, and say what came back. The server resolves and
+   checks the path again — the field is typed into, so it need not be one of the
+   rungs the walk actually visited. */
+async function openSessionIn(folder) {
+  localStorage.setItem("cbu-open-folder", folder);
+  openFolderPicker(false);
+  openButton.disabled = true;
+  showSnackbar("Opening a session there…", 20000);
+  try {
+    const response = await fetch("/api/new", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cwd: folder }),
+    });
+    const said = await response.json().catch(() => ({}));
+    showSnackbar(said.message || (response.ok ? "Opening it…" : "That folder did not work"));
+  } catch (error) {
+    showSnackbar("Could not reach the server");
+  } finally {
+    openButton.disabled = false;
+    poll();
+  }
+}
+
+function paintOpenButton() {
+  openButton.hidden = !feed.canSend;
+}
+
 planButton.addEventListener("click", () => openPlan(true));
 document.getElementById("closePlan").addEventListener("click", () => openPlan(false));
 document.getElementById("planRefresh").addEventListener("click", () => { fetchPlan(true); paintPlanDialog(); });
@@ -5724,6 +6641,7 @@ settingsScrim.addEventListener("click", (event) => { if (event.target === settin
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
   if (askScrim.dataset.open === "true") closeAsk(false);
+  else if (folderScrim.dataset.open === "true") openFolderPicker(false);
   else if (endScrim.dataset.open === "true") closeEndDialog();
   else if (planScrim.dataset.open === "true") openPlan(false);
   else if (settingsScrim.dataset.open === "true") openSettings(false);

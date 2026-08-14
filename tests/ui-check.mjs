@@ -1247,6 +1247,137 @@ if (!chatSession) {
   await send("Emulation.clearDeviceMetricsOverride");
   await sleep(600);
 }
+/* ------------------------------------------------------------ the question */
+/* Only a session standing at an AskUserQuestion has a card, and no fixture can
+   invent one — the question is read from a real transcript. So this looks for one
+   and says so plainly when there is none, the way the Git and Usage blocks do. */
+const askSession = await evaluate(`(async () => {
+  const state = await (await fetch('/api/state', { cache: 'no-store' })).json();
+  return (state.sessions.find((s) => s.question?.questions?.length) || {}).sessionId || "";
+})()`);
+if (!askSession) {
+  console.log("SKIP  question card — no session is standing at a question");
+} else {
+  await evaluate(`document.querySelector('[data-id="' + CSS.escape(${JSON.stringify(askSession)}) + '"] .session-item').click()`);
+  await sleep(900);
+  const ask = JSON.parse(await evaluate(`(() => {
+    const card = document.querySelector('.ask');
+    if (!card) return JSON.stringify({ card: false });
+    return JSON.stringify({
+      card: true,
+      head: (card.querySelector('.ask__head-label')?.textContent || "").trim(),
+      questions: card.querySelectorAll('.ask__q').length,
+      options: card.querySelectorAll('.ask__option').length,
+      how: (card.querySelector('.ask__how')?.textContent || "").replace(/\\s+/g, ' ').trim(),
+      note: (card.querySelector('.ask__note')?.textContent || "").trim(),
+      composerBelow: !!document.querySelector('.ask + .composer'),
+      // A seven-option question must scroll inside its own box rather than take
+      // the pane: the composer below it has to stay on screen.
+      contained: card.getBoundingClientRect().height <= window.innerHeight * 0.5,
+      wide: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      onCard: window.__ratio(window.__hex(getComputedStyle(card.querySelector('.ask__card')).color),
+                             window.__bgOf(card.querySelector('.ask__card'))),
+    });
+  })()`));
+  check("a question standing at the prompt is shown, with its options", ask.card
+    && ask.questions >= 1 && ask.options >= 2, `${ask.questions} question(s), ${ask.options} options`);
+  // Read-only it names the kind of question; answerable it says what a click will
+  // do, which names the same thing in the words that matter there.
+  check("it says whether one answer is wanted or several",
+    /one answer|several answers|click an answer|tick the ones/.test(ask.how), ask.how);
+  // What the note says depends on whether the question can be answered from here;
+  // the two branches below assert the wording. All that is true either way is
+  // that it says something, rather than leaving the card to be guessed at.
+  check("it says where the answer has to be given", ask.note.length > 20, ask.note);
+  check("the card sits above the composer and does not push the page sideways",
+    ask.composerBelow && !ask.wide);
+  check("a long question scrolls inside the card rather than eating the composer", ask.contained);
+  check("the card's text reads on its own container", ask.onCard >= 4.5, ask.onCard?.toFixed(2));
+  const row = await evaluate(`(document.querySelector('[data-id="' + CSS.escape(${JSON.stringify(askSession)}) + '"] .session-item__supporting')?.textContent || "")`);
+  check("the row says which question, so two waiting sessions are tellable apart",
+    /asks/.test(row), row.trim());
+
+  /* The card is read-only: the socket cannot answer a modal prompt, so there must
+     be no button pretending otherwise. */
+  const shape = JSON.parse(await evaluate(`JSON.stringify({
+    pickable: document.querySelectorAll('.ask button[data-pick]').length,
+    plain: document.querySelectorAll('li.ask__option').length,
+  })`));
+  check("the card offers no button that cannot answer", shape.pickable === 0 && shape.plain >= 2,
+    `${shape.plain} rows`);
+
+  const note = (await evaluate(`(document.querySelector('.composer__why')?.textContent || '').trim()`)).toLowerCase();
+  if (note) {
+    check("the composer says why a blocked session cannot be typed at",
+      /prompt/.test(note), note.slice(0, 80));
+  }
+
+  const bar = JSON.parse(await evaluate(`(async () => {
+    const state = await (await fetch('/api/state', { cache: 'no-store' })).json();
+    return JSON.stringify({
+      canSend: !!state.canSend,
+      openHidden: document.getElementById('openButton').hidden,
+    });
+  })()`));
+  check("opening a session is offered wherever sending is on",
+    bar.openHidden === !bar.canSend, `canSend=${bar.canSend} hidden=${bar.openHidden}`);
+}
+
+/* ------------------------------------------------------- opening a session */
+/* The dialog has two states worth asserting and one line that must agree with the
+   machine. The native chooser cannot be driven from here, so it is stood in for —
+   what is being checked is the panel's half. */
+if (await evaluate(`!document.getElementById('openButton').hidden`)) {
+  await evaluate(`(() => { window.__realPicker = window.showDirectoryPicker;
+    window.showDirectoryPicker = async () => ({ name: 'claude-watchtower',
+      keys: async function* () { yield 'server.py'; yield 'static'; yield 'README.md'; } });
+    return true; })()`);
+  await evaluate(`document.getElementById('openButton').click()`);
+  await sleep(700);
+  const empty = JSON.parse(await evaluate(`(() => {
+    return JSON.stringify({
+      target: !document.getElementById('folderBrowse').hidden,
+      lead: (document.querySelector('.folder-target__lead')?.textContent || "").trim(),
+      chosen: !document.getElementById('folderChosen').hidden,
+      openDisabled: document.getElementById('folderOpen').disabled,
+      wide: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    });
+  })()`));
+  check("opening a session starts with one way in and nothing to open yet",
+    empty.target && !empty.chosen && empty.openDisabled, empty.lead);
+  check("the dialog does not push the page sideways", !empty.wide);
+
+  await evaluate(`document.getElementById('folderBrowse').click()`);
+  // Placing the folder is a filesystem walk on the server, and how long it takes
+  // depends on the machine — so wait for the outcome rather than for a guess at
+  // how long it needs. Either a path lands or the field appears; both are ends.
+  for (let waited = 0; waited < 12000; waited += 300) {
+    const settled = await evaluate(`(!document.getElementById('folderChosen').hidden
+      || !document.getElementById('folderTyped').hidden
+      || document.querySelectorAll('#folderChoices .folder-row').length > 0)`);
+    if (settled) break;
+    await sleep(300);
+  }
+  const chosen = JSON.parse(await evaluate(`JSON.stringify({
+    target: !document.getElementById('folderBrowse').hidden,
+    chosen: !document.getElementById('folderChosen').hidden,
+    path: (document.getElementById('folderChosenPath')?.textContent || "").trim(),
+    openDisabled: document.getElementById('folderOpen').disabled,
+    again: !!document.getElementById('folderAgain'),
+  })`));
+  check("a folder that could be placed is named in full before anything opens",
+    chosen.chosen && !chosen.target && chosen.path.startsWith('/'), chosen.path);
+  check("and only then can a session be opened, with a way to change it",
+    !chosen.openDisabled && chosen.again);
+
+  await evaluate(`document.getElementById('folderCancel').click()`);
+  await evaluate(`(() => { if (window.__realPicker) window.showDirectoryPicker = window.__realPicker;
+    else delete window.showDirectoryPicker; return true; })()`);
+  await sleep(400);
+  check("cancelling puts the dialog away",
+    await evaluate(`document.getElementById('folderScrim').dataset.open === 'false'`));
+}
+
 /* ---------------------------------------------------------- touch targets */
 const smallTargets = JSON.parse(await evaluate(`(() => {
   const small = [];
