@@ -5,11 +5,12 @@ package and a TypeScript/CSS frontend, without giving up the thing that makes
 the project pleasant to adopt: `git clone && python3 server.py` still starts a
 working panel.
 
-Nothing here is implemented yet. This document is the plan.
+The plan below is the original one. What each phase actually settled — including
+the places it was wrong — is recorded under Progress.
 
 ## Progress
 
-Phases 0–3 are done. Phases 4–7 are not started.
+Phases 0–3, 5 and 6 are done. Phases 4 and 7 are not started.
 
 | Phase | State |
 |---|---|
@@ -18,8 +19,8 @@ Phases 0–3 are done. Phases 4–7 are not started.
 | 2 — CSS split | done: 16 stylesheets, cascade order preserved exactly |
 | 3 — TypeScript modules | done: main.ts 4,972 → 2,055 lines across 19 modules |
 | 4 — types | not started |
-| 5 — Python package | not started |
-| 6 — route table | not started |
+| 5 — Python package | done: server.py 4,096 → 89 lines across 16 modules |
+| 6 — route table | done: 19 routes in a table, with tests over it |
 | 7 — docs split | not started |
 
 What phase 3 settled, which the original plan only guessed at:
@@ -36,6 +37,22 @@ What phase 3 settled, which the original plan only guessed at:
 - **Text-level moves need a real scanner.** This file is mostly template
   literals full of HTML, so counting brackets or matching identifiers in the raw
   text goes wrong in ways that still compile.
+
+What phase 5 settled:
+
+- **The Python half was in far better shape than this plan assumed.** No
+  lower-case module-level names at all, ninety constants, and only two names
+  rebound while the panel runs. Those two — `SAY_ENABLED` and `PLAN_RUNNING` —
+  are the only ones that cannot be imported by name, and are read as
+  `config.SAY_ENABLED` so the lookup happens when it is asked for.
+- **A path anchored to `__file__` is the thing to check when moving a module.**
+  `STATIC_DIR` was the repository root while it lived in server.py and became
+  `watchtower/dist` the moment it moved into the package. Every static file
+  404'd while the API answered perfectly — a blank page with a working back end.
+- **ruff checks names within a file, not import targets.** `from
+  watchtower.config import TRANSCRIPT_LIMIT_MAX` passed every check and took the
+  panel down on startup. `tests/python/test_package.py` closes that gap: it
+  imports every module and reads every `from watchtower.x import y` statically.
 
 What is left in `main.ts` is the orchestrator — polling, the index, the detail
 pane's tab dispatch, the settings and folder dialogs, boot — plus two sections

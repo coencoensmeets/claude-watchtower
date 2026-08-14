@@ -497,7 +497,8 @@ systemctl --user enable --now claude-watchtower
 
 | Path | What's inside |
 |---|---|
-| `server.py` | Session discovery, window matching, JSON API |
+| `server.py` | The way in: arguments, the frontend build, the polling thread, serve |
+| `watchtower/` | The panel itself — `config`, `proc`, `sessions`, `store`, `transcript`, `usage`, `catalog`, `windows`, `control`, `input`, `plan`, `git/`, `http` |
 | `watchtower/build.py` | Finds Node and runs the frontend build when `web/` has changed |
 | `tools/build.mjs` | The build: strips types, concatenates stylesheets, copies assets |
 | `web/index.html` | The page shell — markup only |
@@ -506,7 +507,7 @@ systemctl --user enable --now claude-watchtower
 | `web/assets/fonts/` | Roboto and Roboto Mono, self-hosted |
 | `web/assets/vendor/` | `material-color-utilities`, for dynamic colour |
 | `dist/` | The built frontend, which is what the panel serves. Generated; not in git |
-| `tests/python/` | Unit tests over the readers |
+| `tests/python/` | Unit tests over the readers, and over the package's own wiring |
 | `tests/fixtures.py` | Stands up a session in every state |
 | `tests/ui-check.mjs` | UI checks over CDP (tokens, contrast, settings) |
 | `claude-watchtower.service` | Optional systemd user unit |
