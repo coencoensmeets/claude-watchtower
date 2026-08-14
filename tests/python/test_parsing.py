@@ -1,9 +1,8 @@
 """Characterisation tests for the panel's pure readers.
 
-These pin down what the parsers do *today*, before the refactor moves them into
-a package. They are deliberately about observed behaviour rather than intent: if
-a later phase changes an answer here, that is the signal to stop and look, not
-to edit the expectation.
+These pin down what the readers do *today*. They are deliberately about
+observed behaviour rather than intent: if a change makes one of these fail, that
+is the signal to stop and look, not to edit the expectation.
 
     python3 -m unittest discover -s tests/python
 
@@ -18,12 +17,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import server  # noqa: E402
-from watchtower import plan  # noqa: E402
-from watchtower.git import write  # noqa: E402
-from watchtower.git import read  # noqa: E402
-from watchtower.git import message  # noqa: E402
-from watchtower import config, transcript  # noqa: E402
+from watchtower import config, input, plan, store, transcript  # noqa: E402
+from watchtower.git import message, read, write  # noqa: E402
 
 
 def porcelain(*records: str) -> str:
@@ -35,34 +30,34 @@ class StatusFreshness(unittest.TestCase):
     """status_age / effective_status / inferred_status."""
 
     def test_age_prefers_the_status_stamp_in_milliseconds(self):
-        self.assertAlmostEqual(server.status_age({"statusUpdatedAt": 1_000_000}, 1005.0), 5.0)
+        self.assertAlmostEqual(store.status_age({"statusUpdatedAt": 1_000_000}, 1005.0), 5.0)
 
     def test_age_falls_back_to_updated_then_to_file_mtime(self):
-        self.assertAlmostEqual(server.status_age({"updatedAt": 2_000_000}, 2003.0), 3.0)
-        self.assertAlmostEqual(server.status_age({"fileMtime": 500.0}, 507.5), 7.5)
+        self.assertAlmostEqual(store.status_age({"updatedAt": 2_000_000}, 2003.0), 3.0)
+        self.assertAlmostEqual(store.status_age({"fileMtime": 500.0}, 507.5), 7.5)
 
     def test_age_is_unknown_when_nothing_carries_a_time(self):
-        self.assertIsNone(server.status_age({}, 100.0))
+        self.assertIsNone(store.status_age({}, 100.0))
 
     def test_a_live_session_keeps_its_active_status_however_old(self):
         old = {"status": "busy", "fileMtime": 0.0}
-        self.assertEqual(server.effective_status(old, 10_000.0, live=True), "busy")
+        self.assertEqual(store.effective_status(old, 10_000.0, live=True), "busy")
 
     def test_a_stale_active_status_with_nothing_backing_it_drops_to_idle(self):
         old = {"status": "busy", "fileMtime": 0.0}
-        self.assertEqual(server.effective_status(old, config.STATUS_TTL + 1, live=False), "idle")
+        self.assertEqual(store.effective_status(old, config.STATUS_TTL + 1, live=False), "idle")
 
     def test_a_fresh_active_status_survives_without_liveness(self):
         recent = {"status": "shell", "fileMtime": 0.0}
-        self.assertEqual(server.effective_status(recent, config.STATUS_TTL - 1, live=False), "shell")
+        self.assertEqual(store.effective_status(recent, config.STATUS_TTL - 1, live=False), "shell")
 
     def test_waiting_never_expires_because_it_is_blocked_on_you(self):
         blocked = {"status": "waiting", "fileMtime": 0.0}
-        self.assertEqual(server.effective_status(blocked, 10_000.0, live=False), "waiting")
+        self.assertEqual(store.effective_status(blocked, 10_000.0, live=False), "waiting")
 
     def test_a_session_that_writes_no_status_is_read_from_its_liveness(self):
-        self.assertEqual(server.effective_status({}, 0.0, live=True), "busy")
-        self.assertEqual(server.effective_status({}, 0.0, live=False), "idle")
+        self.assertEqual(store.effective_status({}, 0.0, live=True), "busy")
+        self.assertEqual(store.effective_status({}, 0.0, live=False), "idle")
 
 
 class ParseStatus(unittest.TestCase):
@@ -361,11 +356,11 @@ class SmallHelpers(unittest.TestCase):
 
     def test_loopback_covers_localhost_and_both_families(self):
         for host in ("localhost", "", "127.0.0.1", "127.1.2.3", "::1"):
-            self.assertTrue(server.is_loopback(host), host)
+            self.assertTrue(input.is_loopback(host), host)
 
     def test_anything_reachable_from_elsewhere_is_not_loopback(self):
         for host in ("0.0.0.0", "192.168.1.10", "example.com", "::"):
-            self.assertFalse(server.is_loopback(host), host)
+            self.assertFalse(input.is_loopback(host), host)
 
 
 if __name__ == "__main__":

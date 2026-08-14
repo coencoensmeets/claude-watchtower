@@ -35,7 +35,10 @@ PROJECT_DIR = HOME / ".claude" / "projects"
 
 # What the panel serves: the built frontend, not its sources. server.py builds
 # it on the way up when web/ is newer — see watchtower.build.
-STATIC_DIR = Path(__file__).resolve().parent / "dist"
+# The repository root, not this package: config.py sits one level down, and
+# `parent` alone silently pointed STATIC_DIR at watchtower/dist.
+ROOT = Path(__file__).resolve().parents[1]
+STATIC_DIR = ROOT / "dist"
 
 
 PAIR_FILE = HOME / ".config" / "claude-watchtower" / "pairs.json"
