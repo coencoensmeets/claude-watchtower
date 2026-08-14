@@ -699,7 +699,7 @@
   .row__grow { flex: 1 1 auto; min-width: 0; }
 
   /* ================================ the plan =============================== */
-  /* What the subscription has left, in the app bar: the two figures you would
+  /* How much of the subscription has gone, in the app bar: the two figures you would
      otherwise run /usage for, and a press for the rest of the report. */
   .plan-chip {
     display: inline-flex; align-items: center; gap: 6px; flex: none;
@@ -709,17 +709,18 @@
     position: relative;
   }
   .plan-chip svg { width: 16px; height: 16px; }
-  /* Past three quarters of a limit the chip stops being a fact and starts being
-     a warning, in the same amber a session waiting on you takes. */
-  .plan-chip[data-tight="1"] {
-    border-color: transparent;
-    background: var(--md-extended-color-waiting-container, var(--md-sys-color-tertiary-container));
-    color: var(--md-extended-color-waiting-on-container, var(--md-sys-color-on-tertiary-container));
-  }
-  .plan-chip[data-tight="2"] {
-    border-color: transparent;
-    background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container);
-  }
+  #planChipText { display: inline-flex; align-items: baseline; gap: 6px;
+    font-variant-numeric: tabular-nums; }
+  /* Each figure carries its own light: green while there is room, amber past
+     three quarters, red near the ceiling. The chip itself stays outlined so two
+     limits in different bands can each say their own thing. */
+  .plan-pct[data-band="0"] { color: var(--md-extended-color-plenty-color, var(--md-sys-color-primary)); }
+  .plan-pct[data-band="1"] { color: var(--md-extended-color-waiting-color, var(--md-sys-color-tertiary)); }
+  .plan-pct[data-band="2"] { color: var(--md-sys-color-error); font-weight: 600; }
+  .plan-chip__sep { color: var(--md-sys-color-outline); }
+  /* Near the ceiling on either figure the chip stops being a fact and starts
+     being a warning. */
+  .plan-chip[data-tight="2"] { border-color: var(--md-sys-color-error); }
   /* A reading in flight, said the way the panel says it everywhere else. */
   .plan-chip[data-reading="1"] svg { animation: plan-spin 1.4s linear infinite; }
   @keyframes plan-spin { to { transform: rotate(360deg); } }
@@ -766,6 +767,7 @@
   /* Past three quarters of the window, compaction is close enough to be worth
      saying so in the same colour the panel uses for a session wanting attention. */
   .use-bar__fill[data-tight="1"] { background: var(--md-extended-color-waiting-color, var(--md-sys-color-tertiary)); }
+  .use-bar__fill[data-tight="2"] { background: var(--md-sys-color-error); }
   .use-legend { display: flex; justify-content: space-between; gap: var(--md-sys-spacing-3);
     color: var(--md-sys-color-on-surface-variant); }
 
@@ -1324,7 +1326,7 @@
     </div>
     <div class="app-bar__actions">
       <button class="plan-chip md-state md-label-large" id="planButton" hidden
-              aria-haspopup="dialog" title="What your plan has left">
+              aria-haspopup="dialog" title="How much of your plan has gone">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 18a8 8 0 1 1 16 0"/><path d="M12 18l4.5-5.5"/></svg>
         <span id="planChipText">plan</span>
       </button>
@@ -1452,7 +1454,11 @@ const CONTRAST_LEVELS = [
   { key: "medium", label: "Medium", value: 0.5 },
   { key: "high", label: "High", value: 1 },
 ];
-const STATE_BASE_HUES = { waiting: "#FF8A00", idle: "#5B6BC0" };
+/* `plenty` is not a session state: it is the green a plan figure takes while
+   there is still room, and it comes from here so it is hue-spaced against the
+   seed and the other two like they are. Keep it last so adding it did not move
+   the hues waiting and idle already had. */
+const STATE_BASE_HUES = { waiting: "#FF8A00", idle: "#5B6BC0", plenty: "#12A150" };
 const MIN_HUE_GAP = 35;
 const MAX_CUSTOM_CHROMA = 48;
 
@@ -1676,6 +1682,9 @@ let gitBusy = false;
 let usage = null;
 let usageFor = null;
 let usageBusy = false;
+/* A half-typed message belongs to the session it was written for, not to the
+   composer: switching away puts it aside and coming back brings it out again. */
+const sayDrafts = new Map();
 /* The writing side of the Git tab. The message being typed is kept per session
    rather than in the DOM, because the pane is rebuilt whenever the repository
    moves — which is exactly while a commit message is being written. */
@@ -1762,6 +1771,11 @@ let renamingGroup = null;
 const groupOf = (id) => customGroups.find((g) => g.members.includes(id)) || null;
 const folderKeyOf = (session) => session.cwd || session.folder || "";
 
+/* The one order rows are kept in when state is not deciding: when the session
+   started, then its id so the comparison is never a tie. */
+const bySessionIdentity = (a, b) =>
+  (a.startedAt || 0) - (b.startedAt || 0) || (a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0);
+
 /* What the index draws, top to bottom: bare rows and groups, each group where
    its first member would have been. */
 function listBlocks(visible) {
@@ -1797,6 +1811,13 @@ function listBlocks(visible) {
       blocks.push(block);
     }
     block.sessions.push(session);
+  }
+  // A group sits where its most pressing member would have been — that is the
+  // one the sorted list reached first — but inside it the rows are held in a
+  // fixed order of their own, so a member going busy and idle again does not
+  // shuffle the group under the pointer.
+  for (const block of blocks) {
+    if (block.kind === "group") block.sessions.sort(bySessionIdentity);
   }
   return blocks;
 }
@@ -3004,9 +3025,15 @@ function renderDetail(force) {
   const wasAtBottom = !chatBefore || chatBefore.scrollHeight - chatBefore.scrollTop - chatBefore.clientHeight < 80;
   // A half-typed message must survive a re-render — the poll re-renders every time
   // the status changes or a message lands, which is exactly while you are typing.
+  // The text itself lives in sayDrafts under the session it was written for; only
+  // the caret is carried through here, and only when the pane is not changing
+  // session, because a caret from another session's box means nothing in this one.
   const fieldBefore = detailPane.querySelector("#sayField");
-  const draft = fieldBefore ? {
-    text: fieldBefore.value,
+  const sameSession = detailPane.dataset.sessionId === session.sessionId;
+  if (fieldBefore && detailPane.dataset.sessionId) {
+    setSayDraft(detailPane.dataset.sessionId, fieldBefore.value);
+  }
+  const caret = fieldBefore && sameSession ? {
     start: fieldBefore.selectionStart,
     end: fieldBefore.selectionEnd,
     focused: document.activeElement === fieldBefore,
@@ -3027,6 +3054,7 @@ function renderDetail(force) {
   // exists, so it goes with the rebuild rather than floating over the new one.
   if (menuIsOpen() && !menuFor && !menuGroup) closeSessionMenu({ restoreFocus: false });
   detailPane.dataset.signature = signature;
+  detailPane.dataset.sessionId = session.sessionId;
   detailPane.innerHTML = `
     ${detailHeader(session, state, host)}
     <div class="tabs" role="tablist">
@@ -3085,18 +3113,22 @@ function renderDetail(force) {
 
   const field = detailPane.querySelector("#sayField");
   if (field) {
-    if (draft && draft.text) {
-      field.value = draft.text;
-      if (draft.focused) {
+    const kept = sayDrafts.get(session.sessionId) || "";
+    if (kept) {
+      field.value = kept;
+      if (caret && caret.focused) {
         field.focus();
-        field.setSelectionRange(draft.start, draft.end);
+        field.setSelectionRange(caret.start, caret.end);
       }
     }
     growField(field);
     syncGrip(field);
     const grip = detailPane.querySelector("#composerGrip");
     if (grip) wireComposerGrip(grip, field);
-    field.addEventListener("input", () => growField(field));
+    field.addEventListener("input", () => {
+      setSayDraft(session.sessionId, field.value);
+      growField(field);
+    });
     field.addEventListener("keydown", (event) => {
       // Enter sends, as it does in the terminal; Shift-Enter for a newline.
       if (event.key === "Enter" && !event.shiftKey && !event.altKey) {
@@ -3217,6 +3249,13 @@ function wireComposerGrip(grip, field) {
   });
 }
 
+/* An empty box is the absence of a draft, not a draft of nothing — otherwise the
+   map fills up with blanks for every session whose composer was ever touched. */
+function setSayDraft(sessionId, text) {
+  if (text) sayDrafts.set(sessionId, text);
+  else sayDrafts.delete(sessionId);
+}
+
 async function sendMessage(session, button) {
   const field = detailPane.querySelector("#sayField");
   if (!field || !button) return;
@@ -3225,8 +3264,14 @@ async function sendMessage(session, button) {
   // Clear optimistically so typing the next one is not blocked on the round trip,
   // and put it back if the send fails — a lost message is worse than a stale box.
   field.value = "";
+  setSayDraft(session.sessionId, "");
   growField(field);
   const restore = () => {
+    setSayDraft(session.sessionId, text);
+    // The pane may have moved to another session while the send was in flight —
+    // the text goes back into the map either way, but only into a box that is
+    // still this session's.
+    if (detailPane.dataset.sessionId !== session.sessionId) return;
     const live = detailPane.querySelector("#sayField");
     if (live && !live.value) { live.value = text; growField(live); }
   };
@@ -5523,7 +5568,7 @@ document.getElementById("askConfirm").addEventListener("click", () => closeAsk(t
 askScrim.addEventListener("click", (event) => { if (event.target === askScrim) closeAsk(false); });
 
 /* ==========================================================================
-   The plan — what a subscription has left, which is the one figure in this
+   The plan — how much of a subscription has gone, which is the one figure in this
    panel that no file on this machine knows. The server runs Claude Code's own
    `/usage` for it, so the reading is the same one the terminal would give you.
    ========================================================================== */
@@ -5589,28 +5634,35 @@ function paintPlanChip() {
   if (!shown.length) {
     planChipText.textContent = plan?.ok === false ? "plan?" : "plan";
     planButton.dataset.tight = "0";
-    planButton.title = plan?.message || "What your plan has left";
+    planButton.title = plan?.message || "How much of your plan has gone";
     return;
   }
-  // Left, not used: "72% left" is the thing you are actually asking.
-  planChipText.textContent = shown.map((l) => `${100 - l.percent}%`).join(" · ");
+  // Used, not left: it reads the same way the bars below it do, and the colour
+  // says how worried to be without doing the subtraction in your head.
+  planChipText.innerHTML = shown
+    .map((l) => `<span class="plan-pct" data-band="${planBand(l.percent)}">${l.percent}%</span>`)
+    .join(`<span class="plan-chip__sep">·</span>`);
   const worst = Math.max(...shown.map((l) => l.percent));
-  planButton.dataset.tight = worst >= 90 ? "2" : worst >= 75 ? "1" : "0";
-  planButton.title = `${shown.map((l) => `${l.name}: ${100 - l.percent}% left`).join(", ")} — press for the rest`;
+  planButton.dataset.tight = String(planBand(worst));
+  planButton.title = `${shown.map((l) => `${l.name}: ${l.percent}% used`).join(", ")} — press for the rest`;
 }
 
+/* One scale for every plan figure: room, tight, nearly gone. */
+const planBand = (percent) => (percent >= 90 ? 2 : percent >= 75 ? 1 : 0);
+
 function planBar(limit) {
-  const tight = limit.percent >= 90 ? 2 : limit.percent >= 75 ? 1 : 0;
+  const tight = planBand(limit.percent);
   return `<div class="plan-limit">
     <div class="plan-limit__head">
       <span class="md-body-medium">${escapeHtml(limit.name)}</span>
-      <span class="plan-limit__pct md-title-medium md-mono">${100 - limit.percent}% left</span>
+      <span class="plan-limit__pct plan-pct md-title-medium md-mono"
+            data-band="${tight}">${limit.percent}% used</span>
     </div>
     <div class="use-bar">
       <div class="use-bar__fill" style="width: ${limit.percent ? Math.max(1, limit.percent) : 0}%" data-tight="${tight}"></div>
     </div>
     <div class="use-legend md-label-small">
-      <span>${limit.percent}% used</span>
+      <span>${100 - limit.percent}% left</span>
       <span>${limit.resets ? `resets ${escapeHtml(limit.resets)}` : "nothing used yet"}</span>
     </div>
   </div>`;
