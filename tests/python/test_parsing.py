@@ -19,6 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import server  # noqa: E402
+from watchtower import config, transcript  # noqa: E402
 
 
 def porcelain(*records: str) -> str:
@@ -45,11 +46,11 @@ class StatusFreshness(unittest.TestCase):
 
     def test_a_stale_active_status_with_nothing_backing_it_drops_to_idle(self):
         old = {"status": "busy", "fileMtime": 0.0}
-        self.assertEqual(server.effective_status(old, server.STATUS_TTL + 1, live=False), "idle")
+        self.assertEqual(server.effective_status(old, config.STATUS_TTL + 1, live=False), "idle")
 
     def test_a_fresh_active_status_survives_without_liveness(self):
         recent = {"status": "shell", "fileMtime": 0.0}
-        self.assertEqual(server.effective_status(recent, server.STATUS_TTL - 1, live=False), "shell")
+        self.assertEqual(server.effective_status(recent, config.STATUS_TTL - 1, live=False), "shell")
 
     def test_waiting_never_expires_because_it_is_blocked_on_you(self):
         blocked = {"status": "waiting", "fileMtime": 0.0}
@@ -242,7 +243,7 @@ class QuestionAsked(unittest.TestCase):
         return {"id": "toolu_1", "input": {"questions": [question]}}
 
     def test_a_question_and_its_options_come_through(self):
-        read = server.question_asked(self.block(
+        read = transcript.question_asked(self.block(
             question="Which way?", header="Approach", multiSelect=False,
             options=[{"label": "Left", "description": "towards the sea"},
                      {"label": "Right", "description": ""}],
@@ -255,96 +256,96 @@ class QuestionAsked(unittest.TestCase):
         self.assertEqual([o["label"] for o in asked["options"]], ["Left", "Right"])
 
     def test_an_option_with_no_label_is_dropped(self):
-        read = server.question_asked(self.block(
+        read = transcript.question_asked(self.block(
             question="Pick", options=[{"label": ""}, {"label": "Real"}]))
         self.assertEqual([o["label"] for o in read["questions"][0]["options"]], ["Real"])
 
     def test_options_are_capped(self):
-        many = [{"label": f"Option {n}"} for n in range(server.MAX_QUESTION_OPTIONS + 5)]
-        read = server.question_asked(self.block(question="Pick", options=many))
-        self.assertEqual(len(read["questions"][0]["options"]), server.MAX_QUESTION_OPTIONS)
+        many = [{"label": f"Option {n}"} for n in range(transcript.MAX_QUESTION_OPTIONS + 5)]
+        read = transcript.question_asked(self.block(question="Pick", options=many))
+        self.assertEqual(len(read["questions"][0]["options"]), transcript.MAX_QUESTION_OPTIONS)
 
     def test_a_call_that_is_not_a_question_reads_as_none(self):
-        self.assertIsNone(server.question_asked({"input": {"questions": []}}))
-        self.assertIsNone(server.question_asked({"input": "not a dict"}))
-        self.assertIsNone(server.question_asked({}))
+        self.assertIsNone(transcript.question_asked({"input": {"questions": []}}))
+        self.assertIsNone(transcript.question_asked({"input": "not a dict"}))
+        self.assertIsNone(transcript.question_asked({}))
 
 
 class ToolDetail(unittest.TestCase):
     """tool_detail — the one line that says what a tool call was about."""
 
     def test_the_first_matching_key_wins_in_listed_order(self):
-        detail = server.tool_detail({"command": "ls -la", "description": "List files"})
+        detail = transcript.tool_detail({"command": "ls -la", "description": "List files"})
         self.assertEqual(detail, "List files")
 
     def test_whitespace_is_collapsed(self):
-        self.assertEqual(server.tool_detail({"command": "git   status\n  --short"}),
+        self.assertEqual(transcript.tool_detail({"command": "git   status\n  --short"}),
                          "git status --short")
 
     def test_a_question_falls_back_to_the_question_itself(self):
-        detail = server.tool_detail({"questions": [{"question": "Which way?"}]})
+        detail = transcript.tool_detail({"questions": [{"question": "Which way?"}]})
         self.assertEqual(detail, "Which way?")
 
     def test_nothing_recognisable_gives_an_empty_string(self):
-        self.assertEqual(server.tool_detail({"unknown": "field"}), "")
-        self.assertEqual(server.tool_detail("not a dict"), "")
+        self.assertEqual(transcript.tool_detail({"unknown": "field"}), "")
+        self.assertEqual(transcript.tool_detail("not a dict"), "")
 
     def test_the_detail_is_capped(self):
-        self.assertEqual(len(server.tool_detail({"command": "x" * 500})), 200)
+        self.assertEqual(len(transcript.tool_detail({"command": "x" * 500})), 200)
 
 
 class UnwrapSent(unittest.TestCase):
     """unwrap_sent — peeling the envelopes off a message sent over a socket."""
 
     def test_a_peer_envelope_gives_up_its_body_and_sender(self):
-        read = server.unwrap_sent(
+        read = transcript.unwrap_sent(
             '<cross-session-message from-name="Ada">\nhello there\n</cross-session-message>')
         self.assertEqual(read, {"text": "hello there", "from": "Ada"})
 
     def test_an_envelope_without_a_name_reports_no_sender(self):
-        read = server.unwrap_sent(
+        read = transcript.unwrap_sent(
             "<cross-session-message>\nhello\n</cross-session-message>")
         self.assertEqual(read, {"text": "hello", "from": None})
 
     def test_a_delivered_message_is_unwrapped_from_its_preamble(self):
-        read = server.unwrap_sent(
+        read = transcript.unwrap_sent(
             "Another Claude session sent a message:\nplease rebase\n\n"
             "This came from another Claude session — not typed by your user")
         self.assertEqual(read, {"text": "please rebase", "from": None})
 
     def test_both_wrappings_at_once_peel_in_order(self):
-        read = server.unwrap_sent(
+        read = transcript.unwrap_sent(
             "Another Claude session sent a message:\n"
             '<cross-session-message from-name="Ada">\nnested\n</cross-session-message>\n\n'
             "This came from another Claude session — not typed by your user")
         self.assertEqual(read, {"text": "nested", "from": "Ada"})
 
     def test_an_ordinary_turn_is_not_a_delivery(self):
-        self.assertIsNone(server.unwrap_sent("just something the user typed"))
+        self.assertIsNone(transcript.unwrap_sent("just something the user typed"))
 
 
 class SummariseBlock(unittest.TestCase):
     """summarise_block — one transcript block as a single line."""
 
     def test_text_is_collapsed_to_one_line(self):
-        self.assertEqual(server.summarise_block({"type": "text", "text": "a\n\n  b  "}), "a b")
+        self.assertEqual(transcript.summarise_block({"type": "text", "text": "a\n\n  b  "}), "a b")
 
     def test_empty_text_summarises_to_nothing(self):
-        self.assertIsNone(server.summarise_block({"type": "text", "text": "   "}))
+        self.assertIsNone(transcript.summarise_block({"type": "text", "text": "   "}))
 
     def test_a_tool_call_is_named_with_its_detail(self):
-        summary = server.summarise_block(
+        summary = transcript.summarise_block(
             {"type": "tool_use", "name": "Bash", "input": {"command": "git status"}})
         self.assertEqual(summary, "Bash: git status")
 
     def test_a_tool_call_with_no_detail_is_just_its_name(self):
-        self.assertEqual(server.summarise_block({"type": "tool_use", "name": "Read"}), "Read")
+        self.assertEqual(transcript.summarise_block({"type": "tool_use", "name": "Read"}), "Read")
 
     def test_thinking_says_so(self):
-        self.assertEqual(server.summarise_block({"type": "thinking"}), "thinking")
+        self.assertEqual(transcript.summarise_block({"type": "thinking"}), "thinking")
 
     def test_an_unknown_block_summarises_to_nothing(self):
-        self.assertIsNone(server.summarise_block({"type": "image"}))
+        self.assertIsNone(transcript.summarise_block({"type": "image"}))
 
 
 class SmallHelpers(unittest.TestCase):
