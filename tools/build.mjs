@@ -29,7 +29,22 @@ const WORK = join(ROOT, ".dist-build");
 // to whatever readdir happens to return. A stylesheet that is not on this list
 // is an error, not something to quietly leave out of the page.
 const STYLE_ORDER = [
-  "app.css",
+  "tokens.css",       // every --md-sys-* value, and the typescale utilities
+  "base.css",         // the reset, and the shell the panes sit in
+  "list.css",         // filter chips, the session list, groups, picking rows
+  "detail.css",       // the detail pane and its tab strip
+  "question.css",     // the card for a question a session is standing at
+  "folder.css",       // the folder picker
+  "composer.css",
+  "chat.css",
+  "facts.css",        // the Details tab
+  "plan.css",         // how much of the subscription has gone, in the app bar
+  "usage.css",
+  "git.css",          // Git and History
+  "controls.css",     // buttons, switches, segmented buttons, the context menu
+  "comments.css",     // the rail, its cards, and the quote chip
+  "dialog.css",       // scrims, dialogs, the snackbar
+  "responsive.css",   // last: it narrows what everything above laid out
 ];
 
 async function* walk(dir) {

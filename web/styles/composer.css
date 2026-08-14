@@ -1,0 +1,73 @@
+  /* =============================== composer ================================ */
+  /* Sits outside the scrolling panel so it stays put as the conversation moves. */
+  .composer {
+    flex: none; display: flex; gap: var(--md-sys-spacing-2); align-items: flex-end;
+    padding: var(--md-sys-spacing-3) var(--md-sys-spacing-6) var(--md-sys-spacing-4);
+    border-top: 1px solid var(--md-sys-color-outline-variant);
+    background: var(--md-sys-color-surface);
+    position: relative;
+  }
+  /* The rule above the box is the handle. It overlays rather than sits in the
+     flow, so the grab area is a comfortable 12px without moving anything. */
+  .composer-grip {
+    position: absolute; top: -6px; left: 0; right: 0; height: 12px;
+    border: 0; padding: 0; background: none; cursor: ns-resize; touch-action: none;
+  }
+  .composer-grip::before {
+    content: ""; position: absolute; left: 0; right: 0; top: 5px; height: 2px;
+    border-radius: 1px; background: transparent; transition: background 120ms ease;
+  }
+  .composer-grip:hover::before,
+  .composer-grip:focus-visible::before,
+  .composer-grip.is-dragging::before { background: var(--md-sys-color-primary); }
+  .composer-grip:focus-visible { outline: none; }
+  .composer__field {
+    flex: 1 1 auto; min-width: 0; resize: none; max-height: 40vh;
+    padding: var(--md-sys-spacing-3) var(--md-sys-spacing-4);
+    border-radius: var(--md-sys-shape-corner-large);
+    border: 1px solid var(--md-sys-color-outline);
+    background: var(--md-sys-color-surface-container-lowest);
+    color: var(--md-sys-color-on-surface);
+    font: inherit; font-family: var(--md-sys-typescale-body-large-font, inherit);
+  }
+  .composer__field:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: -2px; border-color: transparent; }
+  .composer__field:disabled { background: color-mix(in srgb, var(--md-sys-color-on-surface) 4%, transparent);
+    border-color: var(--md-sys-color-outline-variant); color: var(--md-sys-color-on-surface-variant); }
+  .composer__send { flex: none; min-height: 48px; }
+  /* Why it is off, in the place the reader is already looking. */
+  .composer__why { flex: 1 1 auto; margin: 0; color: var(--md-sys-color-on-surface-variant); }
+
+  /* --------------------------- what you can ask for ----------------------- */
+  /* Floats over the conversation rather than sitting in the flow: the box below
+     must not jump as the list grows and shrinks under the typing. */
+  .cmdbar {
+    position: absolute; z-index: 8;
+    left: var(--md-sys-spacing-6); right: var(--md-sys-spacing-6);
+    bottom: calc(100% - var(--md-sys-spacing-3));
+    background: var(--md-sys-color-surface-container);
+    border-radius: var(--md-sys-shape-corner-medium);
+    box-shadow: 0 2px 6px 2px color-mix(in srgb, var(--md-sys-color-shadow) 15%, transparent),
+                0 1px 2px 0 color-mix(in srgb, var(--md-sys-color-shadow) 30%, transparent);
+    overflow: hidden;
+  }
+  .cmdbar__list { list-style: none; margin: 0; padding: var(--md-sys-spacing-2) 0;
+    max-height: min(40vh, 320px); overflow-y: auto; overscroll-behavior: contain; }
+  .cmdbar__item {
+    display: flex; align-items: baseline; gap: var(--md-sys-spacing-3);
+    width: 100%; border: 0; background: none; cursor: pointer; text-align: left;
+    padding: var(--md-sys-spacing-2) var(--md-sys-spacing-4);
+    color: var(--md-sys-color-on-surface);
+  }
+  .cmdbar__item[aria-selected="true"] { background: var(--md-sys-color-secondary-container);
+    color: var(--md-sys-color-on-secondary-container); }
+  .cmdbar__name { flex: none; font-family: var(--md-ref-typeface-mono); }
+  .cmdbar__desc { flex: 1 1 auto; min-width: 0; color: var(--md-sys-color-on-surface-variant);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cmdbar__item[aria-selected="true"] .cmdbar__desc { color: inherit; opacity: 0.85; }
+  .cmdbar__source { flex: none; color: var(--md-sys-color-on-surface-variant); opacity: 0.8; }
+  /* The sentence that will actually be sent, said before it is. */
+  .cmdbar__as { margin: 0; padding: var(--md-sys-spacing-3) var(--md-sys-spacing-4);
+    color: var(--md-sys-color-on-surface-variant);
+    border-top: 1px solid var(--md-sys-color-outline-variant); }
+  .cmdbar__list:empty + .cmdbar__as, .cmdbar > .cmdbar__as:first-child { border-top: 0; }
+

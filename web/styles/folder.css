@@ -1,0 +1,87 @@
+  /* ============================== folder picker ============================= */
+  /* Taller than a confirm dialog because its middle is a list you scroll — and
+     capped, so it cannot grow past the window on a folder with hundreds of
+     children. */
+  .dialog--tall { display: flex; flex-direction: column; max-height: min(78vh, 640px); }
+  .dialog--tall .folder-choices { flex: 0 1 auto; }
+  /* The folder the pick landed on, named plainly: nothing else on the dialog says
+     where it is now that there is no walk to look at. */
+  /* --- the target ---
+     Dashed while empty and solid once filled: the one place this dialog spends any
+     character, and the state change is the whole of it. Full width and tall enough
+     to be the obvious thing to press, since it is the only way in. */
+  .folder-target {
+    display: flex; align-items: center; gap: var(--md-sys-spacing-4);
+    width: 100%; padding: var(--md-sys-spacing-4);
+    margin-bottom: var(--md-sys-spacing-3);
+    border: 2px dashed var(--md-sys-color-outline-variant);
+    border-radius: var(--md-sys-shape-corner-medium);
+    background: none; color: var(--md-sys-color-on-surface);
+    font: inherit; text-align: start; cursor: pointer; position: relative;
+    transition: border-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+                background var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+  }
+  .folder-target:hover {
+    border-color: var(--md-sys-color-primary);
+    background: color-mix(in srgb, var(--md-sys-color-primary) 6%, transparent);
+  }
+  .folder-target:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: 2px; }
+  /* display:flex would otherwise beat the attribute's own display:none. */
+  .folder-target[hidden] { display: none; }
+  .folder-target__mark {
+    flex: none; display: grid; place-items: center; width: 44px; height: 44px;
+    border-radius: var(--md-sys-shape-corner-full);
+    background: var(--md-sys-color-secondary-container);
+    color: var(--md-sys-color-on-secondary-container);
+  }
+  .folder-target__mark svg { width: 24px; height: 24px; }
+  .folder-target__words { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .folder-target__hint { color: var(--md-sys-color-on-surface-variant); }
+  /* Chosen: the dashes close up and the path takes the room the invitation had. */
+  .folder-chosen {
+    display: grid; grid-template-columns: 1fr auto; align-items: center;
+    gap: var(--md-sys-spacing-1) var(--md-sys-spacing-3);
+    padding: var(--md-sys-spacing-3) var(--md-sys-spacing-3) var(--md-sys-spacing-3) var(--md-sys-spacing-4);
+    margin-bottom: var(--md-sys-spacing-3);
+    border-radius: var(--md-sys-shape-corner-medium);
+    border-inline-start: 3px solid var(--md-sys-color-primary);
+    background: var(--md-sys-color-surface-container-high);
+  }
+  .folder-chosen[hidden] { display: none; }
+  .folder-chosen__label { grid-column: 1; color: var(--md-sys-color-on-surface-variant); }
+  .folder-chosen__path { grid-column: 1; overflow-wrap: anywhere; }
+  .folder-chosen__again { grid-column: 2; grid-row: 1 / span 2; }
+  .folder-note { margin: 0 0 var(--md-sys-spacing-3); color: var(--md-sys-color-on-surface-variant); }
+  .folder-note:empty { display: none; }
+  .folder-typed[hidden] { display: none; }
+  /* Shown only when the fingerprint matched more than one folder, which is the
+     one case the panel will not guess at. */
+  .folder-choices { list-style: none; margin: 0 0 var(--md-sys-spacing-3); padding: var(--md-sys-spacing-1);
+    border: 1px solid var(--md-sys-color-tertiary); border-radius: var(--md-sys-shape-corner-small);
+    max-height: 30vh; overflow-y: auto; }
+  .folder-choices[hidden] { display: none; }
+  .folder-row {
+    width: 100%; display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+    padding: var(--md-sys-spacing-2) var(--md-sys-spacing-2);
+    border: 0; border-radius: var(--md-sys-shape-corner-extra-small);
+    background: none; color: var(--md-sys-color-on-surface); font: inherit;
+    text-align: start; cursor: pointer;
+  }
+  .folder-row:hover { background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent); }
+  .folder-row:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: -2px; }
+  .folder-row svg { width: 18px; height: 18px; flex: none; opacity: 0.75; }
+  .folder-row__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* A folder that is a repository is usually the one you want, so it says so. */
+  .folder-row__repo { margin-inline-start: auto; opacity: 0.7; flex: none; display: inline-flex; }
+  .folder-row__repo svg { width: 15px; height: 15px; }
+  .folder-typed { display: flex; flex-direction: column; gap: var(--md-sys-spacing-1);
+    color: var(--md-sys-color-on-surface-variant); }
+  .folder-typed__field {
+    padding: var(--md-sys-spacing-2) var(--md-sys-spacing-3);
+    border: 1px solid var(--md-sys-color-outline);
+    border-radius: var(--md-sys-shape-corner-extra-small);
+    background: transparent; color: var(--md-sys-color-on-surface);
+  }
+  .folder-typed__field:focus-visible { outline: 2px solid var(--md-sys-color-primary);
+    outline-offset: -2px; border-color: transparent; }
+

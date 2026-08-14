@@ -1,0 +1,170 @@
+  /* ================================ detail ================================= */
+  .detail-empty { flex: 1 1 auto; display: grid; place-items: center; padding: var(--md-sys-spacing-6); text-align: center; color: var(--md-sys-color-on-surface-variant); }
+
+  .detail-header {
+    flex: none; padding: var(--md-sys-spacing-6) var(--md-sys-spacing-6) var(--md-sys-spacing-4);
+    background: var(--state-container); color: var(--state-on-container);
+  }
+  .detail-header__top { display: flex; align-items: flex-start; gap: var(--md-sys-spacing-4); }
+  .detail-header__text { flex: 1 1 auto; min-width: 0; }
+  .detail-header__title { display: flex; align-items: center; gap: var(--md-sys-spacing-2); flex-wrap: wrap; }
+  .detail-header__subtitle { opacity: 0.85; margin-top: 2px; }
+  /* The title doubles as the rename control: a click turns it into a field. */
+  .name-button {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: none; border: 0; padding: 2px var(--md-sys-spacing-2); margin-inline-start: -8px;
+    border-radius: var(--md-sys-shape-corner-small);
+    color: inherit; font: inherit; letter-spacing: inherit; text-align: left; cursor: text;
+  }
+  .name-button > span { overflow-wrap: anywhere; }
+  .name-button svg { width: 16px; height: 16px; flex: none; opacity: 0; transition: opacity 120ms; }
+  .name-button:hover svg, .name-button:focus-visible svg { opacity: 0.7; }
+  .name-field {
+    /* Sized to the text by startRename, so the state beside it keeps its place. */
+    min-width: 0; flex: 0 1 auto; max-width: 100%;
+    padding: 2px var(--md-sys-spacing-2); margin-inline-start: -8px;
+    background: color-mix(in srgb, var(--state-on-container) 10%, transparent);
+    border: 0; border-bottom: 2px solid currentColor; border-radius: var(--md-sys-shape-corner-small);
+    color: inherit; font: inherit; letter-spacing: inherit; outline: none;
+  }
+  .detail-header__meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--md-sys-spacing-1) var(--md-sys-spacing-2); margin-top: var(--md-sys-spacing-3); opacity: 0.9; }
+  .detail-header__actions { flex: none; display: flex; flex-direction: column; gap: var(--md-sys-spacing-1); align-items: stretch; }
+  .meta-sep { opacity: 0.45; }
+  /* A caveat that belongs to the fact beside it, so it stays on its line. */
+  .fact-note { opacity: 0.75; }
+  .host {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 24px; padding: 0 var(--md-sys-spacing-2) 0 6px;
+    border-radius: var(--md-sys-shape-corner-small);
+    border: 1px solid currentColor;
+  }
+  .host svg { width: 14px; height: 14px; flex: none; }
+  .back-button { display: none; }
+
+  /* ------------------------------- state trace ----------------------------- */
+  .trace { margin-top: var(--md-sys-spacing-4); position: relative; }
+  .trace__bar {
+    display: flex; justify-content: flex-end; gap: 2px; height: 10px;
+    border-radius: var(--md-sys-shape-corner-full); overflow: hidden;
+    background: var(--md-sys-color-surface);
+  }
+  .trace__span {
+    height: 100%; background: var(--seg); min-width: 1px; cursor: default;
+    transition: opacity 120ms ease, filter 120ms ease;
+  }
+  /* Hovering one span dims the rest, so the piece the tooltip describes is
+     unmistakable even when the slices are a pixel wide. */
+  .trace__bar:hover .trace__span { opacity: 0.45; }
+  /* Must carry :hover too, or the rule above outranks it and dims the hot slice
+     along with the rest — the whole bar greys out and nothing stands proud. */
+  .trace__bar:hover .trace__span--hot { opacity: 1; filter: brightness(1.15); }
+  .trace__tip {
+    position: absolute; bottom: calc(100% + var(--md-sys-spacing-2));
+    z-index: 5; pointer-events: none; opacity: 0;
+    transform: translate(-50%, 4px);
+    transition: opacity 120ms ease, transform 120ms ease;
+    padding: var(--md-sys-spacing-2) var(--md-sys-spacing-3);
+    border-radius: var(--md-sys-shape-corner-small);
+    background: var(--md-sys-color-inverse-surface);
+    color: var(--md-sys-color-inverse-on-surface);
+    box-shadow: 0 2px 6px 2px color-mix(in srgb, var(--md-sys-color-shadow) 15%, transparent),
+                0 1px 2px color-mix(in srgb, var(--md-sys-color-shadow) 30%, transparent);
+    white-space: nowrap;
+  }
+  .trace__tip[data-open="1"] { opacity: 1; transform: translate(-50%, 0); }
+  .trace__tip-state { display: flex; align-items: center; gap: var(--md-sys-spacing-2); }
+  .trace__tip-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--seg); flex: none; }
+  .trace__tip-times { display: block; margin-top: 2px; opacity: 0.85; }
+  .trace__span:first-child { border-radius: var(--md-sys-shape-corner-full) 0 0 var(--md-sys-shape-corner-full); }
+  .trace__span:last-child { border-radius: 0 var(--md-sys-shape-corner-full) var(--md-sys-shape-corner-full) 0; }
+  .trace__span:only-child { border-radius: var(--md-sys-shape-corner-full); }
+  .trace__axis { display: flex; justify-content: space-between; margin-top: var(--md-sys-spacing-1); opacity: 0.75; }
+
+  /* ================================== tabs ================================= */
+  /* Four tabs do not fit a phone, so the strip scrolls rather than truncating —
+     MD3's scrollable primary tabs. The scrollbar itself is hidden: it would sit
+     on the divider and the tabs are reachable by swipe and by keyboard anyway. */
+  .tabs {
+    flex: none; display: flex; gap: 0;
+    background: var(--md-sys-color-surface);
+    border-bottom: 1px solid var(--md-sys-color-outline-variant);
+    position: sticky; top: 0; z-index: 1;
+    overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab {
+    position: relative; flex: 0 0 auto;
+    height: 48px; padding: 0 var(--md-sys-spacing-6);
+    border: 0; background: transparent; cursor: pointer;
+    color: var(--md-sys-color-on-surface-variant);
+    display: inline-flex; align-items: center; gap: var(--md-sys-spacing-2);
+  }
+  .tab svg { width: 18px; height: 18px; }
+  .tab[aria-selected="true"] { color: var(--md-sys-color-primary); }
+  .tab[aria-selected="true"]::after {
+    content: ""; position: absolute; left: 50%; transform: translateX(-50%);
+    bottom: 0; width: calc(100% - 32px); height: 3px;
+    background: var(--md-sys-color-primary);
+    border-radius: var(--md-sys-shape-corner-full) var(--md-sys-shape-corner-full) 0 0;
+  }
+  /* Holds the scrolling panel and the floating jump buttons over it. */
+  .panel-wrap { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; position: relative; }
+  /* Moving between tabs, or between sessions, replaces everything below the tab
+     strip at once. Fading it in is what makes that read as the panel changing
+     what it is showing rather than the page being redrawn under you.
+     Opacity only, and deliberately: a transform here would make this box the
+     containing block for the comment cards, which are fixed to the passages they
+     belong to, and they would ride the animation away from their own text. */
+  .panel-wrap--entering { animation: panel-enter var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-standard); }
+  @keyframes panel-enter { from { opacity: 0; } }
+  .tab-panel { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+    padding: var(--md-sys-spacing-4) var(--md-sys-spacing-6) var(--md-sys-spacing-6); }
+
+  /* Both floating buttons ride in one right-anchored row. The row is laid out
+     left to right and ends at the right edge, so the round button keeping its
+     space while faded out cannot nudge the pill beside it. */
+  .jump-dock {
+    position: absolute; right: var(--md-sys-spacing-6); bottom: var(--md-sys-spacing-4);
+    display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+    pointer-events: none;
+  }
+  .jump-dock > * { pointer-events: auto; }
+
+  /* Both buttons come and go on the same motion as every other thing that floats
+     over the panel — the menu, the quote chip, the dialogs. They rise into place
+     rather than appearing, and shrink away rather than being cut, which is what
+     stops a pill that comes and goes with the scroll from reading as a flicker
+     at the corner of your eye. */
+  .jump-dock > [data-open] {
+    opacity: 0; transform: scale(0.85) translateY(6px); pointer-events: none;
+    transition: opacity var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+                transform var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-emphasized-decelerate);
+  }
+  .jump-dock > [data-open="true"] { opacity: 1; transform: none; pointer-events: auto; }
+
+  /* Back to the end of the conversation. Round and unlabelled: it is the one
+     move you make often enough that the arrow alone says it, and a pill here
+     would compete with the labelled button next to it. */
+  .jump-bottom {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 40px; height: 40px; flex: none;
+    border: 0; border-radius: var(--md-sys-shape-corner-full); cursor: pointer;
+    background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);
+    box-shadow: 0 2px 6px rgb(0 0 0 / 0.18);
+  }
+  .jump-bottom svg { width: 20px; height: 20px; }
+
+  .jump-last {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 36px; padding: 0 var(--md-sys-spacing-4);
+    border: 0; border-radius: var(--md-sys-shape-corner-full); cursor: pointer;
+    background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container);
+    box-shadow: 0 2px 6px rgb(0 0 0 / 0.18);
+  }
+  .jump-last svg { width: 16px; height: 16px; flex: none;
+    transition: transform var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized); }
+  /* One icon, turned over when the message sits below instead of above. Turned
+     rather than swapped: watching it come about is what tells you the direction
+     changed, on a pill whose words did not. */
+  .jump-last[data-dir="down"] svg { transform: rotate(180deg); }
+

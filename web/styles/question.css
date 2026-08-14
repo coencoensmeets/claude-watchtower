@@ -1,0 +1,51 @@
+  /* ============================ the question ============================== */
+  /* When Claude asks a multiple-choice question it blocks at its own prompt, and
+     until now the panel could only say that the session was waiting. This is the
+     question itself: what was asked, and every option with the sentence Claude
+     wrote about it. Above the composer, outside the scrolling panel, because it
+     is the thing that needs answering rather than part of the conversation. */
+  .ask {
+    flex: none; margin: 0;
+    padding: var(--md-sys-spacing-3) var(--md-sys-spacing-6) var(--md-sys-spacing-4);
+    border-top: 1px solid var(--md-sys-color-outline-variant);
+    background: var(--md-sys-color-surface);
+    max-height: 45vh; overflow-y: auto;
+  }
+  .ask__card {
+    padding: var(--md-sys-spacing-3) var(--md-sys-spacing-4);
+    border-radius: var(--md-sys-shape-corner-medium);
+    background: var(--md-sys-color-tertiary-container);
+    color: var(--md-sys-color-on-tertiary-container);
+  }
+  .ask__head {
+    display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+    margin: 0 0 var(--md-sys-spacing-2);
+  }
+  .ask__head svg { width: 18px; height: 18px; flex: none; }
+  .ask__head-label { flex: 1 1 auto; }
+  /* The one thing the panel can do about it: raise the window that is holding
+     the prompt. Read why answering happens there and not here in questionCard. */
+  /* Inherits the container's colour rather than taking the primary a text button
+     is normally drawn in, which would fight the tertiary it sits on. */
+  .ask__go { flex: none; padding-inline: var(--md-sys-spacing-3); color: inherit; }
+  .ask__go svg { width: 16px; height: 16px; }
+  .ask__q + .ask__q { margin-top: var(--md-sys-spacing-4); }
+  .ask__text { margin: 0 0 var(--md-sys-spacing-1); }
+  /* Says whether one option is wanted or several — the difference decides what
+     an answer even looks like, and only Claude knows which it asked for. */
+  .ask__how { margin: 0 0 var(--md-sys-spacing-2); opacity: 0.75; }
+  .ask__options { margin: 0; padding: 0; list-style: none;
+    display: flex; flex-direction: column; gap: var(--md-sys-spacing-2); }
+  .ask__option {
+    padding: var(--md-sys-spacing-2) var(--md-sys-spacing-3);
+    border-radius: var(--md-sys-shape-corner-small);
+    border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+    display: flex; gap: var(--md-sys-spacing-2);
+  }
+  /* The number beside each option is the key that picks it at the prompt, so the
+     card reads as a legend for what is on screen over there. */
+  .ask__index { flex: none; opacity: 0.6; }
+  .ask__label { display: block; }
+  .ask__why { display: block; margin-top: 2px; opacity: 0.8; }
+  .ask__note { margin: var(--md-sys-spacing-2) 0 0; opacity: 0.8; }
+

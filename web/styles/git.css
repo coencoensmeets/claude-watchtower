@@ -1,0 +1,181 @@
+  /* =============================== detail: git ============================= */
+  /* The branch line: where HEAD is, and how far it has drifted from upstream. */
+  .git-head { display: flex; align-items: center; gap: var(--md-sys-spacing-3); flex-wrap: wrap;
+    margin-bottom: var(--md-sys-spacing-4); }
+  .git-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px var(--md-sys-spacing-3);
+    border-radius: var(--md-sys-shape-corner-small);
+    background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container);
+  }
+  .git-badge svg { width: 15px; height: 15px; }
+  /* A badge that does something. Same pill, but it takes a press: the branch
+     opens the branch list, the drift counts push and pull what they are counting. */
+  .git-badge--button { border: 0; cursor: pointer; font: inherit; letter-spacing: inherit;
+    position: relative; }
+  .git-badge--button::after { content: ""; position: absolute; inset: -6px; }
+  .git-badge--button[data-git="branch-menu"] svg:last-child { width: 13px; height: 13px; opacity: 0.7; }
+  /* The drift counts, filled so they read as work waiting rather than as another
+     line of description. Amber for the one that is yours to do — the same colour
+     this panel uses for a session that needs an answer — and the primary tone for
+     what is arriving from the remote. */
+  .git-badge--drift { gap: 5px; }
+  .git-badge--drift[data-way="push"] {
+    background: var(--md-extended-color-waiting-container, var(--md-sys-color-tertiary-container));
+    color: var(--md-extended-color-waiting-on-container, var(--md-sys-color-on-tertiary-container));
+  }
+  .git-badge--drift[data-way="pull"] {
+    background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);
+  }
+  /* The word is the part that says what to do about it. It stays: the header
+     wraps, so a narrow pane puts the badges on their own line rather than
+     squeezing them, and "↑1" alone is exactly the thing that was too quiet. */
+  .git-badge__verb { opacity: 0.85; }
+  .git-badge--quiet { background: transparent; color: var(--md-sys-color-on-surface-variant);
+    padding-inline: 0; }
+
+  /* The commit box, laid out as the editor lays it out: the message above, the
+     one filled button below, and the rest of the commit's variants folded into
+     the arrow beside it. */
+  .scm-commit { display: flex; flex-direction: column; gap: var(--md-sys-spacing-3);
+    margin-bottom: var(--md-sys-spacing-4); }
+  /* The box holds the sparkle in its own corner, which is where the editors that
+     have this put it — inside the field it fills in, not beside the button that
+     uses it. The field keeps room for it so a long message never runs underneath. */
+  .scm-commit__box { position: relative; display: flex; }
+  /* Named through its parent so it outranks .scm-icon's own `position: relative`
+     below: lose that and the button rejoins the flow, taking its width out of the
+     field it is supposed to be sitting inside. */
+  .scm-commit__box .scm-commit__ai { position: absolute; top: 6px; right: 6px; }
+  .scm-commit__ai[data-busy="1"] { color: var(--md-sys-color-primary); }
+  .scm-commit__ai[data-busy="1"] svg { animation: scm-thinking 1.4s var(--md-sys-motion-easing-standard) infinite; }
+  @keyframes scm-thinking { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.45; transform: scale(0.88); } }
+  .scm-commit__field {
+    width: 100%; box-sizing: border-box; resize: none; overflow: hidden;
+    min-height: 56px; padding: var(--md-sys-spacing-3);
+    padding-right: 44px;
+    border: 1px solid var(--md-sys-color-outline); border-radius: var(--md-sys-shape-corner-small);
+    background: var(--md-sys-color-surface-container-lowest); color: var(--md-sys-color-on-surface);
+    font: inherit;
+  }
+  .scm-commit__field:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: -1px; border-color: transparent; }
+  .scm-commit__field:disabled { opacity: 0.6; cursor: not-allowed; }
+  /* Split button: one target for the common case, a narrow one for the rest.
+     The two halves meet flat so they read as the one control they are. */
+  .scm-commit__go { flex: 1 1 auto; border-radius: var(--md-sys-shape-corner-full) 0 0 var(--md-sys-shape-corner-full); }
+  .scm-commit__more { flex: none; width: 44px; padding: 0;
+    border-radius: 0 var(--md-sys-shape-corner-full) var(--md-sys-shape-corner-full) 0;
+    border-left: 1px solid color-mix(in srgb, var(--md-sys-color-on-primary) 30%, transparent); }
+  .scm-commit__row { display: flex; align-items: stretch; gap: 1px; }
+  .scm-commit__row .button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* A group of changed files — Merge, Staged, Changes — each with the actions
+     that apply to the whole group in its header. */
+  .scm-group { margin-bottom: var(--md-sys-spacing-4); }
+  .scm-group__head { display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+    min-height: 32px; }
+  .scm-group__title { flex: 1 1 auto; min-width: 0; color: var(--md-sys-color-on-surface-variant);
+    text-transform: uppercase; letter-spacing: 0.06em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .scm-count { display: inline-grid; place-items: center; min-width: 20px; height: 18px;
+    padding: 0 5px; margin-inline-start: var(--md-sys-spacing-2);
+    border-radius: var(--md-sys-shape-corner-full);
+    background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container);
+    letter-spacing: 0; }
+  .scm-actions { flex: none; display: flex; align-items: center; gap: 2px; }
+
+  /* Row actions appear on hover, as they do in the editor — but they stay put on
+     a touch screen and for anyone moving through the list by keyboard, where
+     there is no hover to reveal them. */
+  .scm-icon {
+    width: 30px; height: 30px; flex: none; position: relative;
+    display: grid; place-items: center; border: 0; border-radius: var(--md-sys-shape-corner-full);
+    background: transparent; color: var(--md-sys-color-on-surface-variant); cursor: pointer;
+  }
+  .scm-icon svg { width: 17px; height: 17px; }
+  /* Drawn at the editor's density, but reaching 44px like every other target
+     here. The extra 7px spills into the gap between rows, so two neighbouring
+     icons overlap slightly at their edges — a tap anywhere on the icon itself
+     still lands on its own row, which is the part that matters. */
+  .scm-icon::after { content: ""; position: absolute; inset: -7px; }
+  .scm-icon:disabled { opacity: 0.4; cursor: not-allowed; }
+  .scm-icon--danger:hover { color: var(--md-sys-color-error); }
+
+  /* One row per changed file: name, then the folder it sits in, then what
+     happened to it — the editor's order, which reads name-first down the list. */
+  .git-files { display: flex; flex-direction: column; }
+  .git-file {
+    display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+    padding: 2px var(--md-sys-spacing-2) 2px 0;
+    border-radius: var(--md-sys-shape-corner-extra-small);
+    min-height: 34px;
+  }
+  .git-file__open { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: var(--md-sys-spacing-2);
+    background: none; border: 0; padding: var(--md-sys-spacing-1) var(--md-sys-spacing-2);
+    color: inherit; font: inherit; text-align: left; cursor: pointer; border-radius: inherit; }
+  .git-file__name { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .git-file__dir { flex: 1 1 auto; min-width: 0; color: var(--md-sys-color-on-surface-variant);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+  .git-file__from { flex: none; color: var(--md-sys-color-on-surface-variant); }
+  .git-file__xy { flex: none; width: 1.6ch; text-align: center; font-weight: 700;
+    color: var(--md-sys-color-on-surface-variant); }
+  .git-file[data-open="1"] { background: var(--md-sys-color-surface-container-high); }
+  .git-file:hover { background: var(--md-sys-color-surface-container-high); }
+  /* Hidden until the row is under the pointer or holds the focus — but never
+     hidden where hover does not exist, or they could not be reached at all. */
+  .git-file .scm-actions { opacity: 0; transition: opacity 90ms linear; }
+  .git-file:hover .scm-actions, .git-file:focus-within .scm-actions, .git-file[data-open="1"] .scm-actions { opacity: 1; }
+  @media (hover: none) { .git-file .scm-actions { opacity: 1; } }
+  /* Added, modified, removed and conflicted each get a colour that is already in
+     the scheme, so they follow the base colour like everything else. */
+  .git-file[data-mark="A"] .git-file__xy,
+  .git-file[data-mark="U"] .git-file__xy { color: var(--md-extended-color-idle-color, var(--md-sys-color-primary)); }
+  .git-file[data-mark="M"] .git-file__xy,
+  .git-file[data-mark="R"] .git-file__xy { color: var(--md-extended-color-waiting-color, var(--md-sys-color-tertiary)); }
+  .git-file[data-mark="D"] .git-file__xy { color: var(--md-sys-color-error); }
+  .git-file[data-mark="!"] .git-file__xy { color: var(--md-sys-color-error); }
+
+  /* The diff a row opens, in place rather than in a second pane: the panel is one
+     column wide and side-by-side would leave neither side readable. */
+  .scm-diff {
+    margin: 0 0 var(--md-sys-spacing-2) var(--md-sys-spacing-2);
+    padding: var(--md-sys-spacing-3);
+    max-height: 420px; overflow: auto; overscroll-behavior: contain;
+    border-radius: var(--md-sys-shape-corner-small);
+    border: 1px solid var(--md-sys-color-outline-variant);
+    background: var(--md-sys-color-surface-container-lowest);
+    white-space: pre; tab-size: 4;
+  }
+  .scm-diff__line { display: block; }
+  .scm-diff__line--add { color: var(--md-extended-color-idle-color, var(--md-sys-color-primary)); }
+  .scm-diff__line--del { color: var(--md-sys-color-error); }
+  .scm-diff__line--hunk { color: var(--md-sys-color-primary); }
+  .scm-diff__line--meta { color: var(--md-sys-color-on-surface-variant); }
+
+  /* The graph: one lane per concurrent line of history, drawn beside the log. */
+  .git-graph { display: grid; grid-template-columns: auto 1fr; }
+  .git-graph__lanes { grid-column: 1; }
+  /* A fixed height, because the rail beside each row is an SVG of exactly this
+     many pixels: let the rows grow with their text and the lanes stop meeting
+     across the join. The subject is ellipsised rather than wrapped for the same
+     reason. */
+  .git-commit {
+    display: grid; grid-template-columns: subgrid; grid-column: 1 / -1;
+    align-items: center; gap: var(--md-sys-spacing-3);
+    height: 52px;
+  }
+  .git-commit__rail { grid-column: 1; align-self: stretch; display: block; }
+  /* The separator runs under the text only. Carrying it across the rail column
+     would put a 1px break through every lane, at every row. */
+  .git-commit__body { grid-column: 2; min-width: 0; align-self: stretch;
+    display: flex; flex-direction: column; justify-content: center;
+    border-top: 1px solid var(--md-sys-color-outline-variant); }
+  .git-commit__subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .git-commit__meta { color: var(--md-sys-color-on-surface-variant); display: flex; gap: 6px;
+    align-items: center; flex-wrap: wrap; }
+  .git-ref {
+    padding: 1px 6px; border-radius: var(--md-sys-shape-corner-extra-small);
+    background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);
+  }
+  .git-ref--head { background: var(--md-sys-color-tertiary-container); color: var(--md-sys-color-on-tertiary-container); }
+  .git-empty { color: var(--md-sys-color-on-surface-variant); padding: var(--md-sys-spacing-3) 0; }
+

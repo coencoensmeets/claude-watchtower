@@ -1,0 +1,39 @@
+  /* ================================ the plan =============================== */
+  /* How much of the subscription has gone, in the app bar: the two figures you would
+     otherwise run /usage for, and a press for the rest of the report. */
+  .plan-chip {
+    display: inline-flex; align-items: center; gap: 6px; flex: none;
+    height: 32px; padding: 0 var(--md-sys-spacing-3);
+    border: 1px solid var(--md-sys-color-outline-variant); border-radius: var(--md-sys-shape-corner-full);
+    background: transparent; color: inherit; cursor: pointer; font: inherit; letter-spacing: inherit;
+    position: relative;
+  }
+  .plan-chip svg { width: 16px; height: 16px; }
+  #planChipText { display: inline-flex; align-items: baseline; gap: 6px;
+    font-variant-numeric: tabular-nums; }
+  /* Each figure carries its own light: green while there is room, amber past
+     three quarters, red near the ceiling. The chip itself stays outlined so two
+     limits in different bands can each say their own thing. */
+  .plan-pct[data-band="0"] { color: var(--md-extended-color-plenty-color, var(--md-sys-color-primary)); }
+  .plan-pct[data-band="1"] { color: var(--md-extended-color-waiting-color, var(--md-sys-color-tertiary)); }
+  .plan-pct[data-band="2"] { color: var(--md-sys-color-error); font-weight: 600; }
+  .plan-chip__sep { color: var(--md-sys-color-outline); }
+  /* Near the ceiling on either figure the chip stops being a fact and starts
+     being a warning. */
+  .plan-chip[data-tight="2"] { border-color: var(--md-sys-color-error); }
+  /* A reading in flight, said the way the panel says it everywhere else. */
+  .plan-chip[data-reading="1"] svg { animation: plan-spin 1.4s linear infinite; }
+  @keyframes plan-spin { to { transform: rotate(360deg); } }
+
+  .plan-limit { margin-bottom: var(--md-sys-spacing-5); }
+  .plan-limit__head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--md-sys-spacing-3); }
+  .plan-limit__pct { font-variant-numeric: tabular-nums; }
+  .plan-limit__resets { color: var(--md-sys-color-on-surface-variant); }
+  .plan-block { margin-top: var(--md-sys-spacing-5); }
+  .plan-block__title { color: var(--md-sys-color-on-surface-variant); }
+  .plan-block ul { margin: var(--md-sys-spacing-2) 0 0; padding-left: var(--md-sys-spacing-5); }
+  .plan-block li { margin-bottom: 2px; overflow-wrap: anywhere; }
+  .plan-raw { white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--md-ref-typeface-mono); }
+  .plan-note { color: var(--md-sys-color-on-surface-variant); margin-top: var(--md-sys-spacing-4); }
+  .plan-age { align-self: center; }
+

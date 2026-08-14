@@ -1,0 +1,20 @@
+  /* ============================== detail: facts ============================ */
+  .section { margin-bottom: var(--md-sys-spacing-6); }
+  .section__title { color: var(--md-sys-color-on-surface-variant); margin-bottom: var(--md-sys-spacing-3); }
+  .facts { display: grid; grid-template-columns: minmax(120px, 180px) 1fr; gap: 0; margin: 0; }
+  .facts dt { padding: var(--md-sys-spacing-2) 0; color: var(--md-sys-color-on-surface-variant); border-top: 1px solid var(--md-sys-color-outline-variant); }
+  .facts dd { padding: var(--md-sys-spacing-2) 0; margin: 0; border-top: 1px solid var(--md-sys-color-outline-variant); overflow-wrap: anywhere; }
+  /* Copying moved out of the row menu and into the facts it copies, so the
+     value and the way to take it sit together. */
+  /* Same copy glyph as everywhere else, sized to sit inside a line of text. */
+  .fact-copy {
+    width: 24px; height: 24px; display: inline-grid; vertical-align: -6px;
+    margin-left: var(--md-sys-spacing-1); color: var(--md-sys-color-primary);
+  }
+  .fact-copy::after { inset: -8px; }
+  .fact-copy svg { width: 16px; height: 16px; }
+  .row { display: flex; align-items: center; gap: var(--md-sys-spacing-4); flex-wrap: wrap; }
+  /* Identify and pair sit side by side when a window cannot be told apart. */
+  .detail-window-actions { display: flex; gap: var(--md-sys-spacing-2); flex-wrap: wrap; }
+  .row__grow { flex: 1 1 auto; min-width: 0; }
+
