@@ -356,13 +356,22 @@ check("everything on screen clears 4.5:1", rows.length >= 5 && worst >= 4.5, `wo
 console.log("      " + rows.map((r) => `${r.label} ${r.ratio}`).join("  "));
 
 /* ------------------------------------------------------------ filter chips */
+/* The chips are drawn from the states actually present, so against a real panel
+   there may be no "waiting" chip to click. Say so and move on — reaching for one
+   that is not there took the whole run down with it. */
 const beforeFilter = await evaluate(`document.querySelectorAll('.session-item').length`);
-await evaluate(`[...document.querySelectorAll('.chip')].find(c => c.textContent.includes('waiting')).click()`);
-await sleep(800);
-const afterFilter = await evaluate(`document.querySelectorAll('.session-item').length`);
-check("filter chip narrows the list", afterFilter >= 1 && afterFilter < beforeFilter, `${beforeFilter} -> ${afterFilter}`);
-await evaluate(`[...document.querySelectorAll('.chip')].find(c => c.textContent.includes('all')).click()`);
-await sleep(600);
+const filterChip = await evaluate(
+  `!!([...document.querySelectorAll('.chip')].find(c => c.textContent.includes('waiting')))`);
+if (!filterChip) {
+  console.log("SKIP  filter chips — no session is waiting right now");
+} else {
+  await evaluate(`[...document.querySelectorAll('.chip')].find(c => c.textContent.includes('waiting')).click()`);
+  await sleep(800);
+  const afterFilter = await evaluate(`document.querySelectorAll('.session-item').length`);
+  check("filter chip narrows the list", afterFilter >= 1 && afterFilter < beforeFilter, `${beforeFilter} -> ${afterFilter}`);
+  await evaluate(`[...document.querySelectorAll('.chip')].find(c => c.textContent.includes('all'))?.click()`);
+  await sleep(600);
+}
 
 /* ------------------------------------------------- settings / dynamic colour */
 await evaluate(`document.getElementById('settingsButton').click()`);
@@ -397,6 +406,587 @@ await evaluate(`document.getElementById('themeToggle').click()`);
 await sleep(700);
 check("theme switch flips the scheme", await evaluate(`localStorage.getItem('cbu-theme') === 'dark'`));
 
+/* --------------------------------------------------- commenting on a passage */
+/* Select a passage and the panel offers Copy and Comment; commenting opens a
+   card in the margin against that passage, the way a document does it. The cards
+   are gathered into one attributed quote-and-remark message, so what reaches the
+   session is the same thing the composer used to send.
+
+   Fixture sessions have no transcript, so this needs a real one and says so
+   plainly when there is none. Everything here selects a run of text that is
+   genuinely on screen: the panel deliberately offers nothing for a passage
+   scrolled out of the transcript's own box. */
+const chatSession = await evaluate(`(async () => {
+  const state = await (await fetch('/api/state', { cache: 'no-store' })).json();
+  // A busy session rewrites its transcript underneath the run, and the pane
+  // rebuild takes the selection with it. Prefer a quiet one.
+  const quietFirst = [...state.sessions].sort((a, b) =>
+    (a.status === 'busy' ? 1 : 0) - (b.status === 'busy' ? 1 : 0));
+  for (const s of quietFirst) {
+    const t = await (await fetch('/api/transcript?sessionId=' + encodeURIComponent(s.sessionId) + '&limit=40',
+      { cache: 'no-store' })).json();
+    if ((t.messages || []).filter((m) => m.text && m.text.length > 40).length >= 2) return s.sessionId;
+  }
+  return "";
+})()`);
+if (!chatSession) {
+  console.log("SKIP  commenting — no session has a readable transcript (point PANEL_URL at a real panel)");
+} else {
+  await evaluate(`document.querySelector('[data-id="' + CSS.escape(${JSON.stringify(chatSession)}) + '"] .session-item').click()`);
+  await sleep(1200);
+  await evaluate(`document.querySelector('[data-tab="chat"]')?.click()`);
+  await sleep(1200);
+  // Wide enough for the margin rail; the narrow behaviour is checked separately.
+  await send("Emulation.setDeviceMetricsOverride", { width: 1600, height: 1000, deviceScaleFactor: 1, mobile: false });
+  await sleep(700);
+
+  /* Nothing here may actually message a live session, so /api/say and /api/start
+     are intercepted and their bodies kept. That is also how the wire format is
+     asserted: what the panel would have sent, without sending it. */
+  await evaluate(`(() => {
+    window.__sent = [];
+    if (!window.__realFetch) window.__realFetch = window.fetch.bind(window);
+    window.fetch = (url, opts) => {
+      const u = String(url);
+      if ((u.includes('/api/say') || u.includes('/api/start')) && opts && opts.method === 'POST') {
+        window.__sent.push(JSON.parse(opts.body));
+        return Promise.resolve(new Response(JSON.stringify({ ok: true, message: 'Sent (intercepted)' }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      }
+      return window.__realFetch(url, opts);
+    };
+    return true;
+  })()`);
+
+  const SELECT = (nth) => `(() => {
+    const scroller = document.getElementById('chatScroll');
+    if (!scroller) return null;
+    // What a mousedown in the transcript does first. It matters: with the caret
+    // in a field, getSelection() reports that field rather than the document.
+    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+    const box = scroller.getBoundingClientRect();
+    const found = [];
+    for (const body of document.querySelectorAll('#chatScroll .msg__text')) {
+      if (body.textContent.trim().length < 40) continue;
+      const walk = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+      let node;
+      while ((node = walk.nextNode())) {
+        if (node.textContent.trim().length < 25) continue;
+        const r = document.createRange();
+        r.setStart(node, 0); r.setEnd(node, Math.min(node.textContent.length, 60));
+        const rect = r.getBoundingClientRect();
+        if (!rect.width || rect.top < box.top || rect.bottom > box.bottom) continue;
+        found.push(r);
+      }
+    }
+    const avoid = ${nth};
+    const range = found.find((r) => r.toString() !== avoid);
+    if (!range) return JSON.stringify({ text: "", runs: found.length });
+    const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+    return JSON.stringify({ text: sel.toString(), runs: found.length });
+  })()`;
+
+  /* Sweep the transcript rather than nudging blindly: the view opens pinned to
+     the newest message, and a viewport holding only a table or a tool row has
+     nothing that qualifies however long you wait. Says which way it failed,
+     since "nothing to select" and "selected, but no bar" are different answers. */
+  let lastMiss = "";
+  const selectAndOffer = async (avoid = "") => {
+    const nth = JSON.stringify(avoid);
+    lastMiss = "";
+    let seen = 0;
+    for (let pass = 0; pass < 2; pass++) {
+      for (let stop = 0; stop <= 6; stop++) {
+        await evaluate(`(() => { const s = document.getElementById('chatScroll');
+          if (s) s.scrollTop = (s.scrollHeight - s.clientHeight) * ${stop / 6}; })()`);
+        await sleep(250);
+        const got = JSON.parse((await evaluate(SELECT(nth))) || '{"text":"","runs":0}');
+        seen = Math.max(seen, got.runs);
+        if (!got.text) continue;
+        await sleep(400);
+        if (await evaluate(`document.getElementById('quoteChip')?.hidden === false`)) return got.text;
+        lastMiss = "selected, but no bar";
+      }
+    }
+    if (lastMiss !== "selected, but no bar") {
+      lastMiss = seen ? `${seen} runs on screen, all already used` : "no run on screen to select";
+    }
+    return null;
+  };
+  const clearComments = () => evaluate(`(() => {
+    for (const b of document.querySelectorAll('.ccard [data-cc="drop"]')) b.click();
+    return true; })()`);
+
+  check("bubbles carry who and when, for a quote's attribution", await evaluate(
+    `(() => { const m = document.querySelector('#chatScroll .msg'); return !!m?.dataset.who && !!m?.dataset.at; })()`));
+
+  const firstPick = await selectAndOffer();
+  check("selecting a passage offers a bar", !!firstPick,
+    firstPick ? JSON.stringify(firstPick.slice(0, 40)) : lastMiss);
+
+  if (firstPick) {
+    const bar = JSON.parse(await evaluate(`(() => { const c = document.getElementById('quoteChip');
+      const r = c.getBoundingClientRect();
+      return JSON.stringify({ acts: [...c.querySelectorAll('[data-sel]')].map((b) => b.dataset.sel),
+        label: c.textContent.replace(/\\s+/g, ' ').trim(),
+        onScreen: r.top >= 0 && r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight }); })()`));
+    check("the bar offers Copy and Comment", bar.acts.join(",") === "copy,comment" && /Copy/.test(bar.label) && /Comment/.test(bar.label),
+      JSON.stringify(bar));
+    check("the bar is fully on screen", bar.onScreen);
+
+    /* Copy. The clipboard is not readable in a headless context without a
+       permission grant, so this asserts the call was made with the passage
+       rather than reading it back. */
+    await evaluate(`(() => { window.__copied = null;
+      if (navigator.clipboard) navigator.clipboard.writeText = (t) => { window.__copied = t; return Promise.resolve(); };
+      return true; })()`);
+    await evaluate(`document.querySelector('#quoteChip [data-sel="copy"]').click()`);
+    await sleep(400);
+    const copied = await evaluate(`window.__copied`);
+    check("Copy puts the passage on the clipboard", typeof copied === "string" && copied.length > 10,
+      JSON.stringify((copied || "").slice(0, 40)));
+    check("Copy puts the bar away", await evaluate(`document.getElementById('quoteChip').hidden`) === true);
+
+    // Comment.
+    const second = await selectAndOffer();
+    if (!second) {
+      console.log(`SKIP  commenting — could not re-select after Copy (${lastMiss})`);
+    } else {
+      await evaluate(`document.querySelector('#quoteChip [data-sel="comment"]').click()`);
+      await sleep(600);
+      const card = JSON.parse(await evaluate(`(() => {
+        const c = document.querySelector('.ccard');
+        if (!c) return JSON.stringify({ none: true });
+        const f = c.querySelector('.ccard__field');
+        return JSON.stringify({ quote: (c.querySelector('.ccard__quote')?.textContent || '').trim().slice(0, 40),
+          hasField: !!f, focused: document.activeElement === f,
+          railShown: !document.getElementById('commentRail').hidden,
+          mode: document.getElementById('commentRail').dataset.mode,
+          padded: document.querySelector('.panel-wrap').dataset.rail }); })()`));
+      check("Comment opens a card against the passage", !card.none && card.hasField, JSON.stringify(card));
+      check("the card carries the passage it is about", (card.quote || "").length > 5, JSON.stringify(card.quote));
+      check("the card takes the caret", card.focused === true);
+      check("the card sits in the conversation, under its message",
+        await evaluate(`(() => { const c = document.querySelector('.ccard');
+          return !!c && !!c.closest('#chatScroll'); })()`));
+      check("the card is indented, so it does not read as another turn",
+        await evaluate(`(() => { const c = document.querySelector('.ccard');
+          return c ? parseFloat(getComputedStyle(c).marginLeft) >= 24 : false; })()`),
+        await evaluate(`(() => { const c = document.querySelector('.ccard');
+          return c ? getComputedStyle(c).marginLeft : 'none'; })()`));
+      check("the passage is marked in the transcript",
+        await evaluate(`document.querySelectorAll('#chatScroll mark.commented').length`) >= 1);
+      check("the card sits level with its passage", await evaluate(`(() => {
+        const mark = document.querySelector('#chatScroll mark.commented');
+        const card = document.querySelector('.ccard');
+        if (!mark || !card) return false;
+        // Both are measured in the viewport, so a card level with its passage
+        // lands within a bubble's height of it.
+        return Math.abs(mark.getBoundingClientRect().top - card.getBoundingClientRect().top) < 200; })()`));
+
+      // Nothing is sendable until a remark is written.
+      check("nothing is sendable until something is written",
+        await evaluate(`document.querySelector('.rail__send')?.disabled === true`),
+        await evaluate(`document.querySelector('.rail__send')?.textContent || ''`));
+
+      await evaluate(`(() => { const f = document.querySelector('.ccard[data-active="true"] .ccard__field')
+          || document.querySelector('.ccard__field');
+        f.value = 'make this configurable instead';
+        f.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+      await sleep(300);
+      check("writing a remark arms the send button", await evaluate(
+        `(() => { const b = document.querySelector('.rail__send');
+          return !b.disabled && /Send 1 comment$/.test(b.textContent.trim()); })()`),
+        await evaluate(`document.querySelector('.rail__send')?.textContent || ''`));
+
+      /* The pane must not be rebuilt out from under a card being typed in — the
+         same guard a half-typed name and a composer drag already get. The panel
+         polls every second, so sitting through several of them is the real test;
+         renderDetail itself is module-scoped and cannot be called from here. */
+      await sleep(3200);
+      check("a card being typed in survives the polls", await evaluate(
+        `(() => { const f = document.querySelector('.ccard__field');
+          return !!f && f.value === 'make this configurable instead'; })()`),
+        await evaluate(`document.querySelector('.ccard__field')?.value ?? 'gone'`));
+
+      // A second passage becomes a second card rather than replacing the first.
+      const third = await selectAndOffer(second);
+      if (!third) {
+        console.log(`SKIP  a second card — no other passage to select (${lastMiss})`);
+      } else {
+        await evaluate(`document.querySelector('#quoteChip [data-sel="comment"]').click()`);
+        await sleep(500);
+        check("a second passage opens a second card",
+          await evaluate(`document.querySelectorAll('.ccard').length`) >= 2,
+          `${await evaluate(`document.querySelectorAll('.ccard').length`)} cards`);
+        check("cards do not overlap each other", await evaluate(`(() => {
+          const cards = [...document.querySelectorAll('.ccard')]
+            .map((c) => c.getBoundingClientRect()).sort((a, b) => a.top - b.top);
+          for (let i = 1; i < cards.length; i++) if (cards[i].top < cards[i - 1].bottom - 1) return false;
+          return true; })()`));
+        // The newest card, not the last in the DOM: cards are ordered by where
+        // their message sits in the conversation, not by when they were made.
+        await evaluate(`(() => { const f = document.querySelector('.ccard[data-active="true"] .ccard__field');
+          if (!f) return false;
+          f.value = 'and this one too'; f.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+        await sleep(300);
+      }
+
+      /* What would go over the wire. Sending is intercepted, so this reads the
+         message the panel built without a live session ever seeing it. */
+      await evaluate(`(() => { window.__sent = []; return true; })()`);
+      await evaluate(`document.querySelector('.rail__send').click()`);
+      await sleep(700);
+      const sent = JSON.parse(await evaluate(`JSON.stringify(window.__sent)`));
+      check("sending delivers one message for all the comments", sent.length === 1, `${sent.length} messages`);
+      /* And to the session on screen. The click handler used to be re-attached
+         on every repaint, each copy holding the session selected when it was
+         bound, so a send could land on a session that was not even open. The
+         count check could not see it: the in-flight guard let only the first
+         stale handler through, so exactly one message went to the wrong place. */
+      check("it goes to the session being looked at",
+        sent.length === 1 && sent[0].sessionId === chatSession,
+        sent.length ? `sent to ${sent[0].sessionId.slice(0, 8)}, looking at ${chatSession.slice(0, 8)}` : "not sent");
+      if (sent.length) {
+        const text = sent[0].text;
+        check("each comment goes as an attributed quote with its remark below",
+          /^> \[[^\],]+, [^\]]+\]$/m.test(text) && /make this configurable instead/.test(text),
+          JSON.stringify(text.split("\n").slice(0, 2).join(" / ")));
+        check("the quote is written from the reader's point of view",
+          /^> \[(you|me|[^\]]+), /m.test(text) && !/^> \[claude, /m.test(text),
+          text.split("\n").find((l) => l.startsWith("> [")) || "");
+        check("every quoted line is prefixed and the remark is not",
+          text.split("\n").filter((l) => l.trim()).some((l) => !l.startsWith(">")) &&
+          text.split("\n").filter((l) => l.startsWith(">")).length >= 2);
+      }
+      check("sent comments leave the rail", await evaluate(
+        `document.querySelectorAll('.ccard').length`) === 0,
+        `${await evaluate(`document.querySelectorAll('.ccard').length`)} left`);
+      check("their marks stay, so you can see where you have been",
+        await evaluate(`document.querySelectorAll('#chatScroll mark.commented').length`) >= 1);
+    }
+  }
+
+  /* Narrow windows need no special case any more: the card is in the flow of the
+     conversation, so it reflows with it rather than needing a margin to live in. */
+  const forNarrow = await selectAndOffer();
+  if (forNarrow) {
+    await evaluate(`document.querySelector('#quoteChip [data-sel="comment"]').click()`);
+    await sleep(500);
+    await send("Emulation.setDeviceMetricsOverride", { width: 820, height: 900, deviceScaleFactor: 1, mobile: false });
+    await sleep(900);
+    const narrow = JSON.parse(await evaluate(`(() => {
+      const card = document.querySelector('.ccard');
+      if (!card) return JSON.stringify({ none: true });
+      const r = card.getBoundingClientRect();
+      return JSON.stringify({ inFlow: !!card.closest('#chatScroll'),
+        onScreen: r.left >= 0 && r.right <= innerWidth + 1 && r.width > 100 }); })()`));
+    check("the card stays in the conversation when the window narrows",
+      narrow.inFlow === true && narrow.onScreen === true, JSON.stringify(narrow));
+    await clearComments();
+    await send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
+    await sleep(600);
+  } else {
+    console.log(`SKIP  narrow layout — nothing to select (${lastMiss})`);
+  }
+
+  /* A selection running across several messages becomes one quote each rather
+     than being refused for carrying one attribution over two speakers. */
+  const spanning = await evaluate(`(() => {
+    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+    const bodies = [...document.querySelectorAll('#chatScroll .msg__text')].filter((b) => b.textContent.trim().length > 40);
+    if (bodies.length < 2) return null;
+    const r = document.createRange();
+    r.setStart(bodies[0], 0); r.setEnd(bodies[1], bodies[1].childNodes.length);
+    const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    return sel.toString().length;
+  })()`);
+  await sleep(500);
+  if (spanning === null) console.log("SKIP  cross-bubble selection — only one bubble in the transcript");
+  else if (await evaluate(`document.getElementById('quoteChip')?.hidden !== false`)) {
+    console.log("SKIP  cross-bubble selection — the bubbles are not on screen");
+  } else {
+    await evaluate(`document.querySelector('#quoteChip [data-sel="comment"]').click()`);
+    await sleep(600);
+    check("a selection across bubbles becomes one card each",
+      await evaluate(`document.querySelectorAll('.ccard').length`) >= 2,
+      `${await evaluate(`document.querySelectorAll('.ccard').length`)} cards`);
+    await clearComments();
+    await sleep(300);
+  }
+
+  /* A passage out of a code block goes back fenced. Quoted as prose its
+     indentation is flattened, which is the part worth quoting. */
+  // Whether a transcript has a fenced block at all varies run to run, so this
+  // goes looking for a session that has one rather than skipping by luck.
+  if (!(await evaluate(`document.querySelectorAll('#chatScroll pre.md-code').length`))) {
+    const withCode = await evaluate(`(async () => {
+      const state = await (await fetch('/api/state', { cache: 'no-store' })).json();
+      for (const s of state.sessions) {
+        const t = await (await fetch('/api/transcript?sessionId=' + encodeURIComponent(s.sessionId) + '&limit=40',
+          { cache: 'no-store' })).json();
+        if ((t.messages || []).some((m) => m.text && m.text.includes('\\n\`\`\`'))) return s.sessionId;
+      }
+      return "";
+    })()`);
+    if (withCode) {
+      await evaluate(`document.querySelector('[data-id="' + CSS.escape(${JSON.stringify(withCode)}) + '"] .session-item')?.click()`);
+      await sleep(1800);
+    }
+  }
+  const codeSel = await evaluate(`(() => {
+    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+    const pre = [...document.querySelectorAll('#chatScroll pre.md-code')].find((p) => p.textContent.trim().length > 20);
+    if (!pre) return null;
+    pre.scrollIntoView({ block: 'center' });
+    const code = pre.querySelector('code') || pre;
+    const r = document.createRange(); r.selectNodeContents(code);
+    const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    return sel.toString().slice(0, 30);
+  })()`);
+  await sleep(500);
+  // The transcript is live, so a rebuild between selecting and taking the offer
+  // can move the selection off the code block. Assert only when it is still the
+  // code that is selected — otherwise this would grade whatever it caught.
+  const codeHeld = codeSel !== null
+    && (await evaluate(`window.getSelection().toString().slice(0, 30)`)) === codeSel;
+  if (codeSel === null) console.log("SKIP  code quoting — no code block in this transcript");
+  else if (!codeHeld) console.log("SKIP  code quoting — the selection moved before it could be taken");
+  else if (await evaluate(`document.getElementById('quoteChip')?.hidden !== false`)) {
+    console.log("SKIP  code quoting — the code block is not on screen");
+  } else {
+    await evaluate(`document.querySelector('#quoteChip [data-sel="comment"]').click()`);
+    await sleep(500);
+    await evaluate(`(() => { const f = document.querySelector('.ccard__field');
+      if (!f) return false; f.value = 'x'; f.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+    await evaluate(`(() => { window.__sent = []; return true; })()`);
+    await evaluate(`document.querySelector('.rail__send')?.click()`);
+    await sleep(700);
+    const sent = JSON.parse(await evaluate(`JSON.stringify(window.__sent)`));
+    check("a code passage goes back fenced, not flattened",
+      sent.length === 1 && (sent[0].text.match(/^> ```/gm) || []).length === 2,
+      sent.length ? JSON.stringify(sent[0].text.split("\n").slice(0, 3).join(" / ")) : "not sent");
+    await clearComments();
+  }
+
+  /* A tool row is the only place a command the session ran is written down, so
+     "this command was wrong" needs it to be quotable. */
+  const toolSel = await evaluate(`(() => {
+    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+    const row = [...document.querySelectorAll('#chatScroll .activity-row__tools')].find((t) => t.textContent.trim().length > 20);
+    if (!row) return null;
+    row.scrollIntoView({ block: 'center' });
+    const r = document.createRange(); r.selectNodeContents(row);
+    const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    return sel.toString().slice(0, 40);
+  })()`);
+  await sleep(500);
+  if (toolSel === null) console.log("SKIP  tool-row quoting — no tool rows in this transcript");
+  else check("a tool row can be commented on too",
+    await evaluate(`document.getElementById('quoteChip')?.hidden === false`), JSON.stringify(toolSel));
+
+  /* A passage crossing inline markup cannot be wrapped in a mark, and anchoring
+     to marks alone put exactly those cards at the top of the rail instead of
+     beside anything. This is that case. */
+  const spanMarkup = await evaluate(`(() => {
+    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+    const scroller = document.getElementById('chatScroll');
+    const box = scroller.getBoundingClientRect();
+    for (const body of document.querySelectorAll('#chatScroll .msg__text')) {
+      const inline = body.querySelector('code, strong, em, a');
+      if (!inline) continue;
+      const before = inline.previousSibling, after = inline.nextSibling;
+      if (!before || before.nodeType !== 3 || !after || after.nodeType !== 3) continue;
+      if (before.data.trim().length < 8 || after.data.trim().length < 8) continue;
+      const r = document.createRange();
+      r.setStart(before, Math.max(0, before.data.length - 8));
+      r.setEnd(after, Math.min(after.data.length, 8));
+      const rect = r.getBoundingClientRect();
+      if (!rect.width || rect.top < box.top || rect.bottom > box.bottom) continue;
+      const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+      return sel.toString().slice(0, 40);
+    }
+    return null;
+  })()`);
+  await sleep(500);
+  if (spanMarkup === null) console.log("SKIP  markup-spanning passage — none on screen to select");
+  else if (await evaluate(`document.getElementById('quoteChip')?.hidden !== false`)) {
+    console.log("SKIP  markup-spanning passage — no bar offered");
+  } else {
+    await evaluate(`document.querySelector('#quoteChip [data-sel="comment"]').click()`);
+    await sleep(600);
+    const anchored = await evaluate(`(() => {
+      const card = document.querySelector('.ccard');
+      const scroller = document.getElementById('chatScroll');
+      if (!card) return null;
+      const top = Math.round(card.getBoundingClientRect().top);
+      const box = scroller.getBoundingClientRect();
+      // Anchored means somewhere in the transcript's own band, not pinned to the
+      // very top of the rail, which is where an unanchored card lands.
+      return JSON.stringify({ top, boxTop: Math.round(box.top),
+        pinnedToTop: Math.abs(top - box.top) < 2 });
+    })()`);
+    if (!anchored) check("a passage crossing markup still anchors its card", false, "no card");
+    else {
+      const a = JSON.parse(anchored);
+      check("a passage crossing markup still anchors its card", !a.pinnedToTop,
+        `card top ${a.top}, transcript top ${a.boxTop}`);
+      // And it is underlined. A range straddling an element boundary cannot be
+      // wrapped in one go, so this is marked piece by piece — without that, the
+      // passages most worth commenting on were the ones left unmarked.
+      const spanMarks = await evaluate(`(() => {
+        const ms = [...document.querySelectorAll('#chatScroll mark.commented')];
+        return JSON.stringify({ n: ms.length,
+          underlined: ms.every((m) => /inset/.test(getComputedStyle(m).boxShadow)) }); })()`);
+      const sm = JSON.parse(spanMarks);
+      check("a passage crossing markup is underlined too", sm.n >= 1 && sm.underlined,
+        `${sm.n} marks, underlined ${sm.underlined}`);
+    }
+    await clearComments();
+    await sleep(300);
+  }
+
+  /* A phrase that appears in more than one turn must attach to the turn it was
+     selected in. Matching by words alone put the card on whichever turn said it
+     first, which is usually not the one being read. */
+  const dupe = await evaluate(`(() => {
+    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+    const scroller = document.getElementById('chatScroll');
+    const box = scroller.getBoundingClientRect();
+    const msgs = [...document.querySelectorAll('#chatScroll .msg')];
+    // A run of text that occurs in an earlier turn as well as a later one.
+    for (let i = msgs.length - 1; i > 0; i--) {
+      const body = msgs[i].querySelector('.msg__text');
+      if (!body) continue;
+      const walk = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+      let node;
+      while ((node = walk.nextNode())) {
+        const words = node.data.trim();
+        if (words.length < 14) continue;
+        const run = words.slice(0, Math.min(30, words.length));
+        const earlier = msgs.slice(0, i).some((m) => m.textContent.includes(run));
+        if (!earlier) continue;
+        const at = node.data.indexOf(run);
+        const r = document.createRange();
+        r.setStart(node, at); r.setEnd(node, at + run.length);
+        const rect = r.getBoundingClientRect();
+        if (!rect.width || rect.top < box.top || rect.bottom > box.bottom) continue;
+        const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+        return JSON.stringify({ run: run.slice(0, 30), key: msgs[i].dataset.key });
+      }
+    }
+    return null;
+  })()`);
+  await sleep(500);
+  if (dupe === null) console.log("SKIP  repeated phrase — no phrase appears in two turns on screen");
+  else if (await evaluate(`document.getElementById('quoteChip')?.hidden !== false`)) {
+    console.log("SKIP  repeated phrase — the passage is not on screen");
+  } else {
+    const want = JSON.parse(dupe);
+    await evaluate(`document.querySelector('#quoteChip [data-sel="comment"]').click()`);
+    await sleep(600);
+    const landed = await evaluate(`(() => {
+      const card = document.querySelector('.ccard');
+      const owner = card && card.previousElementSibling;
+      return owner ? (owner.dataset.key || '') : null; })()`);
+    check("a repeated phrase comments on the turn it was selected in",
+      landed === want.key, `landed on ${JSON.stringify((landed || '').slice(0, 40))}`);
+    await clearComments();
+    await sleep(300);
+  }
+
+  /* Deleting a comment has to take its underline with it. The marks are already
+     in the page by then, so they come out by hand — and a passage another
+     comment still claims, or one whose comment was sent, has to keep its own. */
+  await clearComments();
+  await sleep(400);
+  const beforeDelete = await selectAndOffer();
+  if (!beforeDelete) console.log(`SKIP  deleting a comment — nothing to select (${lastMiss})`);
+  else {
+    await evaluate(`document.querySelector('#quoteChip [data-sel="comment"]').click()`);
+    await sleep(600);
+    const marked = await evaluate(`document.querySelectorAll('#chatScroll mark.commented').length`);
+    check("commenting underlines the passage", marked >= 1, `${marked} marks`);
+    await evaluate(`document.querySelector('.ccard [data-cc="drop"]')?.click()`);
+    await sleep(600);
+    const after = JSON.parse(await evaluate(`JSON.stringify({
+      marks: document.querySelectorAll('#chatScroll mark.commented').length,
+      cards: document.querySelectorAll('.ccard').length })`));
+    // Fewer, not none: a comment that was already sent keeps its underline on
+    // purpose, so only the deleted one's marks come away.
+    check("deleting the comment takes its underline with it",
+      after.marks < marked && after.cards === 0,
+      `${marked} -> ${after.marks} marks, ${after.cards} cards left`);
+    // And the text is put back whole, not left in fragments by the unwrapping.
+    check("the passage is left whole where the mark was",
+      await evaluate(`(() => {
+        const body = document.querySelector('#chatScroll .msg__text');
+        if (!body) return true;
+        return !body.querySelector('mark.commented'); })()`));
+  }
+
+  /* Alt+C takes the offer without reaching for the mouse. */
+  if (await selectAndOffer()) {
+    await evaluate(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', altKey: true, bubbles: true, cancelable: true }))`);
+    await sleep(500);
+    check("Alt+C opens a card from the keyboard",
+      await evaluate(`document.querySelectorAll('.ccard').length`) >= 1);
+    await clearComments();
+  }
+
+  /* The highlight has to be visible on both kinds of bubble, and the mark over a
+     commented passage must not compete with it. Your messages are drawn in
+     primary-container, so a highlight in that same role vanished on exactly the
+     ones you most want to quote back — a check reading one bubble misses it. */
+  if (await selectAndOffer()) {
+    const highlight = await evaluate(`(() => {
+      const one = (cls) => {
+        const b = document.querySelector('#chatScroll .msg--' + cls);
+        const body = b && b.querySelector('.msg__text');
+        if (!body) return null;
+        const sel = getComputedStyle(body, '::selection');
+        return { bubble: getComputedStyle(b).backgroundColor, bg: sel.backgroundColor, fg: sel.color };
+      };
+      return JSON.stringify({ user: one('user'), assistant: one('assistant') });
+    })()`);
+    const hl = JSON.parse(highlight);
+    const asHex = (rgb) => { const m = (rgb || "").match(/\d+/g); return m ? "#" + m.slice(0, 3).map((v) => (+v).toString(16).padStart(2, "0")).join("") : ""; };
+    const lum = (hex) => { const n = parseInt(hex.slice(1), 16);
+      const f = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+      return 0.2126 * f((n >> 16) & 255) + 0.7152 * f((n >> 8) & 255) + 0.0722 * f(n & 255); };
+    const ratio = (a, b) => { const l1 = lum(a), l2 = lum(b); return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05); };
+    const kinds = ["user", "assistant"].filter((k) => hl[k]);
+    const standOff = kinds.map((k) => ({ k, r: +ratio(asHex(hl[k].bg), asHex(hl[k].bubble)).toFixed(2) }));
+    check("the highlight stands off the bubble it sits on, for both kinds",
+      standOff.length === 2 && standOff.every((a) => a.r >= 3),
+      standOff.map((a) => `${a.k} ${a.r}:1`).join("  ") + (standOff.length < 2 ? " (only one kind on screen)" : ""));
+    check("selected text stays readable on the highlight",
+      kinds.every((k) => ratio(asHex(hl[k].fg), asHex(hl[k].bg)) >= 4.5),
+      kinds.map((k) => `${k} ${ratio(asHex(hl[k].fg), asHex(hl[k].bg)).toFixed(2)}:1`).join("  "));
+
+    await evaluate(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+    await sleep(300);
+    check("Escape puts the bar away", await evaluate(`document.getElementById('quoteChip')?.hidden`) === true);
+  }
+
+  const markStyle = await evaluate(`(() => {
+    const m = document.querySelector('#chatScroll mark.commented');
+    if (!m) return null;
+    const cs = getComputedStyle(m);
+    return JSON.stringify({ bg: cs.backgroundColor, shadow: cs.boxShadow }); })()`);
+  if (markStyle) {
+    const ms = JSON.parse(markStyle);
+    check("the mark does not compete with the selection highlight",
+      /rgba\(0, 0, 0, 0\)|transparent/.test(ms.bg) && /inset/.test(ms.shadow), ms.bg);
+  }
+
+  // Put the page back the way the rest of the run expects it.
+  await clearComments();
+  await evaluate(`(() => { if (window.__realFetch) window.fetch = window.__realFetch;
+    window.getSelection().removeAllRanges(); return true; })()`);
+  await send("Emulation.clearDeviceMetricsOverride");
+  await sleep(600);
+}
 /* ---------------------------------------------------------- touch targets */
 const smallTargets = JSON.parse(await evaluate(`(() => {
   const small = [];

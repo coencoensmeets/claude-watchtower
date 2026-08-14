@@ -61,6 +61,7 @@ python3 server.py
 | [What it shows](#what-it-shows) | The four states, and why the one you care about is inferred rather than read |
 | [Layout](#layout-an-index-and-a-detail-pane) | The index, groups, the detail pane and its four tabs |
 | [Sending a message](#sending-a-message) | The composer, the unix socket behind it, and its three honest limits |
+| [Commenting on a passage](#commenting-on-a-passage) | Select what it said, and say what you think of it |
 | [Permission mode](#permission-mode) | How much rope a session has, when it was true, and why it is read-only |
 | [Git and History](#git-and-history) | Working tree, upstream drift, and a commit graph drawn from real ancestry |
 | [Naming a session](#naming-a-session) | Call a session what you are using it for |
@@ -139,7 +140,7 @@ Click a row and the pane shows that session in full: its name, state and how lon
 | **History** | The same repository's recent commits, drawn as a graph |
 | **Details** | Window pairing, notification switch, the facts, and **End session** |
 
-**Conversation.** Your prompts and Claude's replies are speech bubbles; turns that only ran tools are quiet single rows with the tool name and its target, so the actual conversation stays readable. It is read from the end backwards and stops at a page of messages, which is why a five-megabyte transcript opens as fast as a fresh one — and why the page is a page of *conversation*: a fixed tail of a working session is nearly all tool output, so it would show Claude's last twenty turns and none of your own messages. The bubbles render Markdown — headings, lists, tables, quotes, emphasis, links and code blocks — because an answer read as raw `###` and `**` is hard work. Nothing from a message reaches the page as markup: code is held aside first, every other scrap is escaped before a tag is added, links are only made for http, https and mailto, and an image becomes a link rather than a remote fetch. It follows the live session, and stays pinned to the newest message unless you scroll up. A long answer buries what you asked for, so a **Last request** pill floats over the corner whenever your most recent message is off screen; it scrolls back to it and its arrow points the way it will travel.
+**Conversation.** Your prompts and Claude's replies are speech bubbles; turns that only ran tools are quiet single rows with the tool name and its target, so the actual conversation stays readable. It is read from the end backwards and stops at a page of messages, which is why a five-megabyte transcript opens as fast as a fresh one — and why the page is a page of *conversation*: a fixed tail of a working session is nearly all tool output, so it would show Claude's last twenty turns and none of your own messages. The bubbles render Markdown — headings, lists, tables, quotes, emphasis, links and code blocks — because an answer read as raw `###` and `**` is hard work. Nothing from a message reaches the page as markup: code is held aside first, every other scrap is escaped before a tag is added, links are only made for http, https and mailto, and an image becomes a link rather than a remote fetch. It follows the live session, and stays pinned to the newest message unless you scroll up. A long answer buries what you asked for, so a **Last request** pill floats over the corner whenever your most recent message is off screen; it scrolls back to it and its arrow points the way it will travel. Selecting any passage offers to quote it into the composer — see [Commenting on a passage](#commenting-on-a-passage).
 
 **Git** and **History** are described under [Git and History](#git-and-history). **Details** carries window pairing, a per-session switch for whether it may raise a desktop notification when it starts waiting, the facts (pid, Claude Code version, session id, start time, where the transcript lives), and **End session**.
 
@@ -162,6 +163,69 @@ A message sent to a session that is mid-turn is queued at its prompt, exactly as
 **It then appears in the conversation above, marked with where it came from** — `you · from here` for something typed into this composer, and the sending session's name for a message from another Claude. That takes some digging out: Claude Code never writes such a message down as a turn of its own. It records the envelope it wraps it in (`<cross-session-message …>`) on the queue and hands the body to the model as an attachment, so read at face value the transcript shows Claude answering something nobody said. The panel therefore reads the queue entries too and unwraps them, and skips the duplicate the queue leaves behind when the message comes back off it.
 
 > **Sending is loopback-only, regardless of `--host`.** A prompt is an instruction to an agent holding tools and a checkout, so a panel exposed to the network keeps the transcript and loses the composer. `--no-send` switches it off on loopback too.
+
+## Commenting on a passage
+
+Most of what you want to say to a working session is about something it just said — a line to change, a claim to push back on, a paragraph to keep. Typing "the bit about the poll loop" and hoping it finds the bit is the long way round.
+
+**Select a passage and a small bar rises over it offering Copy and Comment.** Copy puts the passage on the clipboard — the panel is the one place the transcript is readable without opening the terminal. Comment does what a document does: the passage is marked where it stands and a **card opens in the margin beside it**, with the caret in it, waiting for the remark.
+
+Cards accumulate. Comment on a second passage and a second card opens under the first, level with its own passage, and neither pushes the other out of sight. When you are done, **Send *n* comments** delivers them as a single message:
+
+```
+> [you, 14:32]
+> I refactored the poll loop to fire every second regardless of activity
+
+make this configurable instead
+```
+
+Nothing else is added — no preamble explaining the panel, no instructions about what to do with it. The speaker and the time are what locate the passage; the remark says the rest.
+
+**The attribution is written from the reader's point of view, not the panel's.** The panel says *claude* and *you* meaning the assistant and the person watching; both invert on the way over, so the session's own words are quoted as `[you, 14:32]` and yours as `[me, 14:32]`. A passage from another session keeps that session's name, which means the same thing at both ends. Getting this wrong is not cosmetic: `[claude, …]` reaching Claude reads as a third party, and `[you, …]` reads as the session itself.
+
+The attribution is also what keeps two quotes apart when you send several at once — because you can. Select, comment, select, comment, then send: they arrive as one message rather than a burst the session queues separately. **A selection running across several messages** does the same thing in one gesture: it is split at the message boundaries into one attributed quote each, rather than refused for carrying one attribution over two speakers.
+
+**Alt+C** takes the offer without reaching for the mouse. Not a bare letter, which would fire while you were typing, and not Ctrl, whose useful combinations are already the browser's.
+
+### What comes back as what
+
+| Selected | Arrives as |
+|---|---|
+| Prose in a bubble | A blockquote under its attribution |
+| A passage inside a code block | The same, with the fence and its language put back, so it reaches the session as code with its indentation intact rather than as prose flattened into a blockquote |
+| A **tool row** | The command, attributed like the session's own speech — because a tool call is the session's own doing, and the row is the only place it is written down. "This command was wrong" needs somewhere to attach. |
+| More than 40 lines | Head and tail, with `… N lines not quoted …` counted out loud between them. A whole-answer selection would bury the remark under hundreds of lines, and a silent trim would misrepresent what you picked — the marker is in the composer, so you can edit it or take the passage again smaller. |
+
+A passage half inside a code block and half outside is prose: quoting a sentence and the top of a function as code would be a worse guess than not guessing. Inline code mid-sentence stays inline, since fencing it would be heavier than the thing it quotes.
+
+### Where the cards sit
+
+Beside the passage, in a margin to the right of the transcript, each one level with what it is about and pushed down only as far as it must be to clear the card above. The margin is an overlay rather than a column, so the conversation's own layout is untouched — only its right padding changes while the rail is up. Scrolling moves the whole rail by a transform rather than re-laying-out every card.
+
+**The threshold is measured on the detail pane, not the window.** The index takes 340-380px before the pane sees any of it, so a number picked as if it were a window width puts every ordinary laptop into the fallback and leaves a margin nobody ever sees — a 1440px window leaves the pane about 1060px. The rail appears from about 860px of pane, which a 1280px window clears. Below that there is no room for a margin, so the card becomes a popover over the transcript, anchored under its passage and clamped into the window; the pane becomes the whole window below 900px, where a fixed margin would squeeze the conversation exactly where it is tightest.
+
+### Keeping your place
+
+Having commented on a passage, it stays **marked in the transcript** — underlined rather than filled, so it never competes with the selection highlight, and so several of them can sit on screen at once by the time you have worked through a long answer. The mark is redrawn after every rebuild of the pane, since the transcript is built from the transcript data and anything drawn over it goes with the rebuild. Sent comments leave the rail but keep their marks: the rail is what is still outstanding, the marks are where you have been.
+
+Two honest limits. It is drawn as a real element wrapped around a real text node rather than spliced into the HTML — that is what keeps the guarantee that nothing from a message ever reaches the page as markup — and the price is that **a passage crossing a bold run, a link or a code span is quoted correctly but goes unmarked**. And the marks are kept in memory only, not on the server and not in `localStorage`: they are a note about this sitting rather than a property of the session, and a mark outliving the conversation it referred to would be worse than no mark at all.
+
+**The cards are where you write; the wire format is unchanged.** Each becomes an attributed quote with its remark under it, gathered in the order they appear in the conversation rather than the order you wrote them, and sent as one message. Nothing new reaches the socket — it is the same thing you would have typed, quoting the parts you meant. The composer below is untouched and still there for anything that is not about a particular passage.
+
+Writing the remark next to the passage rather than in the composer is the whole point of the change: in a composer, a second quote pushed the first out of sight above what you were typing, so commenting on three things meant losing track of the first two. Enter finishes a card, Shift-Enter puts a newline in it, Escape abandons an empty one. **A card being typed in holds off the pane's rebuild**, the same guard a half-typed session name and a drag on the composer grip already get — the panel polls every second, which is exactly while you are writing.
+
+A comment that cannot be sent is a note to nobody, so a session the panel cannot message says why at the moment you ask for the card rather than after you have written it.
+
+Two things it deliberately will not do:
+
+| It refuses | Why |
+|---|---|
+| **A passage scrolled out of the transcript** | The chip points at the passage. Pointing at something off screen puts it over the header instead. |
+| **Anything outside the conversation** | Selecting the folder in the header is reading, not commenting. |
+
+The chip follows the passage while the transcript scrolls, rather than dismissing on the first scroll event — the conversation stays pinned to the newest message while a session works, and losing the chip to a poll landing mid-gesture is the one failure that would make it useless. Escape puts it away.
+
+**The highlight comes from the scheme rather than the browser's blue, and each bubble takes the other one's ground.** One colour could not do it: your messages are drawn in `primary-container` and Claude's sit barely off the surface, which are opposite ends of the tonal range, so measured against both, every single role in the scheme clears one and vanishes on the other at around 1.0–1.6:1. A highlight in `primary-container` looked right on Claude's messages and was invisible on your own — the ones you most often want to quote back. So a selection in Claude's bubble highlights in `primary-container` and one in yours highlights in `surface`; both are legal MD3 pairs, and both are measured in the tests against the bubble they actually land on.
 
 ## Permission mode
 
@@ -324,6 +388,10 @@ node tests/ui-check.mjs
 `tests/ui-check.mjs` drives a throwaway headless Chrome over the DevTools protocol and asserts the things a screenshot cannot: that every MD3 token resolves, that the four state containers are distinct and stay distinct after the base colour changes, that every piece of text on screen clears 4.5:1, that the index lists each session with a host icon and a state lamp, that clicking a row opens its detail and every tab renders, that the filter chips filter, that sessions sharing a folder group themselves and picked rows can be grouped, folded and ungrouped by hand, that the settings dialog changes the scheme and persists it, and that interactive targets reach 48dp. Node 24+, no dependencies. Override `PANEL_URL` / `CDP_URL` to point elsewhere.
 
 The Git checks want a session whose folder is in a repository: they find one from `/api/state`, then assert that both tabs appear, that Git reads the branch and marks every file with two status letters while carrying no graph, that History draws one node per commit and keeps no file list, that each rail is the same height as its row — a mismatch there is what leaves the lanes broken at every join — that both clear 4.5:1, and that all four tabs stay reachable at 48dp. With no such fixture they say so and skip rather than failing for a reason that has nothing to do with the panel.
+
+The commenting checks want a session with a readable transcript, which fixtures do not have: they find one, prefer a quiet session over a working one — a busy session rewrites its transcript underneath the run — and sweep the transcript's scroll positions looking for a run of text genuinely on screen, since a viewport holding only a table or a tool row has nothing to select however long you wait. They then assert that selecting a passage raises a bar offering Copy and Comment, that Copy puts the passage on the clipboard, that Comment opens a card carrying that passage with the caret in it and level with the mark in the transcript, that the rail is a margin when there is room and a popover clamped on screen when there is not, that nothing is sendable until a remark is written, that a card being typed in survives several polls, that a second passage opens a second card without the two overlapping, that a selection across bubbles becomes one card each, that a passage out of a code block goes back fenced rather than flattened, that a tool row can be commented on, that Alt+C opens a card from the keyboard, that sent comments leave the rail while their marks stay, and that Escape puts the bar away. The highlight is measured on **both** kinds of bubble against the ground each actually sits on.
+
+**Nothing in the run messages a live session.** `/api/say` and `/api/start` are intercepted and their bodies kept, which is also how the wire format is asserted — what the panel would have sent, without a real Claude ever seeing it. A highlight sharing a role with its bubble disappears, and it disappeared on user messages only, so a check that reads one bubble and calls it done misses exactly the half that was broken. With no such session they say so and skip.
 
 Point it at a real panel to measure the chat bubbles too, since fixture sessions have no transcript:
 
