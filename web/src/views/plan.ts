@@ -1,4 +1,3 @@
-import { refresh } from "../refresh.js";
 import { spend } from "../state.js";
 import { ago, escapeHtml, tokens } from "../ui/format.js";
 

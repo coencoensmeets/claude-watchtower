@@ -8,57 +8,33 @@ import { app, chat, repo, spend, sidebar, ui, loadKeySet, CHAT_PAGE } from "./st
 import { fetchPlan, openPlan, paintPlanDialog, planButton, planScrim } from "./views/plan.js";
 import { MODE_LABELS, WINDOW_CONFIDENCE, windowSays, isAmbiguous, isRemembered } from "./sessions/facts.js";
 import { aboutPanel, usagePanel } from "./views/usage.js";
+import { EXIT_MS, exitTimers, reveal, conceal } from "./ui/overlay.js";
+import { askScrim, askText, askConfirm, closeAsk } from "./ui/ask.js";
+import { showSnackbar } from "./ui/snackbar.js";
+import { DEFAULT_SEED, SEED_PRESETS, CONTRAST_LEVELS, STATE_BASE_HUES, MIN_HUE_GAP, MAX_CUSTOM_CHROMA, SYS_ROLES, kebab, hueDistance, firstFreeHue, customRoles } from "./ui/theme.js";
+import { STATE, STATE_ALIAS, stateKeyOf, stateOf, displaySince, STATE_ORDER } from "./sessions/state.js";
+import { panes, sessionList, listEmpty, detailPane, chipSet, barSupporting, themeToggle, themeLabel, snackbar, settingsScrim, endScrim, swatchRow, seedReadout, contrastGroup, backButton, pickBar, pickCount, pickGroup, pickClear } from "./ui/dom.js";
 
 /* ==========================================================================
    Dynamic colour — one seed generates the entire scheme.
    ========================================================================== */
-const DEFAULT_SEED = "#E8288F";
-const SEED_PRESETS = [
-  { hex: "#E8288F", name: "Pink" }, { hex: "#7C4DFF", name: "Violet" },
-  { hex: "#00A18F", name: "Teal" }, { hex: "#F4511E", name: "Coral" },
-  { hex: "#3D5AFE", name: "Blue" }, { hex: "#7CB342", name: "Green" },
-];
-const CONTRAST_LEVELS = [
-  { key: "standard", label: "Standard", value: 0 },
-  { key: "medium", label: "Medium", value: 0.5 },
-  { key: "high", label: "High", value: 1 },
-];
+
+
+
 /* `plenty` is not a session state: it is the green a plan figure takes while
    there is still room, and it comes from here so it is hue-spaced against the
    seed and the other two like they are. Keep it last so adding it did not move
    the hues waiting and idle already had. */
-const STATE_BASE_HUES = { waiting: "#FF8A00", idle: "#5B6BC0", plenty: "#12A150" };
-const MIN_HUE_GAP = 35;
-const MAX_CUSTOM_CHROMA = 48;
 
-const SYS_ROLES = [
-  "primary", "onPrimary", "primaryContainer", "onPrimaryContainer",
-  "secondary", "onSecondary", "secondaryContainer", "onSecondaryContainer",
-  "tertiary", "onTertiary", "tertiaryContainer", "onTertiaryContainer",
-  "error", "onError", "errorContainer", "onErrorContainer",
-  "surface", "onSurface", "onSurfaceVariant", "surfaceDim", "surfaceBright",
-  "surfaceContainerLowest", "surfaceContainerLow", "surfaceContainer",
-  "surfaceContainerHigh", "surfaceContainerHighest",
-  "outline", "outlineVariant", "inverseSurface", "inverseOnSurface", "inversePrimary",
-  "shadow", "scrim",
-];
-const kebab = (name) => name.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase());
-const hueDistance = (a, b) => { const d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; };
 
-function firstFreeHue(baseHue, occupied) {
-  for (let delta = 0; delta <= 180; delta += 5) {
-    for (const sign of delta === 0 ? [1] : [1, -1]) {
-      const candidate = (baseHue + sign * delta + 360) % 360;
-      if (occupied.every((hue) => hueDistance(candidate, hue) >= MIN_HUE_GAP)) return candidate;
-    }
-  }
-  return baseHue;
-}
-function customRoles(palette, dark) {
-  return dark
-    ? { color: palette.tone(80), onColor: palette.tone(20), container: palette.tone(30), onContainer: palette.tone(90) }
-    : { color: palette.tone(40), onColor: palette.tone(100), container: palette.tone(90), onContainer: palette.tone(10) };
-}
+
+
+
+
+
+
+
+
 
 
 function loadSettings() {
@@ -103,36 +79,20 @@ function applyScheme() {
 }
 
 /* ------------------------------------------------------------- state map */
-const STATE = {
-  waiting: { label: "Needs an answer", short: "answer", prefix: "--md-extended-color-waiting" },
-  busy: { label: "Working", short: "working", prefix: "--md-sys-color-primary", sys: true },
-  idle: { label: "Waiting", short: "waiting", prefix: "--md-extended-color-idle" },
-  offline: { label: "Closed", short: "closed", prefix: null },
-  // A kept session whose process has gone. Not lost, just not running.
-  stopped: { label: "Stopped", short: "stopped", prefix: null },
-};
+
 /* `shell` is not shown as a state of its own. It is what Claude Code writes on
    the way into a foreground command *and* what it leaves behind when a turn
    ends, so on screen it was a second colour for the same thing: waiting. The raw
    status still drives behaviour (a message can be queued for a shell session);
    only the display folds it in. */
-const STATE_ALIAS = { shell: "idle" };
-const stateKeyOf = (status) => STATE_ALIAS[status] || status;
-const stateOf = (status) => STATE[stateKeyOf(status)] || STATE.idle;
+
+
+
 
 /* When the state you can see began. The server times the raw status, which
    restarts every time a waiting session dips through `shell`; on screen nothing
    happened, so the clock should not jump back to zero. */
-function displaySince(session) {
-  const spans = session.trace || [];
-  const key = stateKeyOf(session.status);
-  let since = session.statusSince;
-  for (let i = spans.length - 1; i >= 0; i--) {
-    if (stateKeyOf(spans[i].status) !== key) break;
-    since = spans[i].from;
-  }
-  return since;
-}
+
 for (const entry of Object.values(STATE)) {
   if (entry.sys) {
     entry.colour = "var(--md-sys-color-primary)";
@@ -148,76 +108,30 @@ for (const entry of Object.values(STATE)) {
     entry.onContainer = "var(--md-sys-color-on-surface-variant)";
   }
 }
-const STATE_ORDER = ["waiting", "busy", "idle", "offline", "stopped"];
+
 
 
 /* ---------------------------------------------------------------- element refs */
-const panes = document.getElementById("panes");
-const sessionList = document.getElementById("sessionList");
-const listEmpty = document.getElementById("listEmpty");
-const detailPane = document.getElementById("detailPane");
-const chipSet = document.getElementById("chipSet");
-const barSupporting = document.getElementById("barSupporting");
-const themeToggle = document.getElementById("themeToggle");
-const themeLabel = document.getElementById("themeLabel");
-const snackbar = document.getElementById("snackbar");
-const settingsScrim = document.getElementById("settingsScrim");
-const endScrim = document.getElementById("endScrim");
-const swatchRow = document.getElementById("swatches");
-const seedReadout = document.getElementById("seedReadout");
-const contrastGroup = document.getElementById("contrastGroup");
-const backButton = document.getElementById("backButton");
-const pickBar = document.getElementById("pickBar");
-const pickCount = document.getElementById("pickCount");
-const pickGroup = document.getElementById("pickGroup");
-const pickClear = document.getElementById("pickClear");
 
-/* --------------------------------------------------- coming and going ------ */
-/* Everything that floats over the panel is written to fade in and out, and until
-   now none of it faded out: the close paths set data-open="false" and `hidden`
-   in the same breath, `hidden` is display:none, and a box that is display:none
-   is not drawn — so the exit each of these was given a transition for never got
-   a single frame. Things arrived gently and then blinked out of existence.
 
-   These two keep the attribute and the transition in step. Opening flushes the
-   closed style first, the way the menu already did by measuring itself between
-   the two lines; closing holds the box on screen for exactly as long as the fade
-   it is playing, and only then takes it out of the layout. */
-const EXIT_MS = 200; /* --md-sys-motion-duration-short4 */
-const exitTimers = new WeakMap();
 
-function reveal(el) {
-  if (!el) return;
-  // Already open. Worth the check rather than setting it again: these are called
-  // from a scroll handler, and the reflow below on every frame of a flick is a
-  // measurable cost for no change at all.
-  if (!el.hidden && el.dataset.open === "true") return;
-  clearTimeout(exitTimers.get(el));
-  exitTimers.delete(el);
-  el.hidden = false;
-  // A box arriving from display:none has no previous style to move from, and
-  // would land open on the first frame. Reading a layout value forces the closed
-  // state to be computed, which gives the transition its starting point.
-  void el.offsetWidth;
-  el.dataset.open = "true";
-}
 
-function conceal(el) {
-  if (!el || el.hidden) return;
-  // Already on its way out. Without this a scroll handler calling it every frame
-  // would restart the timer every frame, and the box would sit there faded to
-  // nothing but still holding its place for as long as you kept scrolling.
-  if (el.dataset.open === "false") return;
-  el.dataset.open = "false";
-  clearTimeout(exitTimers.get(el));
-  // Hidden on a timer rather than on transitionend: a box whose parent is torn
-  // out mid-fade — the detail pane rebuilds under these on any poll — never
-  // fires the event, and would be left behind holding its space forever.
-  exitTimers.set(el, setTimeout(() => {
-    el.hidden = true;
-    exitTimers.delete(el);
-  }, EXIT_MS));
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 /* How much conversation the chat tab asks for. A page at a time, because the
    whole point of reading backwards is that a long session costs no more than a
@@ -3788,17 +3702,6 @@ function paintFavicon(counts) {
   if (!link) { link = document.createElement("link"); link.rel = "icon"; document.head.appendChild(link); }
   link.href = "data:image/svg+xml," + encodeURIComponent(svg);
 }
-
-/* ---------------------------------------------------------------- snackbar */
-let snackTimer;
-function showSnackbar(message, life = 3400) {
-  snackbar.textContent = message;
-  snackbar.dataset.open = "true";
-  clearTimeout(snackTimer);
-  snackTimer = setTimeout(() => { snackbar.dataset.open = "false"; }, life);
-}
-
-/* ------------------------------------------------------------- settings UI */
 function renderSwatches() {
   swatchRow.innerHTML = "";
   for (const preset of SEED_PRESETS) {
@@ -3868,65 +3771,6 @@ for (const [id, force] of [["endConfirm", false], ["endForce", true]]) {
   });
 }
 
-/* ------------------------------------------------------- asking first */
-
-/* One dialog, awaited rather than called back into: the caller reads like the
-   sentence it is — ask, and if the answer is yes, do the thing. */
-const askScrim = document.getElementById("askScrim");
-let askResolve = null;
-
-/* The same dialog with a field in it, for the one question that needs a word
-   back rather than a yes: what to call a new branch. Resolves to the trimmed
-   text, or null if it was dismissed. */
-function askText({ headline, body, placeholder = "", value = "", confirmLabel = "Create" }) {
-  // The dialog goes up first: opening one closes whatever stood before it, and
-  // that closing is what puts the field away — reveal it before, and it is
-  // hidden again by the time anyone could type in it.
-  const answer = askConfirm({ headline, body, confirmLabel, danger: false });
-  const field = document.getElementById("askField");
-  field.hidden = false;
-  field.placeholder = placeholder;
-  field.value = value;
-  field.focus();
-  field.select();
-  return answer.then((ok) => (ok ? field.value.trim() || null : null));
-}
-
-function askConfirm({ headline, body, confirmLabel = "Confirm", danger = true }) {
-  closeAsk(false);
-  document.getElementById("askHeadline").textContent = headline;
-  document.getElementById("askSupporting").innerHTML = body;
-  const confirm = document.getElementById("askConfirm");
-  confirm.textContent = confirmLabel;
-  // Red is for the answers that lose something. A question that only asks before
-  // overwriting a box you can retype is not one of them.
-  confirm.classList.toggle("button--danger", danger);
-  confirm.classList.toggle("button--filled", !danger);
-  askScrim.dataset.open = "true";
-  document.getElementById("askCancel").focus();
-  return new Promise((resolve) => { askResolve = resolve; });
-}
-
-function closeAsk(answer) {
-  askScrim.dataset.open = "false";
-  // The field belongs to whichever question asked for it, so it goes away with
-  // that question rather than lingering into the next one.
-  document.getElementById("askField").hidden = true;
-  const resolve = askResolve;
-  askResolve = null;
-  if (resolve) resolve(answer);
-}
-
-// Enter in the field is the same as pressing the confirming button beside it.
-document.getElementById("askField").addEventListener("keydown", (event) => {
-  if (event.key !== "Enter") return;
-  event.preventDefault();
-  closeAsk(true);
-});
-
-document.getElementById("askCancel").addEventListener("click", () => closeAsk(false));
-document.getElementById("askConfirm").addEventListener("click", () => closeAsk(true));
-askScrim.addEventListener("click", (event) => { if (event.target === askScrim) closeAsk(false); });
 
 
 /* ------------------------------------------------- opening one, and the notice */
