@@ -84,6 +84,7 @@ export const ui = {
   menuGroup: null,  // or the key of the group it belongs to, for a header menu
   composerHeight: Number(localStorage.getItem("cbu-composer-height")) || null,
   resizingComposer: false,
+  menuReturn: null,
   cmdOff: false,  // Escape puts the list away without touching the text
 };
 
