@@ -502,7 +502,7 @@ systemctl --user enable --now claude-watchtower
 | `tools/build.mjs` | The build: strips types, concatenates stylesheets, copies assets |
 | `web/index.html` | The page shell — markup only |
 | `web/styles/` | The stylesheet, Material 3 |
-| `web/src/` | The panel's TypeScript |
+| `web/src/` | The panel's TypeScript: `main.ts` orchestrates, `views/` are the tabs, `ui/` the pieces they share |
 | `web/assets/fonts/` | Roboto and Roboto Mono, self-hosted |
 | `web/assets/vendor/` | `material-color-utilities`, for dynamic colour |
 | `dist/` | The built frontend, which is what the panel serves. Generated; not in git |

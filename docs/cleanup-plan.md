@@ -7,7 +7,42 @@ working panel.
 
 Nothing here is implemented yet. This document is the plan.
 
-## Where we are
+## Progress
+
+Phases 0–3 are done. Phases 4–7 are not started.
+
+| Phase | State |
+|---|---|
+| 0 — safety net | done: 95 unit tests, `tests/fixtures.py`, service file fixed |
+| 1 — build pipeline | done: `web/` → `dist/`, Node type stripping, no packages |
+| 2 — CSS split | done: 16 stylesheets, cascade order preserved exactly |
+| 3 — TypeScript modules | done: main.ts 4,972 → 2,055 lines across 19 modules |
+| 4 — types | not started |
+| 5 — Python package | not started |
+| 6 — route table | not started |
+| 7 — docs split | not started |
+
+What phase 3 settled, which the original plan only guessed at:
+
+- **Shared mutable state was the whole problem.** 40 of 63 top-level `let`
+  bindings were written from more than one place, and a module cannot assign to
+  an imported binding. They live in `state.ts` as fields on six objects. The
+  test for whether a binding belongs there is simply whether a second module
+  writes it — most do not, and stay with their own code.
+- **The call graph was a web, not a layer.** Every subsystem ended by calling
+  `render()`, so extracting any of them created an import cycle. `refresh.ts`
+  inverts it: main.ts hands its render loop over at boot and everything else
+  asks for a redraw without knowing where the loop lives.
+- **Text-level moves need a real scanner.** This file is mostly template
+  literals full of HTML, so counting brackets or matching identifiers in the raw
+  text goes wrong in ways that still compile.
+
+What is left in `main.ts` is the orchestrator — polling, the index, the detail
+pane's tab dispatch, the settings and folder dialogs, boot — plus two sections
+whose banner comments no longer match how the code is grouped. Splitting those
+further needs the seams redrawn, not more moving.
+
+## Where we were
 
 | | lines | shape |
 |---|---|---|
