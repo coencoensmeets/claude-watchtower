@@ -19,6 +19,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import server  # noqa: E402
+from watchtower import plan  # noqa: E402
+from watchtower.git import write  # noqa: E402
+from watchtower.git import read  # noqa: E402
+from watchtower.git import message  # noqa: E402
 from watchtower import config, transcript  # noqa: E402
 
 
@@ -66,7 +70,7 @@ class ParseStatus(unittest.TestCase):
 
     def test_an_ordinary_change_splits_staged_from_unstaged(self):
         text = porcelain("1 M. N... 100644 100644 100644 aaa bbb server.py")
-        entry, = server.parse_status(text)
+        entry, = read.parse_status(text)
         self.assertEqual(entry["path"], "server.py")
         self.assertEqual(entry["staged"], "M")
         # A dot means "nothing on this side" and is reported as no letter at all.
@@ -76,24 +80,24 @@ class ParseStatus(unittest.TestCase):
 
     def test_a_change_on_both_sides_keeps_both_letters(self):
         text = porcelain("1 MM N... 100644 100644 100644 aaa bbb both.py")
-        entry, = server.parse_status(text)
+        entry, = read.parse_status(text)
         self.assertEqual((entry["staged"], entry["unstaged"]), ("M", "M"))
 
     def test_a_rename_carries_its_source_path_from_the_next_field(self):
         text = porcelain("2 R. N... 100644 100644 100644 aaa bbb R100 new.py", "old.py")
-        entry, = server.parse_status(text)
+        entry, = read.parse_status(text)
         self.assertEqual(entry["path"], "new.py")
         self.assertEqual(entry["origPath"], "old.py")
 
     def test_an_unmerged_path_is_marked_conflicted_with_no_letters(self):
         text = porcelain("u UU N... 100644 100644 100644 100644 aaa bbb ccc clash.py")
-        entry, = server.parse_status(text)
+        entry, = read.parse_status(text)
         self.assertEqual(entry["path"], "clash.py")
         self.assertTrue(entry["conflicted"])
         self.assertIsNone(entry["staged"])
 
     def test_an_untracked_path_keeps_everything_after_the_marker(self):
-        entry, = server.parse_status(porcelain("? notes/new file.md"))
+        entry, = read.parse_status(porcelain("? notes/new file.md"))
         self.assertEqual(entry["path"], "notes/new file.md")
         self.assertTrue(entry["untracked"])
 
@@ -103,14 +107,14 @@ class ParseStatus(unittest.TestCase):
             "1 M. N... 100644 100644 100644 aaa bbb alpha.py",
             "? middle.txt",
         )
-        self.assertEqual([e["path"] for e in server.parse_status(text)],
+        self.assertEqual([e["path"] for e in read.parse_status(text)],
                          ["alpha.py", "middle.txt", "zeta.md"])
 
     def test_a_truncated_record_is_skipped_rather_than_guessed_at(self):
-        self.assertEqual(server.parse_status(porcelain("1 M. N... 100644")), [])
+        self.assertEqual(read.parse_status(porcelain("1 M. N... 100644")), [])
 
     def test_empty_input_gives_no_entries(self):
-        self.assertEqual(server.parse_status(""), [])
+        self.assertEqual(read.parse_status(""), [])
 
 
 class ParseLog(unittest.TestCase):
@@ -122,7 +126,7 @@ class ParseLog(unittest.TestCase):
         return "\x1f".join([sha, short, parents, author, when, refs, subject]) + "\x1e"
 
     def test_a_commit_is_read_field_by_field(self):
-        commit, = server.parse_log(self.record())
+        commit, = read.parse_log(self.record())
         self.assertEqual(commit["short"], "aaaaaaa")
         self.assertEqual(commit["author"], "Ada")
         self.assertEqual(commit["at"], 1700000000)
@@ -130,68 +134,68 @@ class ParseLog(unittest.TestCase):
         self.assertEqual(commit["parents"], [])
 
     def test_a_merge_carries_both_parents(self):
-        commit, = server.parse_log(self.record(parents="b" * 40 + " " + "c" * 40))
+        commit, = read.parse_log(self.record(parents="b" * 40 + " " + "c" * 40))
         self.assertEqual(len(commit["parents"]), 2)
 
     def test_refs_are_split_and_trimmed(self):
-        commit, = server.parse_log(self.record(refs="HEAD -> main, origin/main, tag: v1"))
+        commit, = read.parse_log(self.record(refs="HEAD -> main, origin/main, tag: v1"))
         self.assertEqual(commit["refs"], ["HEAD -> main", "origin/main", "tag: v1"])
 
     def test_a_subject_containing_separators_of_its_own_still_parses(self):
         # The whole point of the unit-separated format: a subject is free text.
-        commit, = server.parse_log(self.record(subject="fix: a, b | c -> d"))
+        commit, = read.parse_log(self.record(subject="fix: a, b | c -> d"))
         self.assertEqual(commit["subject"], "fix: a, b | c -> d")
 
     def test_an_unreadable_timestamp_becomes_zero_rather_than_failing(self):
-        commit, = server.parse_log(self.record(when="not-a-time"))
+        commit, = read.parse_log(self.record(when="not-a-time"))
         self.assertEqual(commit["at"], 0)
 
     def test_short_records_are_skipped(self):
-        self.assertEqual(server.parse_log("a\x1fb\x1e"), [])
+        self.assertEqual(read.parse_log("a\x1fb\x1e"), [])
 
 
 class GitSaid(unittest.TestCase):
     """git_said — the tail of git's output, for a snackbar."""
 
     def test_the_last_lines_are_what_is_kept(self):
-        self.assertEqual(server.git_said("one\ntwo\nthree", lines=2), "two · three")
+        self.assertEqual(write.git_said("one\ntwo\nthree", lines=2), "two · three")
 
     def test_carriage_return_progress_rewrites_are_split_apart(self):
-        said = server.git_said("Counting: 1%\rCounting: 100%\rdone", lines=1)
+        said = write.git_said("Counting: 1%\rCounting: 100%\rdone", lines=1)
         self.assertEqual(said, "done")
 
     def test_remote_lines_are_dropped_unless_the_command_failed(self):
         text = "remote: rejected by a hook\nTo git@example:repo"
-        self.assertNotIn("rejected", server.git_said(text))
-        self.assertIn("rejected", server.git_said(text, remote=True))
+        self.assertNotIn("rejected", write.git_said(text))
+        self.assertIn("rejected", write.git_said(text, remote=True))
 
     def test_dropping_every_line_falls_back_to_keeping_them(self):
         # Filtering to nothing would leave the panel with no reason to show.
-        self.assertIn("remote:", server.git_said("remote: only this"))
+        self.assertIn("remote:", write.git_said("remote: only this"))
 
     def test_the_result_is_capped(self):
-        self.assertLessEqual(len(server.git_said("x" * 5000, lines=1)), 500)
+        self.assertLessEqual(len(write.git_said("x" * 5000, lines=1)), 500)
 
 
 class CleanMessage(unittest.TestCase):
     """clean_message — taking the model at its word, not its formatting."""
 
     def test_a_bare_message_is_left_alone(self):
-        self.assertEqual(server.clean_message("fix: tighten the git lock"),
+        self.assertEqual(message.clean_message("fix: tighten the git lock"),
                          "fix: tighten the git lock")
 
     def test_a_fenced_block_loses_its_fences(self):
-        self.assertEqual(server.clean_message("```\nfix: a thing\n```"), "fix: a thing")
+        self.assertEqual(message.clean_message("```\nfix: a thing\n```"), "fix: a thing")
 
     def test_a_tagged_fence_loses_its_fences_too(self):
-        self.assertEqual(server.clean_message("```text\nfix: a thing\n```"), "fix: a thing")
+        self.assertEqual(message.clean_message("```text\nfix: a thing\n```"), "fix: a thing")
 
     def test_a_body_survives_the_fence_strip(self):
-        cleaned = server.clean_message("```\nsubject line\n\nthe body\n```")
+        cleaned = message.clean_message("```\nsubject line\n\nthe body\n```")
         self.assertEqual(cleaned, "subject line\n\nthe body")
 
     def test_surrounding_blank_lines_go(self):
-        self.assertEqual(server.clean_message("\n\n  subject  \n\n"), "subject")
+        self.assertEqual(message.clean_message("\n\n  subject  \n\n"), "subject")
 
 
 class ParsePlan(unittest.TestCase):
@@ -207,30 +211,30 @@ class ParsePlan(unittest.TestCase):
     )
 
     def test_the_first_ordinary_line_becomes_the_headline(self):
-        self.assertEqual(server.parse_plan(self.REPORT)["headline"], "Claude Max 20x")
+        self.assertEqual(plan.parse_plan(self.REPORT)["headline"], "Claude Max 20x")
 
     def test_a_limit_line_is_read_into_figures(self):
-        first = server.parse_plan(self.REPORT)["limits"][0]
+        first = plan.parse_plan(self.REPORT)["limits"][0]
         self.assertEqual(first["name"], "Current session")
         self.assertEqual(first["percent"], 34)
         self.assertEqual(first["resets"], "Aug 12, 5:49pm (Europe/Amsterdam)")
 
     def test_a_limit_with_nothing_to_reset_from_still_parses(self):
-        second = server.parse_plan(self.REPORT)["limits"][1]
+        second = plan.parse_plan(self.REPORT)["limits"][1]
         self.assertEqual((second["name"], second["percent"], second["resets"]),
                          ("Current week (all models)", 0, ""))
 
     def test_indented_lines_belong_to_the_block_above_them(self):
-        block, = server.parse_plan(self.REPORT)["blocks"]
+        block, = plan.parse_plan(self.REPORT)["blocks"]
         self.assertTrue(block["title"].startswith("Last 24h"))
         self.assertEqual(len(block["lines"]), 2)
 
     def test_a_percentage_over_a_hundred_is_clamped(self):
-        limit, = server.parse_plan("Session: 140% used")["limits"]
+        limit, = plan.parse_plan("Session: 140% used")["limits"]
         self.assertEqual(limit["percent"], 100)
 
     def test_output_that_parses_to_nothing_still_hands_back_its_text(self):
-        read = server.parse_plan("something unexpected entirely")
+        read = plan.parse_plan("something unexpected entirely")
         self.assertEqual(read["limits"], [])
         self.assertEqual(read["text"], "something unexpected entirely")
 
@@ -351,9 +355,9 @@ class SummariseBlock(unittest.TestCase):
 class SmallHelpers(unittest.TestCase):
 
     def test_count_pluralises_everything_but_one(self):
-        self.assertEqual(server.count(1, "file"), "1 file")
-        self.assertEqual(server.count(0, "file"), "0 files")
-        self.assertEqual(server.count(3, "file"), "3 files")
+        self.assertEqual(write.count(1, "file"), "1 file")
+        self.assertEqual(write.count(0, "file"), "0 files")
+        self.assertEqual(write.count(3, "file"), "3 files")
 
     def test_loopback_covers_localhost_and_both_families(self):
         for host in ("localhost", "", "127.0.0.1", "127.1.2.3", "::1"):
