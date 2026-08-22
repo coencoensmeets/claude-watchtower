@@ -24,14 +24,18 @@ Standard library only. No install step.
 from __future__ import annotations
 
 import argparse
+import atexit
+import base64
 import ipaddress
 import json
 import os
 import re
+import shlex
 import shutil
 import signal
 import socket
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -55,13 +59,25 @@ NAME_FILE = HOME / ".config" / "claude-watchtower" / "names.json"
 MAX_NAME = 80
 # Session ids are never reused, so the file would grow forever without a cap.
 MAX_NAMES = 500
-# Sessions you asked the panel to keep after their process is gone.
+# Sessions you asked the panel to keep after their process is gone. Only pinned
+# rows are written down; the rest are kept in memory for as long as the panel
+# runs. See "kept rows".
 STICKY_FILE = HOME / ".config" / "claude-watchtower" / "sticky.json"
 MAX_STICKY = 100
+# The in-memory tier has the same cap, for the same reason: a panel left running
+# for a month should not accumulate rows without end.
+MAX_KEPT = 100
+OWNED_FILE = HOME / ".config" / "claude-watchtower" / "owned.json"
+MAX_OWNED = 200
 
 # How long a state trace remembers, and how often we sample.
 HISTORY_SECONDS = 30 * 60
 SAMPLE_INTERVAL = 1.0
+
+# How stale a session file may be before the session behind it counts as gone.
+# One number for everyone who asks — the row that says "offline", the gate on
+# sending, and the deliverer deciding whether to start it back up.
+LIVE_SECONDS = 15.0
 
 KNOWN_STATUSES = ("waiting", "busy", "shell", "idle")
 
@@ -190,6 +206,24 @@ def proc_starttime(pid: int) -> str | None:
     if not fields or len(fields) < 22:
         return None
     return fields[21]
+
+
+def proc_gone(pid: int) -> bool:
+    """Has this process finished, whether or not anybody has noticed?
+
+    A process that has exited but has not been waited on keeps its entry under
+    /proc — so "is there a stat file" answers yes indefinitely, and so does
+    `kill -0`. It is a zombie: field 3 of stat is `Z`, and there is nothing left
+    of it to run a conversation. Whoever started it has to reap it, which a shell
+    does at once and a harness that is asleep may not do for minutes.
+
+    Getting this wrong is how a session that has ended goes on reporting itself
+    alive, which keeps the row out of the state the panel can act on.
+    """
+    fields = read_stat(pid)
+    if not fields or len(fields) < 3:
+        return True
+    return fields[2].startswith("Z")
 
 
 def parent_of(pid: int) -> int | None:
@@ -546,7 +580,10 @@ def say_to_session(data: dict, text: str) -> tuple[bool, str]:
 
     sock_path = data.get("messagingSocketPath")
     if not sock_path:
-        return False, "This session is not listening for messages"
+        # Callers reach this through session_listening, which has already asked —
+        # so this is the socket going in the gap between the two, and what
+        # happens next is the deliverer holding the message, not a refusal.
+        return False, "It has no socket open yet"
     if not Path(sock_path).exists():
         return False, "This session's message socket has gone"
 
@@ -1887,6 +1924,28 @@ def summarise_block(block: dict) -> str | None:
     return None
 
 
+# How Claude Code writes down an answer to AskUserQuestion: as that tool's
+# result, one quoted pair per question. There is no other record of what was
+# picked, so this is the only way to show it back.
+ANSWERED_PREFIX = "Your questions have been answered:"
+ANSWERED_PAIR = re.compile(r'"([^"]+)"="([^"]*)"')
+
+
+def answers_in(content: object) -> list[str]:
+    """The question-and-answer pairs in a tool result, as lines to show."""
+    if isinstance(content, list):
+        out: list[str] = []
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "text":
+                out += answers_in(part.get("text"))
+        return out
+    if not isinstance(content, str) or ANSWERED_PREFIX not in content:
+        return []
+    pairs = ANSWERED_PAIR.findall(content)
+    # Several picks for one question come back joined, and read better as a list.
+    return [f"{question} — {answer.replace(', ', ' · ')}" for question, answer in pairs if answer]
+
+
 def transcript_paths(session_id: str, cwd: str) -> list[Path]:
     """Where Claude Code keeps this session's transcript."""
     slug = "-" + re.sub(r"[^A-Za-z0-9]+", "-", cwd.lstrip("/"))
@@ -1897,6 +1956,17 @@ def transcript_paths(session_id: str, cwd: str) -> list[Path]:
         return list(PROJECT_DIR.glob(f"*/{session_id}.jsonl"))
     except OSError:
         return []
+
+
+def has_conversation(session_id: str, cwd: str) -> bool:
+    """Whether anything has been said in this session yet.
+
+    A transcript that does not exist, or exists and is empty, is a session that
+    has never taken a turn — and `--resume` refuses one of those, so it decides
+    whether a session is resumed or started under its own id.
+    """
+    return any(path.exists() and path.stat().st_size
+               for path in transcript_paths(session_id, cwd))
 
 
 def last_activity(session_id: str, cwd: str) -> dict | None:
@@ -2118,6 +2188,88 @@ SKIP_ENTRY_TYPES = {
 }
 
 
+# What a change costs the conversation to carry. The transcript is re-read on
+# every poll while the chat is open, so what rides along with it is a preview and
+# a count; the whole patch is a click and its own request away.
+CHANGE_PREVIEW = 8
+CHANGE_LINE = 200
+# And what the whole one costs when asked for. Past this the file is not a change
+# to read, it is a file — a generated one, or a wholesale rewrite.
+CHANGE_MAX = 4000
+
+
+def patch_lines(result: object) -> list[str]:
+    """The patch Claude Code wrote down for an edit, as unified-diff lines.
+
+    Not reconstructed from the tool's arguments — recorded. Claude Code writes a
+    `structuredPatch` beside every Edit and Write result: real hunks against the
+    real file, with the line numbers the file actually has. Rebuilding a diff
+    from `old_string` and `new_string` would have neither, and would be a guess
+    about a file that has already been written.
+    """
+    if not isinstance(result, dict):
+        return []
+    out: list[str] = []
+    patch = result.get("structuredPatch")
+    if isinstance(patch, list) and patch:
+        for hunk in patch:
+            if not isinstance(hunk, dict) or not isinstance(hunk.get("lines"), list):
+                continue
+            out.append(f"@@ -{hunk.get('oldStart', 0)},{hunk.get('oldLines', 0)}"
+                       f" +{hunk.get('newStart', 0)},{hunk.get('newLines', 0)} @@")
+            out += [str(line) for line in hunk["lines"]]
+        return out
+    # A file written where there was none has nothing to diff against, and is
+    # written down as its own content. Shown the way the Git tab shows an
+    # untracked file: all added.
+    content = result.get("content")
+    if isinstance(content, str) and content:
+        body = content.splitlines()
+        return [f"@@ -0,0 +1,{len(body)} @@", *(f"+{line}" for line in body)]
+    return []
+
+
+def change_of(result: object) -> dict | None:
+    """One file change, as the conversation should carry it: a preview and a size.
+
+    The preview starts at the first line that actually changes rather than at the
+    top of the patch. A hunk opens with its context, and a preview of the context
+    is a preview of the part you did not want to see — three unchanged lines and
+    a promise that something happens further down.
+    """
+    if not isinstance(result, dict):
+        return None
+    path = result.get("filePath")
+    if not isinstance(path, str) or not path:
+        return None
+    lines = patch_lines(result)
+    added = sum(1 for line in lines if line.startswith("+"))
+    removed = sum(1 for line in lines if line.startswith("-"))
+    if not added and not removed:
+        return None
+    head = [lines[0]] if lines and lines[0].startswith("@@") else []
+    rest = lines[len(head):]
+    first = next((i for i, line in enumerate(rest) if line[:1] in "+-"), 0)
+    # One line of context above it, where there is one: a change with nothing
+    # around it reads as having come from nowhere.
+    start = max(0, first - 1)
+    preview = head + rest[start:start + CHANGE_PREVIEW]
+    return {"path": path, "added": added, "removed": removed, "lines": len(lines),
+            "preview": [line[:CHANGE_LINE] for line in preview]}
+
+
+def tool_result_id(message: object) -> str:
+    """Which tool call a result belongs to."""
+    if not isinstance(message, dict):
+        return ""
+    for block in message.get("content") or []:
+        if isinstance(block, dict) and block.get("type") == "tool_result":
+            found = block.get("tool_use_id")
+            if isinstance(found, str):
+                return found
+    return ""
+
+
 def tool_detail(args: object) -> str:
     if not isinstance(args, dict):
         return ""
@@ -2223,6 +2375,46 @@ TITLE_PATIENCE = 4000
 TRANSCRIPT_LIMIT_MAX = 500
 
 
+def read_change(session_id: str, cwd: str, tool_use_id: str) -> dict:
+    """The whole of one change, for the preview in the chat that was clicked.
+
+    Its own read rather than something carried along with the conversation: a
+    patch is unbounded, the transcript is re-read on every poll while the chat is
+    open, and the reader who wants all of one change wants it once.
+
+    Read newest-first and stopped at the one asked for, so the cost is the walk
+    back to it rather than the size of the transcript.
+    """
+    out = {"ok": False, "id": tool_use_id, "path": "", "text": "",
+           "added": 0, "removed": 0, "clipped": False}
+    for path in transcript_paths(session_id, cwd):
+        if not path.exists():
+            continue
+        for line in reverse_lines(path, cap=8_000_000):
+            line = line.strip()
+            if not line.startswith("{") or tool_use_id not in line:
+                continue
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            if tool_result_id(entry.get("message")) != tool_use_id:
+                continue
+            result = entry.get("toolUseResult")
+            lines = patch_lines(result)
+            if not lines:
+                return {**out, "message": "That change is not written down line by line"}
+            clipped = len(lines) > CHANGE_MAX
+            return {**out, "ok": True,
+                    "path": str((result or {}).get("filePath") or ""),
+                    "text": "\n".join(lines[:CHANGE_MAX]),
+                    "added": sum(1 for one in lines if one.startswith("+")),
+                    "removed": sum(1 for one in lines if one.startswith("-")),
+                    "clipped": clipped}
+        return {**out, "message": "That change is no longer in the transcript this panel reads"}
+    return {**out, "message": "There is no transcript to read it from"}
+
+
 def read_transcript(session_id: str, cwd: str, limit: int = 60) -> dict:
     """The recent conversation: what you said, what Claude said, what it ran.
 
@@ -2237,6 +2429,10 @@ def read_transcript(session_id: str, cwd: str, limit: int = 60) -> dict:
         title = None
         entries: list[dict] = []
         sent: dict[str, dict] = {}
+        # toolUseId -> the change that tool made. The walk is newest-first, so a
+        # result is always read before the call that caused it, which is what
+        # makes this a plain lookup rather than a second pass.
+        changes: dict[str, dict] = {}
         more = False
         seen = 0
 
@@ -2297,6 +2493,14 @@ def read_transcript(session_id: str, cwd: str, limit: int = 60) -> dict:
                 continue
             if entry.get("isSidechain"):
                 continue
+            # What a tool did to a file, written down on the result. Read before
+            # the tool_result turn is skipped as mechanics, because this is the
+            # one part of it that is not mechanics: it is the change itself.
+            if isinstance(entry.get("toolUseResult"), dict):
+                made = change_of(entry["toolUseResult"])
+                said = tool_result_id(entry.get("message"))
+                if made and said:
+                    changes[said] = made
             # A message that came in over the socket is written down as meta —
             # it was not typed at this terminal. It is still the conversation.
             origin = entry.get("origin")
@@ -2320,12 +2524,20 @@ def read_transcript(session_id: str, cwd: str, limit: int = 60) -> dict:
                     if came["text"]:
                         keep(came, at)
                 elif text and not text.startswith("<"):
-                    entries.append({"role": kind, "at": at, "text": text[:4000], "tools": []})
+                    shown = {"role": kind, "at": at, "text": text[:4000], "tools": []}
+                    # A turn the panel ran is written down twice — once as the
+                    # prompt going on the queue, once as the message itself —
+                    # so a message typed here is registered against the queue
+                    # the same way a delivered one is, and whichever is read
+                    # second is dropped rather than shown again.
+                    if kind == "user":
+                        sent.setdefault(text, shown)
+                    entries.append(shown)
                 continue
             if not isinstance(content, list):
                 continue
 
-            texts, tools, only_results = [], [], True
+            texts, tools, only_results, answered = [], [], True, []
             for block in content:
                 if not isinstance(block, dict):
                     continue
@@ -2337,17 +2549,37 @@ def read_transcript(session_id: str, cwd: str, limit: int = 60) -> dict:
                         texts.append(text)
                 elif block_kind == "tool_use":
                     only_results = False
-                    tools.append({"name": block.get("name") or "tool", "detail": tool_detail(block.get("input"))})
+                    made = changes.get(block.get("id") or "")
+                    tools.append({"name": block.get("name") or "tool",
+                                  "detail": tool_detail(block.get("input")),
+                                  # Only where there is one: every other tool call
+                                  # would otherwise carry a null through every poll.
+                                  **({"change": {**made, "id": block["id"]}} if made else {})})
                 elif block_kind == "thinking":
                     only_results = False
+                elif block_kind == "tool_result":
+                    # An answer to a question is written down here and nowhere
+                    # else: the question is a tool call, so what you picked is
+                    # its result. It is the one tool_result worth showing —
+                    # without it the conversation reads as Claude asking
+                    # something and then carrying on for no visible reason.
+                    answered += answers_in(block.get("content"))
+            if answered:
+                entries.append({"role": "user", "at": at, "tools": [],
+                                "text": "\n".join(answered)[:4000], "from": "answered here"})
+                continue
             if only_results:
                 continue  # a pure tool_result turn
             if texts or tools:
-                entries.append({
+                shown = {
                     "role": kind, "at": at,
                     "text": "\n\n".join(texts)[:4000],
                     "tools": tools[:12],
-                })
+                }
+                # Same as above, for a user turn whose content arrived as blocks.
+                if kind == "user" and texts and not tools:
+                    sent.setdefault("\n\n".join(texts), shown)
+                entries.append(shown)
 
         # Read newest-first, so put it back the way it was said.
         entries.reverse()
@@ -2822,14 +3054,32 @@ def clean_name(text: object) -> str:
     return value[:MAX_NAME]
 
 
-# ------------------------------------------------------------- sticky sessions
-# A session file disappears when its process does, and with it the row. A sticky
-# session keeps its row: the panel remembers enough about it — id, name, folder —
-# to go on showing the conversation, and can start Claude Code back up on that
-# same transcript with `claude --resume`.
+# ----------------------------------------------------------------- kept rows
+# A session file disappears when its process does, and with it the row. A kept
+# row outlives it: the panel remembers enough about the session — id, name,
+# folder — to go on showing the conversation, and can start Claude Code back up
+# on that same transcript with `claude --resume`.
+#
+# Two tiers, and the only difference is how long "outlives it" means:
+#
+# - **Held** (`_KEPT`, memory only). Every row the panel makes for itself is
+#   this: a session it started, a session it adopted. It survives a page reload,
+#   which is a browser doing nothing of consequence, and goes when the panel
+#   goes — because whatever was running here is not running any more either, and
+#   a row for it would be a row for nothing.
+# - **Pinned** (`sticky.json`, on disk). Asked for a row at a time, and the only
+#   thing that survives a restart. Panel-run sessions used to be written here
+#   too, which made every one of them permanent whether or not that was wanted:
+#   the panel decided what you were keeping.
+#
+# Nothing about the session is copied either way. The transcript stays where
+# Claude Code keeps it, and a forgotten row loses only the row.
+
+_KEPT: dict[str, dict] = {}
+_KEPT_LOCK = threading.Lock()
 
 
-def load_sticky() -> dict[str, dict]:
+def load_pinned() -> dict[str, dict]:
     try:
         data = json.loads(STICKY_FILE.read_text())
     except (OSError, ValueError):
@@ -2839,11 +3089,102 @@ def load_sticky() -> dict[str, dict]:
     return {str(k): v for k, v in data.items() if isinstance(v, dict)}
 
 
-def save_sticky(sticky: dict[str, dict]) -> None:
-    if len(sticky) > MAX_STICKY:
-        sticky = dict(list(sticky.items())[-MAX_STICKY:])
+def save_pinned(pinned: dict[str, dict]) -> None:
+    if len(pinned) > MAX_STICKY:
+        pinned = dict(list(pinned.items())[-MAX_STICKY:])
     STICKY_FILE.parent.mkdir(parents=True, exist_ok=True)
-    STICKY_FILE.write_text(json.dumps(sticky, indent=2))
+    STICKY_FILE.write_text(json.dumps(pinned, indent=2))
+
+
+def kept_rows() -> dict[str, dict]:
+    """Every row that outlives its process, held and pinned together.
+
+    Each entry carries `pinned`, because that is the difference the row shows and
+    the only thing the next restart cares about.
+    """
+    pinned = load_pinned()
+    with _KEPT_LOCK:
+        out = {key: dict(value) for key, value in _KEPT.items()}
+    for key, entry in pinned.items():
+        out[key] = {**out.get(key, {}), **entry}
+    for key, entry in out.items():
+        entry["pinned"] = key in pinned
+    return out
+
+
+def keep_row(entry: dict) -> None:
+    """Keep this row for as long as the panel runs, and no longer."""
+    session_id = str(entry.get("sessionId") or "")
+    if not session_id:
+        return
+    entry = {key: value for key, value in entry.items() if key != "pinned"}
+    with _KEPT_LOCK:
+        _KEPT.pop(session_id, None)  # re-inserted, so the cap drops the oldest
+        for old in list(_KEPT)[:max(0, len(_KEPT) - MAX_KEPT + 1)]:
+            _KEPT.pop(old, None)
+        _KEPT[session_id] = entry
+    # A pinned row is the same row. Keeping the written copy in step is what
+    # stops a pinned session coming back after a restart under a stale name.
+    pinned = load_pinned()
+    if session_id in pinned:
+        pinned[session_id] = entry
+        save_pinned(pinned)
+
+
+def refresh_row(session_id: str, entry: dict) -> bool:
+    """Update a row that is already kept, without making one that is not."""
+    entry = {key: value for key, value in entry.items() if key != "pinned"}
+    touched = False
+    with _KEPT_LOCK:
+        if session_id in _KEPT:
+            _KEPT[session_id] = entry
+            touched = True
+    pinned = load_pinned()
+    if session_id in pinned:
+        pinned[session_id] = entry
+        save_pinned(pinned)
+        touched = True
+    return touched
+
+
+def pin_row(session_id: str, entry: dict) -> None:
+    """Write this row down, so it is still here after a restart."""
+    pinned = load_pinned()
+    pinned[session_id] = {key: value for key, value in entry.items() if key != "pinned"}
+    save_pinned(pinned)
+
+
+def unpin_row(session_id: str) -> None:
+    """Stop writing it down. A row the panel is holding stays until it stops."""
+    pinned = load_pinned()
+    if pinned.pop(session_id, None) is not None:
+        save_pinned(pinned)
+
+
+def forget_row(session_id: str) -> bool:
+    """Drop the row outright, pinned or not. Says whether there was one."""
+    with _KEPT_LOCK:
+        gone = _KEPT.pop(session_id, None) is not None
+    pinned = load_pinned()
+    if pinned.pop(session_id, None) is not None:
+        save_pinned(pinned)
+        gone = True
+    return gone
+
+
+def drop_unpinned_row(session_id: str) -> bool:
+    """Let go of the row unless it was pinned. Says whether the row is going.
+
+    Stopping a session and taking its row off the list used to be two separate
+    asks, so a session you had just ended sat on the dashboard until you asked a
+    second time. Pinning is the one thing that means "keep this row past its
+    process", so it is also the one thing a stop leaves standing.
+    """
+    if session_id in load_pinned():
+        return False
+    with _KEPT_LOCK:
+        _KEPT.pop(session_id, None)
+    return True
 
 
 # Terminals that can be told to run one command, in the order we try them. The
@@ -2912,6 +3253,22 @@ def terminal_argv(command: list[str], cwd: str) -> list[str] | None:
     return None
 
 
+def interactive_argv(command: list[str]) -> list[str]:
+    """`command` run by an interactive shell that stays behind when it exits.
+
+    A terminal handed a bare `claude` is a window with one program in it: the
+    session comes up without the PATH, aliases and version managers the shell's
+    rc file sets up, and the window vanishes the moment the session ends, taking
+    the scrollback with it. Going through the shell instead gives a session
+    started from the panel the same surroundings as one started by hand, and
+    leaves a prompt behind afterwards, so the window is somewhere to work rather
+    than something to watch.
+    """
+    shell = os.environ.get("SHELL") or shutil.which("bash") or "/bin/sh"
+    line = " ".join(shlex.quote(part) for part in command)
+    return [shell, "-i", "-c", f"{line}; exec {shlex.quote(shell)} -i"]
+
+
 def start_session(entry: dict) -> tuple[bool, str]:
     """Open a terminal running `claude --resume <id>` in the session's folder."""
     session_id = str(entry.get("sessionId") or "")
@@ -2937,130 +3294,14 @@ def start_session(entry: dict) -> tuple[bool, str]:
     return True, "Starting it up…"
 
 
-def resolve_folder(raw: str) -> tuple[str | None, str]:
-    """A folder a person typed, made absolute, or why it will not do.
-
-    `~` and a relative path are what anyone types, so both are accepted; a file,
-    a path that is not there, and one that cannot be read are all refused by
-    name, because "could not open a session there" on its own leaves you guessing
-    which of the three it was.
-    """
-    text = (raw or "").strip()
-    if not text:
-        return None, "No folder was given"
-    try:
-        path = Path(text).expanduser()
-        if not path.is_absolute():
-            path = (HOME / path).resolve()
-        else:
-            path = path.resolve()
-    except (OSError, RuntimeError) as exc:
-        return None, f"That path will not resolve: {exc}"
-    if not path.exists():
-        return None, f"There is no {path}"
-    if not path.is_dir():
-        return None, f"{path} is a file, not a folder"
-    if not os.access(path, os.R_OK | os.X_OK):
-        return None, f"{path} cannot be opened"
-    return str(path), ""
-
-
-# Finding a folder the browser named but would not place. See locate_folder.
-LOCATE_DEADLINE = 4.0
-LOCATE_DEPTH = 7
-LOCATE_MAX_HITS = 12
-# Directories never worth walking into: they hold thousands of entries and no
-# project anybody starts a session in.
-LOCATE_SKIP = frozenset({
-    "node_modules", ".git", ".venv", "venv", "__pycache__", ".cache", ".local",
-    "site-packages", ".npm", ".cargo", "target", "build", "dist", ".next",
-    ".mypy_cache", ".pytest_cache", "snap", ".steam", ".rustup", ".nvm",
-})
-
-
-def locate_folder(name: str, children: list[str]) -> tuple[list[str], str]:
-    """Where on disk the folder the browser let you pick actually is.
-
-    The native picker is the browser's own, which is the point — but it will not
-    say where the folder is. `webkitdirectory` hands back each file's path
-    *relative* to the chosen folder, so what reaches us is the folder's name and
-    the names directly inside it, and never the absolute path.
-
-    Those two together are a fingerprint, and this is the search for it: walk down
-    from home looking for a directory of that name holding those children. Almost
-    always one thing matches. Where more than one does, the caller is given all of
-    them and asks — a wrong guess would start a session in the wrong checkout,
-    which is exactly the mistake worth a question.
-
-    Bounded on every axis, because it is a filesystem walk answering a click:
-    depth, wall clock, hits, and a skip list for the directories that hold
-    thousands of entries nobody starts a session in.
-    """
-    name = (name or "").strip().strip("/")
-    if not name or "/" in name or name in (".", ".."):
-        return [], "That is not a folder name this can look for"
-    wanted = {child for child in children if child and "/" not in child}
-    deadline = time.time() + LOCATE_DEADLINE
-    hits: list[str] = []
-    ran_out = False
-
-    # Home first and on its own: a folder you pick is almost always under it, and
-    # starting there keeps the walk small enough to answer a click.
-    stack: list[tuple[Path, int]] = [(HOME, 0)]
-    while stack:
-        if time.time() > deadline or len(hits) >= LOCATE_MAX_HITS:
-            ran_out = True
-            break
-        here, depth = stack.pop()
-        try:
-            with os.scandir(here) as scan:
-                for entry in scan:
-                    try:
-                        if not entry.is_dir(follow_symlinks=False):
-                            continue
-                    except OSError:
-                        continue
-                    if entry.name in LOCATE_SKIP:
-                        continue
-                    child = Path(entry.path)
-                    if entry.name == name and folder_matches(child, wanted):
-                        hits.append(str(child))
-                    # A match is still walked past: a name can repeat further down.
-                    if depth + 1 <= LOCATE_DEPTH and not entry.name.startswith("."):
-                        stack.append((child, depth + 1))
-        except OSError:
-            continue
-
-    if hits:
-        return sorted(hits), ""
-    return [], ("Could not find that folder under your home directory"
-                + (" within the time this can spend looking" if ran_out else ""))
-
-
-def folder_matches(here: Path, wanted: set[str]) -> bool:
-    """Does this directory hold the entries the browser said were inside?
-
-    Only the names the picker actually reported have to be present. It reports
-    files, and a folder holding nothing but empty subfolders reports none at all —
-    so an empty fingerprint matches on the name alone, and the caller asks.
-    """
-    if not wanted:
-        return True
-    try:
-        here_names = {entry.name for entry in os.scandir(here)}
-    except OSError:
-        return False
-    return wanted.issubset(here_names)
-
-
 def new_session(cwd: str) -> tuple[bool, str]:
-    """Open a terminal running a fresh `claude` in a folder."""
+    """Open a terminal running a fresh `claude` in a folder, from a shell prompt."""
     if not cwd or not Path(cwd).is_dir():
         return False, f"That folder is gone: {cwd}" if cwd else "That session has no folder"
     claude = shutil.which("claude")
     if not claude:
         return False, "Cannot find the claude command on PATH"
-    argv = terminal_argv([claude], cwd)
+    argv = terminal_argv(interactive_argv([claude]), cwd)
     if not argv:
         return False, "No terminal found to start it in — set CLAUDE_WATCHTOWER_TERMINAL"
     try:
@@ -3074,24 +3315,1121 @@ def new_session(cwd: str) -> tuple[bool, str]:
     return True, "Opening a new session there…"
 
 
-def wait_and_say(session_id: str, text: str, seconds: float = 90.0) -> None:
-    """Deliver a message once the session it was meant for is listening again.
+# --------------------------------------------------------- turns run from here
+# The one thing a terminal keeps to itself is the flags a turn starts under. So
+# the panel runs a turn of its own: `claude --print --resume <id>` picks up the
+# conversation that is already there, appends to the same transcript, and exits.
+#
+# That is the whole trick, and it is why this is small. The permission mode is
+# an argument, so changing it is changing what the next turn is launched with —
+# no process to signal, nothing to restart, nothing to take over, and no state
+# to keep in step beyond a remembered word. Switching is instant because there
+# is nothing to switch: the choice is not applied until a turn is launched, and
+# a turn is launched from scratch every time.
+#
+# What this deliberately does not do is take a session away from a terminal.
+# Two processes appending to one transcript is the failure this area is littered
+# with, so a turn only ever runs for a session no live process is holding, and
+# only one at a time. A session in a terminal is not eligible and is not made
+# eligible by force: end it first, which is a button that already exists.
 
-    Typing into a stopped session starts it up, and startup is not instant — the
-    process has to come up and open its socket. This waits for that in the
-    background so the click returns at once.
+# What the panel will launch a turn in, keyed the way the transcript reports it
+# — `default`, translated to `manual` at the argv boundary, which is what the
+# CLI actually accepts.
+#
+# `bypassPermissions` and `dontAsk` are still not offered: they never ask
+# anybody, so a panel that can answer prompts has nothing to answer and no way
+# to know what was done in its name.
+#
+# `auto` is offered, because it is Claude Code's own default and leaving it out
+# meant the panel could not run a session the way its terminal already does. It
+# is worth knowing what it is, though: a classifier decides what needs approval,
+# and what it approves never reaches the panel at all — in testing it ran
+# `rm -rf` with no prompt raised. The three others either ask or hold back.
+#
+# Asking is no longer a dead end in any of them: a turn here is launched with
+# `--permission-prompt-tool stdio`, so a prompt arrives in the panel and the
+# tool waits. What no mode changes is that Claude Code judges some commands safe
+# enough not to ask about at all, and those still run.
+OWNED_MODES = ("default", "auto", "plan", "acceptEdits")
+CLI_MODES = {"default": "manual"}
+# A turn is a whole conversation turn, which can be minutes. Long, not endless.
+OWNED_SECONDS = 1800.0
+
+# How long a prompt raised by a panel turn waits for somebody to answer it in the
+# panel. Long, because the answer is a person noticing; not endless, because a
+# turn holding a pipe open forever is a process nobody will ever reap.
+OWNED_ASK_SECONDS = 600.0
+
+_OWNED_LOCK = threading.Lock()
+# sessionId -> the prompt standing in front of that turn, as the panel shows it.
+# A turn holds its pipe open while this is set: the tool has not run, and will
+# not, until an answer comes back down it.
+OWNED_ASK: dict[str, dict] = {}
+# sessionId -> the answer given, and the event the waiting turn is parked on.
+_ASK_ANSWER: dict[str, dict] = {}
+_ASK_EVENTS: dict[str, threading.Event] = {}
+# sessionId -> when its turn started. Also the guard against a second turn, and
+# against a terminal being opened on the transcript underneath a running one.
+OWNED_BUSY: dict[str, float] = {}
+# sessionId -> how the last one went, so the panel can say so after the fact.
+# A turn is launched and let go of, so this is the only place its outcome lands.
+OWNED_LAST: dict[str, dict] = {}
+# sessionId -> what was typed at it while it was answering, in the order it was
+# typed. One turn runs at a time down a held pipe — the transcript is being
+# written by the turn in flight, and a second turn written into it is the
+# two-turns-one-conversation failure the whole area is built to avoid — so the
+# panel does here what the terminal's own prompt does when you type ahead of it:
+# it holds the message and sends it the instant the turn ends.
+#
+# *It is still answering the last one* was the alternative, and it was the answer
+# to a question nobody asked. Nothing about the panel's timing is the typist's
+# business: the message was written, it is going in, and being told to come back
+# in four minutes and press Send again is work the panel can do itself.
+OWNED_QUEUE: dict[str, list[str]] = {}
+# sessionId -> when it was told to stop. A turn ends in a result frame either way,
+# and this is what tells one that was stopped from one that failed: an interrupted
+# turn comes back `is_error` with `error_during_execution`, which read as the turn
+# having gone wrong when in fact it did exactly what it was told.
+OWNED_STOPPING: dict[str, float] = {}
+# sessionId -> what compaction is doing, or how the last one went. A compaction
+# is a turn like any other from the pipe's point of view, but its `result` frame
+# carries an empty string, so on the outcome machinery alone it reads as a turn
+# that finished and said nothing. What it actually did arrives in three `system`
+# frames, which is what this records:
+#
+#   {"subtype":"status","status":"compacting"}                      it started
+#   {"subtype":"status","status":null,"compact_result":"success"}   it worked
+#   {"subtype":"compact_boundary","compact_metadata":{...}}         by how much
+#
+# `compact_metadata` carries `pre_tokens` and `post_tokens`, which is the only
+# honest way to say what was gained — the panel's own context reading comes off
+# the *next* assistant turn, so it does not move until the session is used again.
+OWNED_COMPACT: dict[str, dict] = {}
+# sessionId -> what it says it can be asked for: `available`, and `terminalOnly`,
+# the ones it keeps for its own prompt. Straight off its `init` frame, because a
+# held pipe and a messaging socket do not agree about slash commands and only the
+# session knows which it is. Empty until it has spoken once.
+OWNED_COMMANDS: dict[str, dict] = {}
+# Bounded, because a queue with no end is a session answering questions you
+# stopped caring about ten turns ago. Past this the message is refused, which is
+# the one place a refusal says something true: you have typed more than you can
+# have meant for one conversation to answer in order.
+MAX_QUEUED = 10
+
+
+def load_owned() -> dict[str, dict]:
+    """sessionId -> {mode, here} for the sessions the panel runs turns for.
+
+    `here` says the panel was handed this one deliberately — it ended the
+    terminal session to take it — as against a mode merely picked for a session
+    in passing. It is what stops an adopted row reading as a dead one: nothing
+    is running, which is normal between turns, and the row should say which of
+    those two it is.
+
+    An older file holds a bare mode string per id, and is read as one.
     """
-    deadline = time.time() + seconds
-    while time.time() < deadline:
-        time.sleep(1.0)
-        data = STORE.raw(session_id)
-        if not data or not data.get("messagingSocketPath"):
+    try:
+        data = json.loads(OWNED_FILE.read_text())
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    out: dict[str, dict] = {}
+    for key, value in data.items():
+        if isinstance(value, str):
+            value = {"mode": value}
+        if not isinstance(value, dict):
             continue
-        if not Path(data["messagingSocketPath"]).exists():
-            continue
-        ok, _ = say_to_session(data, text)
-        if ok:
+        mode = str(value.get("mode") or OWNED_MODES[0])
+        out[str(key)] = {"mode": mode if mode in OWNED_MODES else OWNED_MODES[0],
+                         "here": bool(value.get("here"))}
+    return out
+
+
+def save_owned(owned: dict[str, dict]) -> None:
+    if len(owned) > MAX_OWNED:
+        owned = dict(list(owned.items())[-MAX_OWNED:])
+    OWNED_FILE.parent.mkdir(parents=True, exist_ok=True)
+    OWNED_FILE.write_text(json.dumps(owned, indent=2))
+
+
+def owned_state() -> dict[str, dict]:
+    """What the panel knows about turns it runs, per session, for the feed."""
+    kept = load_owned()
+    with _OWNED_LOCK:
+        busy = dict(OWNED_BUSY)
+        last = {k: dict(v) for k, v in OWNED_LAST.items()}
+        asking = {k: dict(v) for k, v in OWNED_ASK.items()}
+        waiting = {k: list(v) for k, v in OWNED_QUEUE.items() if v}
+        stopping = set(OWNED_STOPPING)
+        compacting = {k: dict(v) for k, v in OWNED_COMPACT.items()}
+        commands = {k: dict(v) for k, v in OWNED_COMMANDS.items()}
+    out: dict[str, dict] = {}
+    for session_id in (set(kept) | set(busy) | set(last) | set(asking) | set(waiting)
+                       | set(compacting) | set(commands)):
+        out[session_id] = {
+            "mode": (kept.get(session_id) or {}).get("mode", OWNED_MODES[0]),
+            # Adopted, as against merely having had a mode picked for it.
+            "here": bool((kept.get(session_id) or {}).get("here")),
+            "busy": session_id in busy,
+            "since": busy.get(session_id),
+            "last": last.get(session_id),
+            "ask": asking.get(session_id),
+            # What is standing behind the turn in flight. Sent in full rather
+            # than counted: a queue you cannot read is a queue you cannot decide
+            # to drop something from, and dropping is the whole point of seeing
+            # it. The panel is loopback-only and shows the conversation itself,
+            # so there is nothing here it is not already showing.
+            "queued": waiting.get(session_id) or [],
+            # Told to stop, and not yet come back saying it has. The button it
+            # was pressed on says so for that moment rather than sitting there
+            # looking unpressed.
+            "stopping": session_id in stopping,
+            # What compaction is doing, or what the last one did. Distinct from
+            # `last` because a compaction's own result frame is empty — see
+            # OWNED_COMPACT.
+            "compact": compacting.get(session_id),
+            # What this session says it takes, for the composer's /-picker. Null
+            # until it has said — the panel's own list stands in until then.
+            "commands": commands.get(session_id),
+            # Held open, i.e. a process is there between turns — which is what
+            # makes the row a running session rather than one that wakes up.
+            "running": owned_running(session_id),
+        }
+    return out
+
+
+# A session the panel holds open. One `claude --print --input-format stream-json`
+# per adopted session, alive between turns rather than spawned for each: it
+# serves turn after turn down the same pipe, which is what makes the session
+# *running* rather than a row that wakes up when poked.
+#
+# Holding it is also what makes the mode a live setting. `set_permission_mode`
+# is refused on the messaging socket because its callback is not registered
+# there — but this transport owns the session's stdio, where it is registered,
+# and it answers `{"subtype":"success","response":{"mode":"acceptEdits"}}` and
+# takes effect on the next tool. That is the thing this whole area was opened to
+# find, and it only works while something holds the pipe.
+OWNED_PROCS: dict[str, dict] = {}
+
+
+def owned_write(session_id: str, frame: dict) -> bool:
+    """One JSON line into a held session's stdin, or False if it is not there."""
+    with _OWNED_LOCK:
+        held = OWNED_PROCS.get(session_id)
+    if not held or held["proc"].poll() is not None:
+        return False
+    try:
+        with held["write"]:
+            held["proc"].stdin.write(json.dumps(frame) + "\n")
+            held["proc"].stdin.flush()
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def owned_running(session_id: str) -> bool:
+    with _OWNED_LOCK:
+        held = OWNED_PROCS.get(session_id)
+    return bool(held) and held["proc"].poll() is None
+
+
+def ask_from_panel(session_id: str, request: dict) -> dict:
+    """Park a turn on the prompt it raised and hand back the answer to send.
+
+    This is the whole of what the control channel buys. `--permission-prompt-tool
+    stdio` makes Claude Code ask over the pipe the panel is holding, so the
+    question arrives here as a can_use_tool control_request and the tool does not
+    run until a control_response goes back. A permission prompt and a
+    multiple-choice question come up this same channel; `requires_user_interaction`
+    is what tells them apart, and a question's answers ride back inside the input
+    it was going to use.
+
+    Nobody answering is the case worth being careful about: a turn parked forever
+    holds a pipe and a process. So the wait has a deadline, and running out is a
+    refusal — the safe direction, and one the turn can explain.
+    """
+    event = threading.Event()
+    standing = {
+        "requestId": str(request.get("request_id") or ""),
+        "tool": str(request.get("tool_name") or "a tool"),
+        "name": str(request.get("display_name") or request.get("tool_name") or "a tool"),
+        "what": str(request.get("description") or "")[:300],
+        "input": request.get("input") if isinstance(request.get("input"), dict) else {},
+        # A question rather than a gate: the panel draws options instead of
+        # allow-and-deny, and answering it *is* allowing it.
+        "asks": bool(request.get("requires_user_interaction")),
+        "at": time.time(),
+        "seconds": OWNED_ASK_SECONDS,
+    }
+    with _OWNED_LOCK:
+        OWNED_ASK[session_id] = standing
+        _ASK_EVENTS[session_id] = event
+        _ASK_ANSWER.pop(session_id, None)
+    try:
+        answered = event.wait(OWNED_ASK_SECONDS)
+        with _OWNED_LOCK:
+            given = _ASK_ANSWER.pop(session_id, None)
+    finally:
+        with _OWNED_LOCK:
+            OWNED_ASK.pop(session_id, None)
+            _ASK_EVENTS.pop(session_id, None)
+    if not answered or not given:
+        return {"behavior": "deny", "message": "Nobody answered this in the panel, so it was refused"}
+    if given.get("behavior") != "allow":
+        return {"behavior": "deny", "message": str(given.get("message") or "Refused from the panel")}
+    # Allowing runs the tool on the input it asked with. A question is allowed the
+    # same way, with the answers written into that input: `answers` is keyed by
+    # the question's own text, and several picks join on ", ".
+    used = dict(standing["input"])
+    picks = given.get("answers")
+    if isinstance(picks, dict) and isinstance(used.get("questions"), list):
+        answers = {}
+        for question in used["questions"]:
+            if not isinstance(question, dict):
+                continue
+            chosen = picks.get(str(question.get("question") or ""))
+            if isinstance(chosen, list):
+                chosen = ", ".join(str(c) for c in chosen if str(c).strip())
+            chosen = str(chosen or "").strip()
+            if chosen:
+                answers[question["question"]] = chosen
+        if answers:
+            used["answers"] = answers
+    return {"behavior": "allow", "updatedInput": used}
+
+
+def answer_from_panel(session_id: str, request_id: str, decision: dict) -> tuple[bool, str]:
+    """Hand an answer to the turn parked on a prompt."""
+    with _OWNED_LOCK:
+        standing = OWNED_ASK.get(session_id)
+        event = _ASK_EVENTS.get(session_id)
+        if not standing or not event:
+            return False, "Nothing here is waiting to be answered"
+        # The id has to match. A panel repainted between two prompts would
+        # otherwise answer the second with what was clicked for the first.
+        if request_id and request_id != standing["requestId"]:
+            return False, "That answer was for a prompt that has already gone"
+        _ASK_ANSWER[session_id] = decision
+        event.set()
+    allowed = decision.get("behavior") == "allow"
+    if standing["asks"] and allowed:
+        return True, "Answered"
+    return True, "Allowed" if allowed else "Refused"
+
+
+def owned_name_itself(held: dict, said: str) -> None:
+    """Register a session the panel started, the moment it says what it is.
+
+    A session that does not exist yet cannot be resumed and has no id to be
+    keyed by: `claude --print --input-format stream-json` with no `--resume`
+    writes nothing and announces nothing until it is sent something, and only
+    then says which session it has become. So the process is started first and
+    identified afterwards, out of its own first frames.
+    """
+    held["id"] = said
+    with _OWNED_LOCK:
+        OWNED_PROCS[said] = held
+        # Its first turn is already running — it was sent something to make it
+        # exist at all.
+        OWNED_BUSY[said] = time.time()
+    if said not in kept_rows():
+        cwd = held.get("cwd") or ""
+        keep_row({
+            "sessionId": said, "name": held.get("name") or os.path.basename(cwd) or "new session",
+            "cwd": cwd, "startedAt": time.time(), "lastSeen": time.time(),
+            "version": None, "kind": "interactive",
+        })
+    owned = load_owned()
+    owned[said] = {"mode": held.get("mode") or OWNED_MODES[0], "here": True}
+    save_owned(owned)
+    held["named"].set()
+
+
+def user_turn(text: str) -> dict:
+    """One typed message, as the stream-json input format wants it."""
+    return {"type": "user",
+            "message": {"role": "user", "content": [{"type": "text", "text": text}]}}
+
+
+def ordinal(n: int) -> str:
+    """2 -> "2nd". For saying where in the queue a message landed."""
+    return f"{n}{'th' if n % 100 in (11, 12, 13) else {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')}"
+
+
+def owned_queue_add(session_id: str, text: str) -> tuple[bool, str]:
+    """Hold a message behind the turn in flight, and say where it landed.
+
+    Called once the caller has established that it cannot go now — a turn is
+    running, or something is already waiting for one. It takes the lock itself
+    rather than being called under it, so there is one place that knows how the
+    queue is guarded.
+    """
+    with _OWNED_LOCK:
+        queue = OWNED_QUEUE.setdefault(session_id, [])
+        if len(queue) >= MAX_QUEUED:
+            return False, (f"There are already {MAX_QUEUED} messages waiting behind this "
+                           "turn — let it get through some of them first")
+        queue.append(text)
+        place = len(queue)
+    return True, ("Held for it — this goes in the moment the turn ends" if place == 1
+                  else f"Held for it — {ordinal(place)} in the queue behind this turn")
+
+
+def owned_queued(session_id: str) -> list[str]:
+    with _OWNED_LOCK:
+        return list(OWNED_QUEUE.get(session_id) or [])
+
+
+def owned_unqueue(session_id: str, index: int | None) -> tuple[bool, str]:
+    """Take something back out of the queue before the turn reaches it.
+
+    A message typed three turns ago can be answered by the turn that was running
+    when you typed it, and then it is worse than unsent. Nothing can be taken
+    back once it has gone down the pipe, so this only ever touches what is still
+    waiting — and it says which of the two happened rather than reporting success
+    for a message that has already been asked.
+    """
+    with _OWNED_LOCK:
+        queue = OWNED_QUEUE.get(session_id) or []
+        if not queue:
+            return False, "Nothing is waiting behind this turn"
+        if index is None:
+            OWNED_QUEUE.pop(session_id, None)
+            return True, ("Dropped the message that was waiting" if len(queue) == 1
+                          else f"Dropped the {len(queue)} messages that were waiting")
+        if not 0 <= index < len(queue):
+            return False, "That message has already gone in"
+        queue.pop(index)
+        if not queue:
+            OWNED_QUEUE.pop(session_id, None)
+    return True, "Dropped it"
+
+
+def owned_flush(session_id: str) -> None:
+    """Send what was typed ahead, now that the turn it was typed behind is done.
+
+    Called from the reader the instant a result lands, which is the instant the
+    terminal's own prompt would have taken it. One at a time and in order: each
+    queued message waits for the result of the one before it, exactly as it would
+    have if you had waited yourself before pressing Send.
+
+    A pipe that has gone in the meantime is not this function's problem to
+    report — nobody is waiting on it — so the message goes back to the deliverer,
+    which starts the session up and puts it in there. That is the same promise
+    the composer made when it took it.
+    """
+    with _OWNED_LOCK:
+        if session_id in OWNED_BUSY:
             return
+        queue = OWNED_QUEUE.get(session_id) or []
+        if not queue:
+            OWNED_QUEUE.pop(session_id, None)
+            return
+        text = queue.pop(0)
+        if not queue:
+            OWNED_QUEUE.pop(session_id, None)
+        OWNED_BUSY[session_id] = time.time()
+    if owned_write(session_id, user_turn(text)):
+        return
+    with _OWNED_LOCK:
+        OWNED_BUSY.pop(session_id, None)
+    deliver_later(session_id, text)
+
+
+def owned_interrupt(session_id: str) -> tuple[bool, str]:
+    """Stop the turn a held session is in the middle of.
+
+    `{"subtype": "interrupt"}` down the same control channel the mode is set on,
+    which is the whole of it. Verified against a held session: the request is
+    answered `{"subtype": "success", "response": {"still_queued": []}}`, the
+    transcript gains a `[Request interrupted by user]` turn where Claude Code
+    stopped, the turn ends `error_during_execution`, and the process stays up and
+    takes the next turn normally. Nothing is killed and nothing is restarted.
+
+    What is typed ahead goes with it. The queue was written for a train of thought
+    that has just been stopped, and delivering it a tenth of a second later — into
+    a session that is now waiting for you to say what you actually want — is the
+    opposite of what stopping meant.
+    """
+    with _OWNED_LOCK:
+        held = OWNED_PROCS.get(session_id)
+        busy = session_id in OWNED_BUSY
+    if not held:
+        return False, "The panel is not running that session"
+    if not busy:
+        return False, "It is not working on anything"
+    if not owned_write(session_id, {
+            "type": "control_request", "request_id": f"interrupt-{uuid.uuid4()}",
+            "request": {"subtype": "interrupt"}}):
+        return False, "It would not take the interrupt — the pipe has gone"
+    with _OWNED_LOCK:
+        OWNED_STOPPING[session_id] = time.time()
+        dropped = len(OWNED_QUEUE.pop(session_id, None) or [])
+    if not dropped:
+        return True, "Stopping it"
+    return True, ("Stopping it — and the message that was waiting behind it is dropped"
+                  if dropped == 1 else
+                  f"Stopping it — and the {dropped} messages waiting behind it are dropped")
+
+
+def owned_reader(session_id: str, held: dict) -> None:
+    """Everything the held session says, for as long as it is held.
+
+    `session_id` is what it was known as at the start, which for a session the
+    panel has just created is nothing at all — so the key is read off the held
+    record each time, and is filled in as soon as the session names itself.
+    """
+    proc = held["proc"]
+    try:
+        for line in proc.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                frame = json.loads(line)
+            except ValueError:
+                continue
+            kind = frame.get("type")
+            # A session the panel started says which one it is in its first
+            # frames, and nothing can be filed under it until it has.
+            if held.get("id") is None and isinstance(frame.get("session_id"), str):
+                owned_name_itself(held, frame["session_id"])
+            session_id = held.get("id") or session_id
+            if not session_id:
+                continue
+            if kind == "control_request":
+                request = frame.get("request") or {}
+                if request.get("subtype") != "can_use_tool":
+                    continue
+                # The answer waits on a person, so it cannot be waited for here:
+                # this thread is the only reader, and the session goes on talking.
+                def settle(request=request, request_id=frame.get("request_id")) -> None:
+                    reply = ask_from_panel(session_id, {**request, "request_id": request_id})
+                    owned_write(session_id, {
+                        "type": "control_response",
+                        "response": {"subtype": "success", "request_id": request_id,
+                                     "response": reply},
+                    })
+                threading.Thread(target=settle, daemon=True).start()
+                continue
+            if kind == "result":
+                cost = frame.get("total_cost_usd")
+                with _OWNED_LOCK:
+                    stopped = OWNED_STOPPING.pop(session_id, None) is not None
+                # A stopped turn reports itself as an error, and it is not one:
+                # it did what it was told. Said plainly, and not in the red that
+                # the row keeps for a turn that actually went wrong.
+                if stopped:
+                    ok, message = True, "You stopped it"
+                elif frame.get("is_error"):
+                    said = frame.get("errors")
+                    said = "; ".join(str(e) for e in said) if isinstance(said, list) and said else ""
+                    ok, message = False, (said or str(frame.get("result") or "")
+                                          or str(frame.get("subtype") or "It reported an error"))[:300]
+                else:
+                    ok = True
+                    message = (f"The turn finished — ${cost:.4f}"
+                               if isinstance(cost, (int, float)) else "The turn finished")
+                with _OWNED_LOCK:
+                    OWNED_BUSY.pop(session_id, None)
+                    OWNED_LAST[session_id] = {"at": time.time(), "ok": ok,
+                                              "message": message, "mode": held.get("mode")}
+                # And straight into whatever was typed while it was answering.
+                # Here rather than on the poll: the queue is drained by the thing
+                # that knows the turn ended, so nothing waits a second for a
+                # browser to notice, and a panel with no browser open drains too.
+                owned_flush(session_id)
+                continue
+            if kind == "system":
+                # What compaction is doing. See OWNED_COMPACT for the three
+                # frames and why the turn's own result frame cannot say it.
+                sub = frame.get("subtype")
+                if sub == "init":
+                    # What this session says it can be asked for, in its own
+                    # words. The panel keeps a hand-written list of commands that
+                    # live in the terminal's head (TERMINAL_ONLY) and it is right
+                    # about the *messaging socket*, where slash commands are
+                    # switched off entirely — but it is the wrong list for a held
+                    # pipe, which expands them. The session settles it: an init
+                    # frame down this transport reports 47 commands available and
+                    # exactly two it keeps to itself.
+                    #
+                    #   "terminal_slash_commands": ["doctor", "color"]
+                    #
+                    # Read rather than guessed, and re-read on every init — a
+                    # compaction sends a fresh one, and so does a new plugin.
+                    with _OWNED_LOCK:
+                        OWNED_COMMANDS[session_id] = {
+                            "available": sorted(
+                                str(x) for x in (frame.get("slash_commands") or [])
+                                if isinstance(x, str)),
+                            "terminalOnly": sorted(
+                                str(x) for x in (frame.get("terminal_slash_commands") or [])
+                                if isinstance(x, str)),
+                        }
+                if sub == "status" and frame.get("status") == "compacting":
+                    with _OWNED_LOCK:
+                        OWNED_COMPACT[session_id] = {"at": time.time(), "running": True}
+                elif sub == "status" and (frame.get("compact_result")
+                                          or frame.get("compact_error")):
+                    failed = frame.get("compact_error")
+                    with _OWNED_LOCK:
+                        OWNED_COMPACT[session_id] = {
+                            **(OWNED_COMPACT.get(session_id) or {}),
+                            "at": time.time(), "running": False, "ok": not failed,
+                            "message": str(failed)[:300] if failed else "",
+                        }
+                elif sub == "compact_boundary":
+                    meta = frame.get("compact_metadata") or {}
+                    with _OWNED_LOCK:
+                        OWNED_COMPACT[session_id] = {
+                            **(OWNED_COMPACT.get(session_id) or {}),
+                            "at": time.time(), "running": False, "ok": True, "message": "",
+                            "before": int(meta.get("pre_tokens") or 0),
+                            "after": int(meta.get("post_tokens") or 0),
+                            # `manual` is ours; `auto` is Claude Code compacting
+                            # on its own, which the panel did not ask for and
+                            # should still report rather than pretend to own.
+                            "trigger": str(meta.get("trigger") or "manual"),
+                        }
+                continue
+            if kind == "control_response":
+                # Ours: the only control_request the panel sends unprompted is a
+                # mode change, and its answer is what confirms the mode took.
+                answered = (frame.get("response") or {}).get("response") or {}
+                if isinstance(answered.get("mode"), str):
+                    with _OWNED_LOCK:
+                        held["mode"] = answered["mode"]
+    except (OSError, ValueError):
+        pass
+    finally:
+        # However it ended, it is no longer held.
+        session_id = held.get("id") or session_id
+        held["named"].set()
+        with _OWNED_LOCK:
+            if session_id and OWNED_PROCS.get(session_id) is held:
+                OWNED_PROCS.pop(session_id, None)
+            OWNED_BUSY.pop(session_id, None)
+            OWNED_STOPPING.pop(session_id, None)
+            # A compaction this process did not live to finish. The record stays
+            # — how the last one went is worth keeping — but the running flag
+            # cannot: nothing is coming to clear it, and the panel draws a
+            # session with that flag up as *Compacting*, which it would then go
+            # on saying about a session that is not running at all.
+            going = OWNED_COMPACT.get(session_id) if session_id else None
+            if going and going.get("running"):
+                OWNED_COMPACT[session_id] = {
+                    **going, "running": False, "ok": False,
+                    "message": "the session stopped part way through",
+                }
+            OWNED_ASK.pop(session_id, None)
+            _ASK_EVENTS.pop(session_id, None)
+            # Whatever was still waiting outlives the process it was waiting
+            # for: the promise was that it goes in, and the deliverer can start
+            # the session back up to keep it. Deliberately letting go clears the
+            # queue before it gets here, so this only fires for a process that
+            # went on its own.
+            left = OWNED_QUEUE.pop(session_id, None) or []
+        own_errand(proc.pid, False)
+        # `stderr` is a DEVNULL rather than a pipe, so it is `None` here — and
+        # closing it threw, which took the rest of this block with it and left
+        # anything still queued unhandled. The one place that showed was the
+        # thread's own traceback, which nobody is reading.
+        for pipe in (proc.stdin, proc.stdout, proc.stderr):
+            try:
+                if pipe:
+                    pipe.close()
+            except OSError:
+                pass
+        for text in left:
+            deliver_later(session_id, text)
+
+
+def owned_hold(session_id: str, cwd: str, mode: str) -> tuple[bool, str]:
+    """Start holding this session open, or say why it cannot be held."""
+    if mode not in OWNED_MODES:
+        return False, f"The panel does not run turns in {mode!r}"
+    if owned_running(session_id):
+        return True, "Already running here"
+    if not cwd or not Path(cwd).is_dir():
+        return False, f"Its folder is gone: {cwd}" if cwd else "That session has no folder"
+    if not shutil.which("claude"):
+        return False, "Cannot find the claude command on PATH"
+    # Nothing to resume means nothing to hold: --resume fails on a session that
+    # has never spoken, and it fails a second after being started rather than
+    # visibly. A session the panel started and has not been typed at yet is the
+    # one exception — it is named but empty, so it is started rather than
+    # resumed, under the name it was given.
+    empty = not has_conversation(session_id, cwd)
+    argv = [
+        shutil.which("claude") or "claude", "--print",
+        "--input-format", "stream-json",
+        "--output-format", "stream-json",
+        "--verbose",
+        *(["--session-id", session_id] if empty else [f"--resume={session_id}"]),
+        "--permission-mode", CLI_MODES.get(mode, mode),
+        # Undocumented in --help, and the mechanism the official extension uses:
+        # `stdio` means ask over this channel rather than at a terminal.
+        "--permission-prompt-tool", "stdio",
+    ]
+    try:
+        proc = subprocess.Popen(
+            argv, cwd=cwd, env=top_level_env(), text=True, bufsize=1,
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        )
+    except OSError as exc:
+        return False, f"Could not start it: {exc}"
+    held = {"proc": proc, "write": threading.Lock(), "mode": mode, "cwd": cwd,
+            "since": time.time(), "id": session_id, "named": threading.Event()}
+    with _OWNED_LOCK:
+        OWNED_PROCS[session_id] = held
+    # A `claude` of ours on the session's own transcript would otherwise arrive
+    # in the list as a second live session. See OWN_ERRANDS.
+    own_errand(proc.pid, True)
+    threading.Thread(target=owned_reader, args=(session_id, held), daemon=True).start()
+    return True, "Running here"
+
+
+def owned_new(cwd: str, mode: str) -> tuple[str | None, str]:
+    """Start a brand new session the panel runs, and answer with its id.
+
+    Interactive from the first word rather than adopted later. The panel names it
+    — `--session-id` takes a uuid of our choosing — which is what lets the row
+    exist before anything has been said: without a name of our own the process
+    announces nothing until it is sent something, and the first message would
+    have had to be asked for in a dialog before there was a session to type at.
+    Now the session is simply there, and the first message is the first thing you
+    type into it, like any other session.
+    """
+    if mode not in OWNED_MODES:
+        return None, f"The panel does not run turns in {mode!r}"
+    if not cwd or not Path(cwd).is_dir():
+        return None, f"That folder is gone: {cwd}" if cwd else "There is no folder to start it in"
+    claude = shutil.which("claude")
+    if not claude:
+        return None, "Cannot find the claude command on PATH"
+    session_id = str(uuid.uuid4())
+    argv = [
+        claude, "--print",
+        "--input-format", "stream-json",
+        "--output-format", "stream-json",
+        "--verbose",
+        "--session-id", session_id,
+        "--permission-mode", CLI_MODES.get(mode, mode),
+        "--permission-prompt-tool", "stdio",
+    ]
+    try:
+        proc = subprocess.Popen(
+            argv, cwd=cwd, env=top_level_env(), text=True, bufsize=1,
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        )
+    except OSError as exc:
+        return None, f"Could not start it: {exc}"
+    held = {"proc": proc, "write": threading.Lock(), "mode": mode, "cwd": cwd,
+            "since": time.time(), "id": session_id, "named": threading.Event()}
+    held["named"].set()
+    with _OWNED_LOCK:
+        OWNED_PROCS[session_id] = held
+    own_errand(proc.pid, True)
+    threading.Thread(target=owned_reader, args=(session_id, held), daemon=True).start()
+    # The row has to exist for a session with no transcript yet, and the kept
+    # record is the only thing that can carry it. Held, not pinned: it lasts as
+    # long as the panel that is running it, which is as long as it means
+    # anything. Pin it yourself and it outlives that too.
+    keep_row({
+        "sessionId": session_id, "name": os.path.basename(cwd) or "new session",
+        "cwd": cwd, "startedAt": time.time(), "lastSeen": time.time(),
+        "version": None, "kind": "interactive",
+    })
+    owned = load_owned()
+    owned[session_id] = {"mode": mode, "here": True}
+    save_owned(owned)
+    return session_id, "Running here"
+
+
+def owned_release(session_id: str) -> bool:
+    """Stop holding a session, so something else can have its transcript."""
+    with _OWNED_LOCK:
+        held = OWNED_PROCS.pop(session_id, None)
+        OWNED_BUSY.pop(session_id, None)
+        OWNED_STOPPING.pop(session_id, None)
+        # Letting go is deliberate, so what was queued for this session goes with
+        # it rather than being restarted into a session somebody has just handed
+        # back to a terminal.
+        OWNED_QUEUE.pop(session_id, None)
+    if not held:
+        return False
+    proc = held["proc"]
+    try:
+        proc.stdin.close()
+    except OSError:
+        pass
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+    own_errand(proc.pid, False)
+    return True
+
+
+def owned_set_mode(session_id: str, mode: str) -> tuple[bool, str]:
+    """Change the mode. On a held session this takes effect where it is running."""
+    if mode not in OWNED_MODES:
+        return False, f"The panel does not run turns in {mode!r}"
+    owned = load_owned()
+    owned[session_id] = {"mode": mode, "here": bool((owned.get(session_id) or {}).get("here"))}
+    save_owned(owned)
+    if not owned_running(session_id):
+        return True, f"The next turn here runs in {mode}"
+    sent = owned_write(session_id, {
+        "type": "control_request",
+        "request_id": f"mode-{uuid.uuid4()}",
+        "request": {"subtype": "set_permission_mode", "mode": CLI_MODES.get(mode, mode)},
+    })
+    if not sent:
+        return True, f"The next turn here runs in {mode}"
+    with _OWNED_LOCK:
+        held = OWNED_PROCS.get(session_id)
+        if held:
+            held["mode"] = mode
+    return True, f"Now running in {mode}"
+
+
+def owned_say(session_id: str, cwd: str, text: str, mode: str) -> tuple[bool, str]:
+    """Send a turn to the held session, holding it first if it is not held yet."""
+    if not text.strip():
+        return False, "There is nothing to send"
+    if not owned_running(session_id):
+        ok, message = owned_hold(session_id, cwd, mode)
+        if not ok:
+            return False, message
+    with _OWNED_LOCK:
+        # Behind the turn in flight, or behind anything already waiting for it.
+        # The second half matters: between a turn's result landing and the queue
+        # draining there is an instant where nothing is running, and a message
+        # sent into it would go down the pipe ahead of one typed before it. The
+        # back of the queue is the only place either can go.
+        wait = session_id in OWNED_BUSY or bool(OWNED_QUEUE.get(session_id))
+        if not wait:
+            OWNED_BUSY[session_id] = time.time()
+    # Mid-turn is not a refusal. It is the ordinary case for anybody reading an
+    # answer and thinking of the next thing to ask, and holding the message is
+    # what the terminal's own prompt would have done with it.
+    if wait:
+        ok, said = owned_queue_add(session_id, text)
+        # And the turn may have ended while that was being written down, in which
+        # case nothing else is coming along to send it.
+        if ok:
+            owned_flush(session_id)
+        return ok, said
+    turn = user_turn(text)
+    if owned_write(session_id, turn):
+        return True, "Sent"
+    # The pipe went between holding it and writing down it — a process that had
+    # exited by the time we got here. Asking for the message to be sent again is
+    # asking somebody to do what we can do ourselves: let go of the dead one,
+    # start it back up, and write the same turn to that.
+    with _OWNED_LOCK:
+        OWNED_BUSY.pop(session_id, None)
+    owned_release(session_id)
+    ok, message = owned_hold(session_id, cwd, mode)
+    if not ok:
+        return False, message
+    with _OWNED_LOCK:
+        OWNED_BUSY[session_id] = time.time()
+    if not owned_write(session_id, turn):
+        with _OWNED_LOCK:
+            OWNED_BUSY.pop(session_id, None)
+        return False, "It would not take the message, even started back up"
+    return True, "Started it back up and sent it"
+
+
+def owned_resume_held() -> None:
+    """Pick up every session that was interactive when the panel last ran.
+
+    A held session is a process of ours, so it goes when the panel goes. A pinned
+    one comes back: the row was written down, so it is still on the list after a
+    restart, and a row saying *Runs from here* with nothing behind it reads as
+    the interactive session having vanished when it was the panel that did.
+
+    An unpinned one does not come back, and its claim to be running here goes
+    with it — the row was only ever held for as long as the panel ran, and an
+    `owned` entry saying *here* for a session with no row is a session nobody can
+    see being run.
+
+    Its **mode** stays. That is the part worth keeping across a restart whatever
+    becomes of the row: it is a choice you made about this conversation, not a
+    fact about the process that was serving it, and the session comes back into
+    the mode it was left in rather than into the default. The whole record used
+    to be dropped, which was harmless while `here` meant *adopted* and little
+    else — but a turn run from the panel now sets it too, so dropping the record
+    was quietly throwing away the mode of every session anyone had typed at.
+
+    Anything that cannot be picked up is left alone rather than reported: a
+    folder that has moved, a transcript that was cleared, a session somebody has
+    since opened in a terminal. The row is still there to type at, and typing
+    starts it back up.
+    """
+    pinned = load_pinned()
+    owned = load_owned()
+    stale = [key for key, entry in owned.items() if entry.get("here") and key not in pinned]
+    if stale:
+        for key in stale:
+            owned[key] = {"mode": owned[key].get("mode") or OWNED_MODES[0], "here": False}
+        save_owned(owned)
+    for session_id, entry in owned.items():
+        if not entry.get("here"):
+            continue
+        # Something else running it takes precedence — it holds the transcript,
+        # and two processes on one conversation is the failure to avoid.
+        if STORE.raw(session_id):
+            continue
+        cwd = str((pinned.get(session_id) or {}).get("cwd") or "")
+        ok, said = owned_hold(session_id, cwd, entry.get("mode") or OWNED_MODES[0])
+        # Flushed: this happens after the banner, on a stdout that is block
+        # buffered the moment the panel is piped to a log or a service unit.
+        print(f"note: {'running' if ok else 'could not run'} {session_id[:8]} here"
+              + ("" if ok else f" — {said}"), flush=True)
+
+
+def owned_release_all() -> None:
+    """Let go of every held session, on the way out."""
+    with _OWNED_LOCK:
+        ids = list(OWNED_PROCS)
+    for session_id in ids:
+        owned_release(session_id)
+
+
+# ------------------------------------------------------------- folder chooser
+# A new session in a folder no session is in yet needs a folder from outside the
+# panel's own list, and a path typed into the browser is exactly what /api/new
+# refuses to accept. A chooser on this machine sidesteps the question rather
+# than answering it: the browser can ask for the dialog but cannot say what it
+# returns, so the folder is still chosen by the person at the desk, in a window
+# the desktop drew, and the panel never takes a path from a request.
+#
+# Whatever the desktop already has, in the order a desktop would prefer:
+# zenity under GNOME, kdialog under KDE, and Tk — which is stdlib, so it is
+# always there — as the fallback. The Tk one runs as its own process because a
+# toolkit main loop wants a main thread, and this is called from a request.
+GUI_PICKERS = (
+    ("zenity", lambda start: ["zenity", "--file-selection", "--directory",
+                              "--title=Folder for the new session", f"--filename={start}/"]),
+    ("kdialog", lambda start: ["kdialog", "--getexistingdirectory", start,
+                               "--title", "Folder for the new session"]),
+)
+# Written as source rather than a file on disk: it is three lines, and a helper
+# script beside the server would be one more thing to keep in step with it.
+TK_PICKER = (
+    "import sys, tkinter, tkinter.filedialog;"
+    "root = tkinter.Tk(); root.withdraw();"
+    "path = tkinter.filedialog.askdirectory(initialdir=sys.argv[1],"
+    " title='Folder for the new session', mustexist=True);"
+    "sys.stdout.write(path or '')"
+)
+# One dialog at a time. A second one is a second window nobody asked for, on a
+# desktop that may not even raise it.
+PICKER_LOCK = threading.Lock()
+PICKER_SECONDS = 300.0
+
+
+def picker_argv(start: str) -> list[str] | None:
+    """The chooser this desktop can show, or None if it cannot show one."""
+    if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+        return None
+    for name, build in GUI_PICKERS:
+        if shutil.which(name):
+            return build(start)
+    try:
+        import tkinter  # noqa: F401  — asking whether it is installed, not using it
+    except ImportError:
+        return None
+    return [sys.executable, "-c", TK_PICKER, start]
+
+
+def can_pick_folder() -> bool:
+    return picker_argv(str(HOME)) is not None
+
+
+def pick_folder(start: str) -> tuple[str | None, str]:
+    """Ask the desktop for a folder. (path, message) — path is None if it did not."""
+    argv = picker_argv(start)
+    if not argv:
+        return None, "No folder chooser on this desktop — install zenity, or Python's tkinter"
+    if not PICKER_LOCK.acquire(blocking=False):
+        return None, "The folder chooser is already open — it is waiting on the desktop"
+    try:
+        done = subprocess.run(
+            argv, cwd=start, capture_output=True, text=True, timeout=PICKER_SECONDS,
+            env=top_level_env(),
+        )
+    except subprocess.TimeoutExpired:
+        return None, "The folder chooser was left open too long"
+    except OSError as exc:
+        return None, f"Could not open a folder chooser: {exc}"
+    finally:
+        PICKER_LOCK.release()
+    # Cancelling is not a failure, and it is the same exit code as a real one —
+    # so it is told apart by there being nothing on stdout rather than by status.
+    path = done.stdout.strip().splitlines()[0].strip() if done.stdout.strip() else ""
+    if not path:
+        return None, "No folder picked"
+    if not Path(path).is_dir():
+        return None, f"That is not a folder: {path}"
+    return str(Path(path).resolve()), "Picked"
+
+
+# ------------------------------------------------------- getting a message in
+# A session is reachable over its messaging socket, over the pipe of a turn the
+# panel runs, or — if nothing is running it — after being started back up. Which
+# of those applies changes from second to second: a session closes while the box
+# is being typed into, a socket goes with a machine that suspended, a process
+# comes up two seconds after the click.
+#
+# So nothing that takes a message decides in advance whether it can be delivered.
+# The message is accepted, and this is what carries it: it re-asks every second,
+# starts the session back up when nothing is running it, and drains in the order
+# things were typed. A message is never refused for the state a session happened
+# to be in at the moment Send was pressed, because that state is not the one it
+# will be delivered in.
+
+_PENDING: dict[str, list[str]] = {}
+_PENDING_LOCK = threading.Lock()
+DELIVER_SECONDS = 120.0
+
+
+def session_listening(data: dict | None) -> bool:
+    """Whether a message sent over this session's socket right now would be read.
+
+    The three things the snapshot's `canSay` asks, in one place so the deliverer
+    and the row cannot disagree: a process seen recently, a protocol we know, and
+    a socket still on disk.
+    """
+    if not data:
+        return False
+    sock = data.get("messagingSocketPath")
+    return bool(
+        time.time() - data.get("seenAt", 0) < LIVE_SECONDS
+        and data.get("peerProtocol") == PEER_PROTOCOL
+        and sock
+        and Path(sock).exists()
+    )
+
+
+def session_alive(data: dict | None) -> bool:
+    """Whether something is running this session — listening or not.
+
+    Kept apart from session_listening because the two want opposite things: a
+    session that is up but not listening must be waited for, and only one that is
+    not up at all may be started back up. Confusing them is how a second process
+    lands on a transcript that already has one.
+    """
+    return bool(data) and time.time() - data.get("seenAt", 0) < LIVE_SECONDS
+
+
+def resume_entry(session_id: str) -> dict:
+    """What start_session needs to bring a session back: its id and its folder.
+
+    The folder comes off the kept row first and the session file second. A
+    session that has just closed still has a file for a few seconds, and a row
+    that outlived one has no file at all, so between them one of the two answers.
+    """
+    entry = kept_rows().get(session_id) or {}
+    data = STORE.raw(session_id) or {}
+    return {"sessionId": session_id, "cwd": entry.get("cwd") or data.get("cwd") or ""}
+
+
+def deliver_later(session_id: str, text: str, started: bool = False) -> tuple[bool, str]:
+    """Take a message for a session that cannot read it this instant.
+
+    Returns what to tell the person who typed it — which is a promise, not a
+    refusal, and says which of the two things is about to happen. `started` is
+    for callers that have already opened a terminal themselves: it stops this
+    from opening a second one.
+    """
+    text = text.strip()
+    if not text:
+        return False, "Nothing to send"
+    owned = load_owned().get(session_id) or {}
+    alive = session_alive(STORE.raw(session_id))
+    will_start = not started and not alive and not owned.get("here")
+    if will_start and not resume_entry(session_id)["cwd"]:
+        # Nothing to resume it in. The one case with no way through, and it is
+        # about a folder rather than about the message.
+        return False, "There is no folder to start it in"
+    with _PENDING_LOCK:
+        queue = _PENDING.setdefault(session_id, [])
+        queue.append(text)
+        first = len(queue) == 1
+    if first:
+        threading.Thread(
+            target=_deliver_loop, args=(session_id, started), daemon=True,
+        ).start()
+    if will_start:
+        return True, "Starting it back up — this goes in as soon as it is listening"
+    return True, "Held for it — this goes in as soon as it is listening"
+
+
+def _pending_head(session_id: str) -> str | None:
+    with _PENDING_LOCK:
+        queue = _PENDING.get(session_id) or []
+        return queue[0] if queue else None
+
+
+def _pending_drop(session_id: str, text: str) -> None:
+    """Take a delivered message off the queue, leaving anything typed after it."""
+    with _PENDING_LOCK:
+        queue = _PENDING.get(session_id) or []
+        if queue and queue[0] == text:
+            queue.pop(0)
+        if not queue:
+            _PENDING.pop(session_id, None)
+
+
+def _deliver_loop(session_id: str, started: bool) -> None:
+    """Try every second until the queue is empty or the wait runs out.
+
+    Only one of these runs per session, so the queue keeps the order things were
+    typed in, and a second message never overtakes the first by finding a socket
+    a moment sooner.
+    """
+    deadline = time.time() + DELIVER_SECONDS
+    while time.time() < deadline:
+        text = _pending_head(session_id)
+        if text is None:
+            break
+        data = STORE.raw(session_id)
+        owned = load_owned().get(session_id) or {}
+        if owned.get("here"):
+            # The panel's own: its channel is the pipe, and owned_say holds it
+            # again first if it is not up. Never a terminal for this one — that
+            # would take the transcript off a process that has it.
+            ok, _ = owned_say(session_id, resume_entry(session_id)["cwd"], text,
+                              owned.get("mode") or OWNED_MODES[0])
+            if ok:
+                _pending_drop(session_id, text)
+                continue
+        elif session_listening(data):
+            ok, _ = say_to_session(data, text)
+            if ok:
+                _pending_drop(session_id, text)
+                continue
+        elif not started and not session_alive(data):
+            # Nothing is running it, so there is nothing to wait for: bring it
+            # back and go on waiting for the socket it opens. Once only, however
+            # long the rest of this takes.
+            started = True
+            with _OWNED_LOCK:
+                mid_turn = session_id in OWNED_BUSY
+            if not mid_turn and not start_session(resume_entry(session_id))[0]:
+                break
+        time.sleep(1.0)
+    # Whatever is left is dropped rather than held: a message typed two minutes
+    # ago, delivered into whatever the session is doing now, is a surprise.
+    with _PENDING_LOCK:
+        _PENDING.pop(session_id, None)
 
 
 def window_exists(window_id: str) -> bool:
@@ -3245,6 +4583,94 @@ def resolve_window(session_id: str, session: dict) -> tuple[dict | None, str, bo
     return None, "No window is paired with this session yet", False
 
 
+# ---------------------------------------------------------------- pasted pictures
+
+
+# A message over the wire is text, and it always will be: the messaging socket
+# takes a string, and so does a held pipe. So a picture cannot travel *in* the
+# message — but a path can, and a session with the Read tool can open the file
+# the path names. That is the whole of this feature: the picture lands in a file
+# on the same machine the session is running on, and the message says where.
+#
+# Where it lands matters. Not /tmp, which is swept from under a session that
+# comes back to the conversation tomorrow, and not the panel's own config dir,
+# which a session may not be allowed to read: it goes in the session's own
+# folder, under .claude, because that is a place the session already reads from
+# and already has permission for.
+PASTE_DIR_NAME = ".claude/watchtower-images"
+# What a browser hands over when a screenshot is pasted, and nothing else. The
+# extension is taken from this list rather than from anything the request says,
+# so no name in the payload can decide what kind of file gets written.
+PASTE_TYPES = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+    "image/bmp": ".bmp",
+}
+# Big enough for a full-screen screenshot at 4K, small enough that a stuck
+# clipboard cannot fill the disk one paste at a time.
+PASTE_MAX_BYTES = 12 * 1024 * 1024
+# A pasted picture is worth keeping as long as the conversation that mentions
+# it is being read, and no longer. Each paste sweeps what an earlier one left
+# behind, so the folder does not grow for the rest of the machine's life.
+PASTE_KEEP_SECONDS = 14 * 24 * 3600
+# base64 costs a third on top, and the JSON around it a little more.
+POST_MAX_BYTES = PASTE_MAX_BYTES * 4 // 3 + 65536
+
+
+def paste_dir(cwd: str) -> Path:
+    return Path(cwd) / PASTE_DIR_NAME
+
+
+def sweep_pastes(folder: Path) -> None:
+    """Drop pictures older than PASTE_KEEP_SECONDS. Failure is not worth a word."""
+    cutoff = time.time() - PASTE_KEEP_SECONDS
+    try:
+        entries = list(folder.iterdir())
+    except OSError:
+        return
+    for entry in entries:
+        try:
+            if entry.is_file() and entry.stat().st_mtime < cutoff:
+                entry.unlink()
+        except OSError:
+            pass
+
+
+def save_pasted_image(cwd: str, mime: str, data: str) -> tuple[bool, str, str]:
+    """Write one pasted picture into the session's folder.
+
+    Returns (ok, path-or-empty, message). The name is ours — a timestamp and a
+    short random tail — because a name from the request is a name a request
+    could aim somewhere else.
+    """
+    suffix = PASTE_TYPES.get(mime.split(";", 1)[0].strip().lower())
+    if not suffix:
+        return False, "", "That is not a kind of picture the panel can save"
+    try:
+        raw = base64.b64decode(data, validate=True)
+    except (ValueError, TypeError):
+        return False, "", "That picture did not arrive in one piece"
+    if not raw:
+        return False, "", "That picture is empty"
+    if len(raw) > PASTE_MAX_BYTES:
+        return False, "", f"That picture is larger than {PASTE_MAX_BYTES // (1024 * 1024)} MB"
+    folder = paste_dir(cwd)
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        return False, "", f"Could not write into that session's folder — {error}"
+    sweep_pastes(folder)
+    stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime())
+    path = folder / f"paste-{stamp}-{uuid.uuid4().hex[:6]}{suffix}"
+    try:
+        path.write_bytes(raw)
+    except OSError as error:
+        return False, "", f"Could not write the picture — {error}"
+    return True, str(path), "Picture saved"
+
+
 # ------------------------------------------------------------------ session store
 
 
@@ -3268,6 +4694,9 @@ class SessionStore:
         # session id -> when its liveness signals last said it was working
         self._alive_at: dict[str, float] = {}
         self._transcript_cache: dict[str, tuple[float, float | None]] = {}
+        # session id -> (read at, has it said anything). True is kept for good:
+        # a conversation does not become unsaid.
+        self._spoken_cache: dict[str, tuple[float, bool]] = {}
 
     # --- reading
 
@@ -3291,8 +4720,8 @@ class SessionStore:
                 continue  # a headless run, not a session to watch
             actual = proc_starttime(pid)
             recorded = data.get("procStart")
-            if actual is None:
-                continue  # process is gone
+            if actual is None or proc_gone(pid):
+                continue  # process is gone, or has ended and not been reaped
             if recorded not in (None, "", actual):
                 continue  # this pid belongs to something else now
             live.append(data)
@@ -3355,6 +4784,39 @@ class SessionStore:
         self._title_cache[session_id] = (now, value)
         return value
 
+    def _context(self, session_id: str, cwd: str) -> dict | None:
+        """How much of the model's window this conversation is carrying.
+
+        No cache of its own, unlike everything else here: `scan_usage` is already
+        incremental — it remembers where it stopped in each transcript and reads
+        only what has been appended since — so a second call costs a `stat` and
+        nothing else. Measured on this machine: 33–76 ms to read a 2.6–7.4 MB
+        transcript the first time, and 0.03–0.1 ms every time after. A cache on
+        top of that would only add a second staleness window to reason about.
+
+        The figure is the last request's total input — fresh tokens, cache reads
+        and cache writes together, which is everything the model was carrying
+        when it last answered. It is what `/context` reports and what compaction
+        reduces, and it drops on its own after a compaction because the next
+        assistant turn carries less.
+        """
+        if not cwd:
+            return None
+        for path in transcript_paths(session_id, cwd):
+            if not path.exists():
+                continue
+            held = scan_usage(path)
+            if not held or not held.get("context"):
+                break
+            window = context_window(held.get("contextModel") or "")
+            return {
+                "tokens": held["context"],
+                "window": window,
+                "share": min(1.0, held["context"] / window) if window else 0.0,
+                "model": held.get("contextModel"),
+            }
+        return None
+
     def _question(self, session_id: str, cwd: str, now: float) -> dict | None:
         """The question this session is blocked on, re-read only when it could
         have changed.
@@ -3399,6 +4861,19 @@ class SessionStore:
                 continue
         self._transcript_cache[session_id] = (now, newest)
         return newest
+
+    def _spoken(self, session_id: str, cwd: str, now: float) -> bool:
+        """Has this session said anything yet — cached like the rest.
+
+        The rows care because taking a session over reads differently for a
+        session with a conversation behind it than for one without.
+        """
+        hit = self._spoken_cache.get(session_id)
+        if hit and (hit[1] or now - hit[0] < 4):
+            return hit[1]
+        said = has_conversation(session_id, cwd)
+        self._spoken_cache[session_id] = (now, said)
+        return said
 
     def _looks_alive(self, data: dict, now: float) -> bool:
         pid = data.get("pid")
@@ -3450,6 +4925,7 @@ class SessionStore:
                         self._history.pop(session_id, None)
                         self._first_seen.pop(session_id, None)
                         self._transcript_cache.pop(session_id, None)
+                        self._spoken_cache.pop(session_id, None)
                         self._mode_cache.pop(session_id, None)
                         self._title_cache.pop(session_id, None)
                         self._question_cache.pop(session_id, None)
@@ -3470,8 +4946,7 @@ class SessionStore:
         now = time.time()
         pairs = load_pairs()
         names = load_names()
-        sticky = load_sticky()
-        dirty = False
+        kept = kept_rows()
         with self._lock:
             raw = list(self._sessions.values())
             history = {k: list(v) for k, v in self._history.items()}
@@ -3481,7 +4956,7 @@ class SessionStore:
             session_id = data.get("sessionId") or str(data.get("pid"))
             pid = data.get("pid")
             cwd = data.get("cwd") or ""
-            alive = now - data.get("seenAt", 0) < 15
+            alive = session_alive(data)
             status = data.get("status") or "idle"
             if not alive:
                 status = "offline"
@@ -3506,6 +4981,10 @@ class SessionStore:
                 # cannot. Everything git runs against this root, not the cwd.
                 "repoRoot": self._repo_root(cwd) if cwd else None,
                 "activity": self._activity(session_id, cwd) if cwd else None,
+                # Whether there is a conversation behind it at all. Taking over a
+                # session that has never spoken carries nothing over, and the
+                # dialog says so rather than pretending otherwise.
+                "spoken": self._spoken(session_id, cwd, now) if cwd else False,
                 # The mode as of this session's last turn, and what was asked for
                 # at the panel since — see read_permission_mode for why the two
                 # can disagree for a while.
@@ -3513,6 +4992,9 @@ class SessionStore:
                 # What Claude says this session is about, for the line under its
                 # name — the detail pane reads the same thing off the transcript.
                 "title": self._title(session_id, cwd) if cwd else None,
+                # How full the conversation is. The detail header draws it, and
+                # offers to compact once it is past halfway. See _context.
+                "context": self._context(session_id, cwd) if cwd else None,
                 # The multiple-choice question this session is blocked on, so a
                 # row can show what is being asked rather than only that
                 # something is. See read_pending_question.
@@ -3523,12 +5005,12 @@ class SessionStore:
                 # what the card says out loud rather than offering a dead button.
                 "trace": self._trace(history.get(session_id), now),
                 "alive": alive,
-                "canSay": bool(
-                    alive
-                    and data.get("peerProtocol") == PEER_PROTOCOL
-                    and data.get("messagingSocketPath")
-                    and Path(data["messagingSocketPath"]).exists()
-                ),
+                # Whether a message would land over its socket right now. It is
+                # no longer a gate on the composer — a message for a session that
+                # is not listening is held, and the session started back up if
+                # nothing is running it, see deliver_later — so what this drives
+                # is wording rather than whether there is a box.
+                "canSay": session_listening(data),
                 "ancestors": chain,
                 # Set for a nested session: the session it was started from. Its
                 # own process parent is usually the terminal, not that session,
@@ -3539,12 +5021,15 @@ class SessionStore:
                 "tty": session_tty(pid) if isinstance(pid, int) else None,
                 # Enough of the chain to spot a multiplexer or an ssh hop.
                 "host": [proc_name(p) for p in chain[:5]],
-                "sticky": session_id in sticky,
+                # Kept: its row outlives its process. Pinned: that row was
+                # written down, so it outlives the panel too.
+                "kept": session_id in kept,
+                "pinned": bool((kept.get(session_id) or {}).get("pinned")),
             }
-            # Keep what a sticky row will need once the process is gone. Written
+            # Keep what a kept row will need once the process is gone. Written
             # back now and then rather than every second — it is a poll loop.
-            if session_id in sticky:
-                held = sticky[session_id]
+            if session_id in kept:
+                held = kept[session_id]
                 fresh = {
                     "sessionId": session_id, "name": session["defaultName"], "cwd": cwd,
                     "startedAt": session["startedAt"], "lastSeen": now,
@@ -3552,8 +5037,7 @@ class SessionStore:
                 }
                 if any(held.get(k) != fresh[k] for k in ("name", "cwd", "version")) \
                         or now - (held.get("lastSeen") or 0) > 30:
-                    sticky[session_id] = fresh
-                    dirty = True
+                    refresh_row(session_id, fresh)
             paired = (pairs.get(session_id) or {}).get("id")
             if paired and window_exists(paired):
                 session["window"] = {
@@ -3572,11 +5056,8 @@ class SessionStore:
         # A kept session whose process has gone still gets a row: same id, same
         # transcript, no pid. It is `stopped` rather than `offline` — nothing has
         # been lost, it is simply not running, and it can be started back up.
-        if dirty:
-            save_sticky(sticky)
-
         live_ids = {s["sessionId"] for s in out}
-        for session_id, entry in sticky.items():
+        for session_id, entry in kept.items():
             if session_id in live_ids:
                 continue
             cwd = entry.get("cwd") or ""
@@ -3588,7 +5069,20 @@ class SessionStore:
                 "defaultName": entry.get("name") or "kept session",
                 "cwd": cwd,
                 "folder": os.path.basename(cwd) or cwd,
-                "status": "stopped",
+                # A held session is running — there is a process, it is
+                # answering or waiting for you, and the row should read the way
+                # any other running session's does. `stopped` is for a kept row
+                # with nothing behind it at all.
+                #
+                # A standing ask beats busy. The turn *is* still running, but it
+                # is parked on a prompt nobody outside this panel can answer, so
+                # calling it "working" hid the one session on the list that could
+                # not go on without you. Saying `waiting` is what puts it in the
+                # amber band, at the top of the list, on the favicon, and through
+                # the notification.
+                "status": ("waiting" if session_id in OWNED_ASK
+                           else "busy" if session_id in OWNED_BUSY
+                           else "idle") if owned_running(session_id) else "stopped",
                 "kind": entry.get("kind") or "interactive",
                 "version": entry.get("version"),
                 "startedAt": entry.get("startedAt") or entry.get("lastSeen") or now,
@@ -3596,10 +5090,14 @@ class SessionStore:
                 "branch": self._branch(cwd) if cwd else None,
                 "repoRoot": self._repo_root(cwd) if cwd else None,
                 "activity": self._activity(session_id, cwd) if cwd else None,
+                "spoken": self._spoken(session_id, cwd, now) if cwd else False,
                 # For a stopped session these are the mode it was last in and
                 # the last thing it was working on.
                 "permissionMode": self._mode(session_id, cwd) if cwd else None,
                 "title": self._title(session_id, cwd) if cwd else None,
+                # How full the conversation is. The detail header draws it, and
+                # offers to compact once it is past halfway. See _context.
+                "context": self._context(session_id, cwd) if cwd else None,
                 # A stopped session is not waiting for an answer, however its
                 # transcript ends.
                 "question": None,
@@ -3611,7 +5109,8 @@ class SessionStore:
                 "ancestors": [],
                 "tty": None,
                 "host": [],
-                "sticky": True,
+                "kept": True,
+                "pinned": bool(entry.get("pinned")),
                 "window": None,
             })
 
@@ -3637,7 +5136,25 @@ class SessionStore:
             "historySeconds": HISTORY_SECONDS,
             "canFocus": WINDOWS.available(),
             "canSend": SAY_ENABLED,
+            "canPickFolder": can_pick_folder(),
+            # Keyed by session rather than folded into each row: only the
+            # handful the panel has ever run a turn for have anything to say.
+            "owned": owned_state(),
         }
+
+    def forget(self, session_id: str) -> None:
+        """Drop a session the panel has just ended, without the usual grace.
+
+        A session that vanishes is held for a moment so the list can show it
+        closing out. That is right when something else ended it and wrong when
+        the panel did: the row is wanted back immediately, as the kept row it has
+        become, because that is the state the next thing you do acts on.
+        """
+        with self._lock:
+            self._sessions.pop(session_id, None)
+            self._transcript_cache.pop(session_id, None)
+            self._mode_cache.pop(session_id, None)
+            self._question_cache.pop(session_id, None)
 
     def raw(self, session_id: str) -> dict | None:
         """The session file as last read — including the fields the UI never sees."""
@@ -3691,6 +5208,19 @@ class Handler(BaseHTTPRequestHandler):
     def _body(self) -> dict:
         try:
             length = int(self.headers.get("Content-Length") or 0)
+            # A pasted picture arrives base64'd inside the JSON, which is the one
+            # thing here big enough to be worth a ceiling. Over it, the body is
+            # read and thrown away — read, so the connection stays usable, and
+            # thrown away, so nothing decides to hold 200 MB in memory because a
+            # header said to.
+            if length > POST_MAX_BYTES:
+                remaining = length
+                while remaining > 0:
+                    chunk = self.rfile.read(min(remaining, 65536))
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
+                return {"oversize": True}
             return json.loads(self.rfile.read(length) or b"{}")
         except (ValueError, OSError):
             return {}
@@ -3700,6 +5230,35 @@ class Handler(BaseHTTPRequestHandler):
             if session["sessionId"] == session_id:
                 return session
         return None
+
+    def _row_for(self, session_id: str) -> dict | None:
+        """The kept row for this session, keeping it now if it is not kept yet.
+
+        Every path that runs something on a session needs the same two things —
+        an id and a folder — and a kept row is where they live once the process
+        is gone. But a session whose terminal has closed is still on the list for
+        a while without being kept, and both *Run it here* and *In a terminal*
+        are offered on such a row: nothing holds its transcript, which is the
+        only condition either one cares about. Refusing them with "that session
+        is not being kept" reported an internal bookkeeping state as if it were
+        a fact about the session.
+
+        So the row is kept here, as part of acting on it. It is the same thing
+        adopting does before it signals anything, and for the same reason: the
+        row is what carries the id and the folder once the session file goes.
+        """
+        entry = kept_rows().get(session_id)
+        if entry:
+            return entry
+        session = self._session_by_id(session_id)
+        if not session or not session.get("cwd"):
+            return None
+        keep_row({
+            "sessionId": session_id, "name": session["defaultName"], "cwd": session["cwd"],
+            "startedAt": session["startedAt"], "lastSeen": time.time(),
+            "version": session["version"], "kind": session["kind"],
+        })
+        return kept_rows().get(session_id)
 
     def _session_repo(self, session_id: str) -> str | None:
         """The working tree a git request may act in — the session's own, or none.
@@ -3730,6 +5289,19 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError:
                 limit = 60
             self._json(read_transcript(session_id, session["cwd"], limit))
+            return
+        if path == "/api/change":
+            # The whole of one file change, for a preview in the chat that was
+            # clicked. A read of the same transcript the chat came from, so it
+            # needs nothing the chat did not already have.
+            query = parse_qs(urlparse(self.path).query)
+            session_id = (query.get("sessionId") or [""])[0]
+            session = self._session_by_id(session_id)
+            if not session:
+                self._json({"ok": False, "message": "That session is no longer running"}, 404)
+                return
+            found = read_change(session_id, session["cwd"], (query.get("id") or [""])[0])
+            self._json(found, 200 if found["ok"] else 404)
             return
         if path == "/api/usage":
             query = parse_qs(urlparse(self.path).query)
@@ -3851,15 +5423,43 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/end":
             data = STORE.raw(session_id)
             if not data:
+                # A session the panel holds has no session file of its own to
+                # signal — the process is ours. Ending it means letting go.
+                if owned_release(session_id):
+                    owned = load_owned()
+                    if session_id in owned:
+                        # The claim to be running it goes; the mode it was in
+                        # stays. A pinned row survives this, and typing into it
+                        # starts it back up — into the mode you left it in, not
+                        # into the default, which is what dropping the whole
+                        # record had it doing.
+                        owned[session_id] = {"mode": owned[session_id].get("mode") or OWNED_MODES[0],
+                                             "here": False}
+                        save_owned(owned)
+                    # Stopping is also removing. Only a pinned row is worth
+                    # keeping once nothing is running behind it.
+                    gone = drop_unpinned_row(session_id)
+                    self._json({"ok": True, "removed": gone,
+                                "message": "Stopped it and took the row off the list" if gone
+                                           else "Stopped running it here — pinned, so the row stays"})
+                    return
                 self._json({"ok": False, "message": "That session is no longer running"}, 404)
                 return
             ok, message = end_process(data.get("pid"), data.get("procStart"), bool(payload.get("force")))
+            gone = False
             if ok:
                 # The window pairing dies with the session it pointed at.
                 pairs = load_pairs()
                 if pairs.pop(session_id, None) is not None:
                     save_pairs(pairs)
-            self._json({"ok": ok, "message": message}, 200 if ok else 409)
+                # And so does the row, unless it was pinned: a session the panel
+                # only knows because it was running is not worth a row once it
+                # is not. A kept row is let go here; an unkept one has nothing
+                # holding it and drops off as the process goes.
+                gone = drop_unpinned_row(session_id)
+                if gone:
+                    message = "Ended it and took the row off the list"
+            self._json({"ok": ok, "removed": gone, "message": message}, 200 if ok else 409)
             return
 
         if path == "/api/say":
@@ -3869,29 +5469,326 @@ class Handler(BaseHTTPRequestHandler):
             if not SAY_ENABLED:
                 self._json({"ok": False, "message": "Sending is off because the panel is not bound to loopback"}, 403)
                 return
-            data = STORE.raw(session_id)
-            if not data:
-                self._json({"ok": False, "message": "That session is no longer running"}, 404)
+            text = str(payload.get("text") or "").strip()
+            if not text:
+                self._json({"ok": False, "message": "Nothing to send"}, 400)
                 return
-            ok, message = say_to_session(data, str(payload.get("text") or ""))
+            data = STORE.raw(session_id)
+            if not data and session_id not in kept_rows():
+                self._json({"ok": False, "message": "There is no such session"}, 404)
+                return
+            # The straight road: it is up and listening, so the message goes down
+            # its socket and the answer is immediate.
+            if session_listening(data):
+                ok, message = say_to_session(data, text)
+                if ok:
+                    self._json({"ok": True, "message": message})
+                    return
+            # And every other case is the same case. It closed, or it never opened
+            # a socket, or the socket went, or it is coming up as we speak: the
+            # message is held and delivered when it can be, and the session is
+            # started back up if nothing is running it. This is why the composer
+            # has no "not listening" dead end left — there is nothing that state
+            # would save the person from.
+            ok, message = deliver_later(session_id, text)
             self._json({"ok": ok, "message": message}, 200 if ok else 409)
             return
 
-        if path == "/api/locate":
-            # Where the folder you picked in the browser's own dialog actually is.
-            # Same gate as the listing it feeds: it reads this machine's
-            # filesystem, and exists only to start a session.
+        if path == "/api/paste-image":
+            # The same gate as sending, because this is part of sending: a
+            # picture is only ever saved to be named in a message, and writing a
+            # file into somebody's checkout is not something to offer the
+            # network either.
             if not SAY_ENABLED:
-                self._json({"ok": False, "message": "Browsing folders is off because the panel "
+                self._json({"ok": False, "message": "Sending is off because the panel is not bound to loopback"}, 403)
+                return
+            if payload.get("oversize"):
+                self._json({"ok": False, "message": f"That picture is larger than "
+                                                    f"{PASTE_MAX_BYTES // (1024 * 1024)} MB"}, 413)
+                return
+            # The folder is the session's own, and it is never taken from the
+            # request: a live session's cwd, or the folder its kept row carries
+            # once the process is gone. There is nowhere else a paste can land.
+            session = self._session_by_id(session_id)
+            cwd = str((session or {}).get("cwd") or (kept_rows().get(session_id) or {}).get("cwd") or "")
+            if not cwd:
+                self._json({"ok": False, "message": "There is no folder to save that picture in"}, 404)
+                return
+            ok, saved, message = save_pasted_image(cwd, str(payload.get("mime") or ""),
+                                                   str(payload.get("data") or ""))
+            if not ok:
+                self._json({"ok": False, "message": message}, 400)
+                return
+            self._json({"ok": True, "path": saved, "message": message})
+            return
+
+        if path == "/api/owned/mode":
+            # Nothing runs here. The mode is remembered, and the next turn the
+            # panel launches is launched with it — which is the whole reason
+            # switching is instant.
+            if not SAY_ENABLED:
+                self._json({"ok": False, "message": "Running turns here is off because the panel "
                                                     "is not bound to loopback"}, 403)
                 return
-            children = payload.get("children")
-            found, why = locate_folder(str(payload.get("name") or ""),
-                                       [str(c) for c in children] if isinstance(children, list) else [])
-            if not found:
-                self._json({"ok": False, "message": why}, 404)
+            mode = str(payload.get("mode") or "")
+            if mode not in OWNED_MODES:
+                self._json({"ok": False, "message": f"The panel does not run turns in {mode!r}"}, 400)
                 return
-            self._json({"ok": True, "folders": found})
+            ok, message = owned_set_mode(session_id, mode)
+            self._json({"ok": ok, "message": message, "mode": mode}, 200 if ok else 400)
+            return
+
+        if path == "/api/owned/adopt":
+            # Taking a live session's turns over. There is exactly one way to do
+            # it and it is not a gentle one: the transcript is held by a process
+            # in a terminal, and nothing can run a turn on it while that is true.
+            # So the row is kept first, then the process is ended, and what is
+            # left is the same conversation with nobody holding it — which is the
+            # state a panel turn needs.
+            #
+            # This was built once before and backed out, for reasons worth
+            # keeping in mind: it killed the session and only cleared the way,
+            # leaving a row whose most prominent button handed it straight back
+            # to a terminal. What makes it safe now is that the panel can
+            # actually take the next turn, that ending is asked about rather than
+            # assumed, and that every path which starts a process on a transcript
+            # checks who already holds it.
+            if not SAY_ENABLED:
+                self._json({"ok": False, "message": "Running turns here is off because the panel "
+                                                    "is not bound to loopback"}, 403)
+                return
+            session = self._session_by_id(session_id)
+            data = STORE.raw(session_id)
+            if not session or not data:
+                self._json({"ok": False, "message": "That session is no longer running"}, 404)
+                return
+            # A session that has never taken a turn has no transcript, and
+            # `--resume` on it fails with "No conversation found". That used to
+            # be a refusal — send it something first — which is backwards: an
+            # empty session is the one with nothing to lose, and being told to
+            # type into the terminal in order to stop using the terminal makes
+            # no sense. So it is taken over like any other, and started under
+            # its own id rather than resumed, which is what owned_hold already
+            # does for a session with nothing to resume.
+            empty = not has_conversation(session_id, session.get("cwd") or "")
+            # Kept *before* the process goes. The row is the only thing that
+            # carries the folder and the id once the session file is gone, and
+            # without it the conversation would drop off the panel on the way.
+            keep_row({
+                "sessionId": session_id, "name": session["defaultName"], "cwd": session["cwd"],
+                "startedAt": session["startedAt"], "lastSeen": time.time(),
+                "version": session["version"], "kind": session["kind"],
+            })
+            force = bool(payload.get("force"))
+            ok, message = end_process(data.get("pid"), data.get("procStart"), force)
+            if not ok:
+                # It is still running, so nothing has changed except that the row
+                # is now kept — which is harmless and is what the panel would
+                # have needed anyway.
+                self._json({"ok": False, "message": f"Kept the row, but it is still running: {message}"}, 409)
+                return
+            # Signalled is not stopped. Waiting for it to actually go is the
+            # difference between this and the takeover that shipped once and
+            # cleared the way without ever freeing the transcript — the next
+            # thing the panel does is run a turn on it, and that refuses while
+            # anything still holds it.
+            pid = data.get("pid")
+            for _ in range(40):
+                if not isinstance(pid, int) or proc_gone(pid):
+                    break
+                time.sleep(0.25)
+            else:
+                self._json({"ok": False, "needsForce": not force,
+                            "message": "It has not stopped. Force it to end, or let it finish "
+                                       "what it is doing and try again"}, 409)
+                return
+            pairs = load_pairs()
+            if pairs.pop(session_id, None) is not None:
+                save_pairs(pairs)
+            # The row is wanted back as a kept row now, not in twenty seconds.
+            STORE.forget(session_id)
+            # The mode its first panel turn will run in, unless one was already
+            # picked for it. Manual: the one that asks, now that asking works.
+            owned = load_owned()
+            owned[session_id] = {
+                "mode": (owned.get(session_id) or {}).get("mode") or OWNED_MODES[0],
+                "here": True,
+            }
+            save_owned(owned)
+            mode = (owned.get(session_id) or {}).get("mode") or OWNED_MODES[0]
+            up, said = owned_hold(session_id, session.get("cwd") or "", mode)
+            self._json({"ok": True, "running": up,
+                        "message": ("Running here now — it had said nothing, so it starts here empty"
+                                    if empty else "Running here now") if up
+                                   else f"Ended the terminal session, but it did not start here: {said}"})
+            return
+
+        if path == "/api/owned/new":
+            # A new session the panel runs from its first word. The folder comes
+            # off a session already on the list, or out of a chooser on this
+            # machine — never as a path in the request, which is the same rule
+            # /api/new keeps.
+            if not SAY_ENABLED:
+                self._json({"ok": False, "message": "Running turns here is off because the panel "
+                                                    "is not bound to loopback"}, 403)
+                return
+            if payload.get("pick"):
+                folders = {x["cwd"] for x in STORE.snapshot()["sessions"] if x.get("cwd")}
+                cwd, why = pick_folder(folders.pop() if len(folders) == 1 else str(HOME))
+                if not cwd:
+                    self._json({"ok": False, "cancelled": True, "message": why}, 200)
+                    return
+            else:
+                session = self._session_by_id(session_id)
+                entry = kept_rows().get(session_id) or {}
+                cwd = (session or {}).get("cwd") or entry.get("cwd") or ""
+                if not cwd:
+                    self._json({"ok": False, "message": "There is no folder to start it in"}, 404)
+                    return
+            mode = str(payload.get("mode") or OWNED_MODES[0])
+            made, message = owned_new(cwd, mode)
+            self._json({"ok": bool(made), "message": message, "sessionId": made, "cwd": cwd},
+                       200 if made else 409)
+            return
+
+        if path == "/api/owned/answer":
+            # Answering a prompt a panel turn raised. Same gate as running the
+            # turn: this decides what a session holding tools is allowed to do,
+            # which is the sharpest thing the panel does.
+            if not SAY_ENABLED:
+                self._json({"ok": False, "message": "Running turns here is off because the panel "
+                                                    "is not bound to loopback"}, 403)
+                return
+            behavior = "allow" if payload.get("behavior") == "allow" else "deny"
+            answers = payload.get("answers")
+            decision = {
+                "behavior": behavior,
+                "message": str(payload.get("message") or "")[:300],
+                "answers": answers if isinstance(answers, dict) else None,
+            }
+            ok, message = answer_from_panel(session_id, str(payload.get("requestId") or ""), decision)
+            self._json({"ok": ok, "message": message}, 200 if ok else 409)
+            return
+
+        if path == "/api/owned/say":
+            # Same gate as /api/say, and for a sharper version of the same
+            # reason: this one does not hand a message to a session someone
+            # else is running, it runs the session.
+            if not SAY_ENABLED:
+                self._json({"ok": False, "message": "Running turns here is off because the panel "
+                                                    "is not bound to loopback"}, 403)
+                return
+            # A live process holds the transcript, and nothing here will take it
+            # off one. The row's own End is how you free it, deliberately.
+            if STORE.raw(session_id):
+                self._json({"ok": False, "message": "Something is already running this session — "
+                                                    "end it first, or send to it instead"}, 409)
+                return
+            entry = self._row_for(session_id)
+            if not entry:
+                self._json({"ok": False, "message": "There is no folder to run that session in"}, 404)
+                return
+            cwd = str(entry.get("cwd") or "")
+            owned = load_owned()
+            mode = str(payload.get("mode") or (owned.get(session_id) or {}).get("mode") or OWNED_MODES[0])
+            text = str(payload.get("text") or "")
+            # No message, just run it. *Start it up* on the row menu asks for
+            # exactly this and was being told there was nothing to send: holding
+            # the session open is the whole of starting it, and a turn is what a
+            # message adds rather than what makes the session run.
+            ok, message = (owned_hold(session_id, cwd, mode) if not text.strip()
+                           else owned_say(session_id, cwd, text, mode))
+            if ok:
+                # `here` is set by the turn, not only by adopting. It was not,
+                # and the gap is what made a session go strange under you: the
+                # panel would hold the process and run the turn while the record
+                # still said the session was nobody's, so the moment the status
+                # left `stopped` the row lost its mode chips and offered to make
+                # interactive a session it was in the middle of running.
+                owned[session_id] = {"mode": mode, "here": True}
+                save_owned(owned)
+            self._json({"ok": ok, "message": message, "mode": mode}, 200 if ok else 409)
+            return
+
+        if path == "/api/owned/compact":
+            # Summarise the conversation so far and carry on from the summary.
+            #
+            # `/compact` is on the panel's TERMINAL_ONLY list, and rightly: a
+            # message over a session's *messaging socket* is queued with slash
+            # commands switched off, so sending the text there does nothing. A
+            # held pipe is the other transport and it does expand them — checked
+            # against 2.1.239, which answered a `/compact` turn with
+            # `compact_boundary` and 24,071 → 3,661 tokens. So this is not the
+            # composer sending text that happens to start with a slash; it is
+            # its own action, on the one transport where it works.
+            if not SAY_ENABLED:
+                self._json({"ok": False, "message": "Running turns here is off because the panel "
+                                                    "is not bound to loopback"}, 403)
+                return
+            if STORE.raw(session_id):
+                self._json({"ok": False, "message": "Something else is running this session — "
+                                                    "make it interactive first"}, 409)
+                return
+            entry = self._row_for(session_id)
+            if not entry:
+                self._json({"ok": False, "message": "There is no folder to run that session in"}, 404)
+                return
+            # Not while anything is running or waiting. `owned_say` would queue
+            # it, which is right for a message and wrong for this: a compaction
+            # is not typed ahead, it rewrites what the session remembers, and
+            # queueing one would report *Compacting…* for a compaction that had
+            # not started and would fire later without being asked again.
+            with _OWNED_LOCK:
+                busy = session_id in OWNED_BUSY or bool(OWNED_QUEUE.get(session_id))
+                already = bool((OWNED_COMPACT.get(session_id) or {}).get("running"))
+            if busy:
+                self._json({"ok": False, "message": "It is mid-turn — let that finish, then "
+                                                    "compact"}, 409)
+                return
+            if already:
+                self._json({"ok": False, "message": "It is already compacting"}, 409)
+                return
+            owned = load_owned()
+            mode = str((owned.get(session_id) or {}).get("mode") or OWNED_MODES[0])
+            ok, message = owned_say(session_id, str(entry.get("cwd") or ""), "/compact", mode)
+            if ok:
+                with _OWNED_LOCK:
+                    # Said now rather than waited for. The first `compacting`
+                    # frame does not arrive instantly, and a button that goes
+                    # back to looking unpressed in the meantime invites a second
+                    # press — which would queue a second compaction behind the
+                    # first.
+                    OWNED_COMPACT[session_id] = {"at": time.time(), "running": True}
+                owned[session_id] = {"mode": mode, "here": True}
+                save_owned(owned)
+                message = "Compacting — it summarises the conversation and carries on from that"
+            self._json({"ok": ok, "message": message}, 200 if ok else 409)
+            return
+
+        if path == "/api/owned/interrupt":
+            # Stopping a turn acts on a process on this machine, so it sits
+            # behind the same loopback gate as starting one.
+            if not SAY_ENABLED:
+                self._json({"ok": False, "message": "Stopping a turn is off because the panel "
+                                                    "is not bound to loopback"}, 403)
+                return
+            ok, message = owned_interrupt(session_id)
+            self._json({"ok": ok, "message": message}, 200 if ok else 409)
+            return
+
+        if path == "/api/owned/unqueue":
+            # Taking back something typed ahead. Behind the same gate as sending
+            # it, for the plainest of reasons: nothing that cannot type at a
+            # session has anything to untype.
+            if not SAY_ENABLED:
+                self._json({"ok": False, "message": "Running turns here is off because the panel "
+                                                    "is not bound to loopback"}, 403)
+                return
+            raw = payload.get("index")
+            index = int(raw) if isinstance(raw, (int, float)) and not isinstance(raw, bool) else None
+            ok, message = owned_unqueue(session_id, index)
+            self._json({"ok": ok, "message": message, "queued": owned_queued(session_id)},
+                       200 if ok else 409)
             return
 
         if path == "/api/git":
@@ -3918,24 +5815,64 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/sticky":
+            # Pinning: the row is written down, and is the only kind that comes
+            # back after a restart — and now the only kind that survives its own
+            # session being ended. Unpinning does not take the row away by
+            # itself: a session the panel is running still has one for as long as
+            # it runs. Ending it is what takes it, or /api/forget for a row with
+            # nothing left to end.
             session = self._session_by_id(session_id)
-            sticky = load_sticky()
-            want = bool(payload.get("sticky", True))
+            want = bool(payload.get("pinned", payload.get("sticky", True)))
             if want:
-                if not session:
+                # Either a live session or a row the panel is already holding —
+                # pinning an interactive session it started is the whole point,
+                # and by then there is no session file to read it out of.
+                held = kept_rows().get(session_id) or {}
+                if not session and not held:
                     self._json({"ok": False, "message": "There is no such session"}, 404)
                     return
-                sticky[session_id] = {
-                    "sessionId": session_id, "name": session["defaultName"], "cwd": session["cwd"],
-                    "startedAt": session["startedAt"], "lastSeen": time.time(),
-                    "version": session["version"], "kind": session["kind"],
-                }
-                save_sticky(sticky)
-                self._json({"ok": True, "message": "Kept in the dashboard", "sticky": True})
+                pin_row(session_id, {
+                    "sessionId": session_id,
+                    "name": session["defaultName"] if session else held.get("name"),
+                    "cwd": (session["cwd"] if session else held.get("cwd")) or "",
+                    "startedAt": session["startedAt"] if session else held.get("startedAt"),
+                    "lastSeen": time.time(),
+                    "version": session["version"] if session else held.get("version"),
+                    "kind": (session["kind"] if session else held.get("kind")) or "interactive",
+                })
+                self._json({"ok": True, "message": "Pinned — it survives a restart", "pinned": True})
                 return
-            if sticky.pop(session_id, None) is not None:
-                save_sticky(sticky)
-            self._json({"ok": True, "message": "No longer kept", "sticky": False})
+            unpin_row(session_id)
+            with _KEPT_LOCK:
+                still = session_id in _KEPT
+            self._json({"ok": True, "pinned": False,
+                        "message": "No longer pinned — kept until the panel restarts" if still
+                                   else "No longer kept"})
+            return
+
+        if path == "/api/forget":
+            # Removing the row. Nothing about the conversation goes with it: the
+            # transcript is Claude Code's, where it always was, and `claude
+            # --resume` in that folder still finds it. What goes is the panel's
+            # memory of it — and the process, if the panel was running one,
+            # because a held process with no row is a session nobody can see.
+            held = owned_running(session_id)
+            if held:
+                if not SAY_ENABLED:
+                    self._json({"ok": False, "message": "It is running here, and stopping it needs "
+                                                        "the panel bound to loopback"}, 403)
+                    return
+                owned_release(session_id)
+            owned = load_owned()
+            if owned.pop(session_id, None) is not None:
+                save_owned(owned)
+            gone = forget_row(session_id)
+            STORE.forget(session_id)
+            if not gone and not held:
+                self._json({"ok": False, "message": "There is no kept row to remove"}, 404)
+                return
+            self._json({"ok": True, "message": "Stopped it and took the row off the list" if held
+                                               else "Took the row off the list"})
             return
 
         if path == "/api/start":
@@ -3945,19 +5882,36 @@ class Handler(BaseHTTPRequestHandler):
             if not SAY_ENABLED:
                 self._json({"ok": False, "message": "Starting is off because the panel is not bound to loopback"}, 403)
                 return
-            entry = load_sticky().get(session_id)
+            entry = self._row_for(session_id)
             if not entry:
-                self._json({"ok": False, "message": "That session is not being kept"}, 404)
+                self._json({"ok": False, "message": "There is no folder to start that session in"}, 404)
                 return
+            # A terminal opened on a transcript a panel turn is mid-way through
+            # is the two-processes-one-conversation failure, arriving by the
+            # politest possible route. Every path that starts a process on a
+            # session asks this.
+            with _OWNED_LOCK:
+                mid_turn = session_id in OWNED_BUSY
+            if mid_turn:
+                self._json({"ok": False, "message": "A turn from the panel is running on it — "
+                                                    "let it finish first"}, 409)
+                return
+            # Handing it back is the one thing that legitimately takes the
+            # transcript off the panel, so it lets go rather than refusing.
+            owned_release(session_id)
+            owned = load_owned()
+            if owned.pop(session_id, None) is not None:
+                save_owned(owned)
             if STORE.raw(session_id):
                 self._json({"ok": False, "message": "That session is already running"}, 409)
                 return
             ok, message = start_session(entry)
             text = str(payload.get("text") or "").strip()
             if ok and text:
-                # It cannot hear us yet. Hand the message to a thread that waits
-                # for its socket and then delivers it.
-                threading.Thread(target=wait_and_say, args=(session_id, text), daemon=True).start()
+                # It cannot hear us yet, and the terminal is already opening —
+                # so the deliverer waits for the socket without opening a second
+                # one (`started`).
+                deliver_later(session_id, text, started=True)
                 message = "Starting it up — your message goes in as soon as it is listening"
             self._json({"ok": ok, "message": message}, 200 if ok else 409)
             return
@@ -3968,30 +5922,39 @@ class Handler(BaseHTTPRequestHandler):
             if not SAY_ENABLED:
                 self._json({"ok": False, "message": "Starting is off because the panel is not bound to loopback"}, 403)
                 return
-            # A folder named in the request opens a session there. This is a real
-            # widening: every other form of this route took the folder from a
-            # session already on screen, so it could not be pointed anywhere the
-            # panel was not already showing. What is left holding it is the
-            # loopback gate — and anyone through that gate can already put a
-            # prompt into a session that holds tools and a checkout, which is the
-            # greater power of the two. The path is still resolved and checked
-            # before anything runs.
-            if isinstance(payload.get("cwd"), str) and payload["cwd"].strip():
-                folder, why = resolve_folder(payload["cwd"])
-                if not folder:
-                    self._json({"ok": False, "message": why}, 400)
-                    return
-                ok, message = new_session(folder)
-                self._json({"ok": ok, "message": message}, 200 if ok else 409)
-                return
             session = self._session_by_id(session_id)
-            entry = load_sticky().get(session_id) or {}
+            entry = kept_rows().get(session_id) or {}
             cwd = (session or {}).get("cwd") or entry.get("cwd") or ""
             if not session and not entry:
                 self._json({"ok": False, "message": "That session is no longer around"}, 404)
                 return
             ok, message = new_session(cwd)
             self._json({"ok": ok, "message": message}, 200 if ok else 409)
+            return
+
+        if path == "/api/new-folder":
+            # /api/new can only reach a folder the panel is already showing,
+            # because it reads the folder off a session rather than off the
+            # request. This reaches anywhere — but still not by being told
+            # where: it opens a chooser on this machine and uses what the
+            # person at the desk picked in it. The request says "ask", never
+            # "here". Same loopback gate as everything that starts a process.
+            if not SAY_ENABLED:
+                self._json({"ok": False, "message": "Starting is off because the panel is not bound to loopback"}, 403)
+                return
+            # Open where the sessions are, when they agree on one place, rather
+            # than at home every time. A hint about where to *start* is not the
+            # folder it returns, so this one may come off the list.
+            folders = {s["cwd"] for s in STORE.snapshot()["sessions"] if s.get("cwd")}
+            start = folders.pop() if len(folders) == 1 else str(HOME)
+            picked, message = pick_folder(start)
+            if not picked:
+                # Cancelling is the ordinary outcome, not an error: 200, and the
+                # UI says what happened without dressing it as a failure.
+                self._json({"ok": False, "cancelled": True, "message": message}, 200)
+                return
+            ok, message = new_session(picked)
+            self._json({"ok": ok, "message": message, "cwd": picked}, 200 if ok else 409)
             return
 
         if path == "/api/rename":
@@ -4061,6 +6024,27 @@ def main() -> None:
     STORE.sample()
     threading.Thread(target=STORE.run_forever, daemon=True).start()
 
+    # A held session is a `claude` of ours sitting on somebody's transcript. If
+    # the panel goes without letting go, it is left there with nothing to send to
+    # it and nobody to reap it — which is the two-processes-one-conversation
+    # hazard arriving by the back door. Ctrl-C runs the `finally` below; a plain
+    # `kill` would not, so it is caught too.
+    atexit.register(owned_release_all)
+    # Whatever was interactive when the panel last stopped is interactive again.
+    # In a thread: each one is a process to start, and the panel should be
+    # answering before the first of them is up.
+    threading.Thread(target=owned_resume_held, daemon=True).start()
+
+    def bow_out(_signum, _frame):
+        owned_release_all()
+        raise SystemExit(0)
+
+    for caught in (signal.SIGTERM, signal.SIGHUP):
+        try:
+            signal.signal(caught, bow_out)
+        except (OSError, ValueError):
+            pass
+
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"claude-watchtower → http://{args.host}:{args.port}")
     if not WINDOWS.available():
@@ -4072,6 +6056,10 @@ def main() -> None:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nstopped")
+    finally:
+        # A held session is a process of ours. Leaving it behind would leave a
+        # `claude` on a transcript with nobody to send to it or reap it.
+        owned_release_all()
 
 
 if __name__ == "__main__":

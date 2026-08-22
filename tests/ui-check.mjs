@@ -1,5 +1,5 @@
 // UI checks for the panel: MD3 tokens, contrast, the list-detail panes, the
-// conversation view, the settings dialog and touch targets.
+// conversation view, the settings page and touch targets.
 // Node 24+ only, no dependencies.
 //
 //   1. start a panel (a fixture directory shows every state at once):
@@ -634,11 +634,19 @@ if (planState.status === 403) {
 }
 
 /* ------------------------------------------------- settings / dynamic colour */
+/* Settings is a page in the detail pane rather than a dialog, so what is
+   asserted is that the pane is showing it and that the gear says so. */
 await evaluate(`document.getElementById('settingsButton').click()`);
 await sleep(700);
-check("settings dialog opens", await evaluate(`document.getElementById('settingsScrim').dataset.open === 'true'`));
-check("dialog has swatches and a contrast group", await evaluate(
-  `document.querySelectorAll('#swatches .swatch').length >= 6 && document.querySelectorAll('#contrastGroup .segmented__item').length === 3`));
+check("settings opens in the detail pane", await evaluate(
+  `!!document.querySelector('#detailPane #notifySwitches')
+   && document.getElementById('settingsButton').getAttribute('aria-pressed') === 'true'`));
+check("no row claims to be current while it shows", await evaluate(
+  `!document.querySelector('.session-item[aria-current="true"]')`));
+check("the page has swatches, a contrast group and a switch per kind", await evaluate(
+  `document.querySelectorAll('#swatches .swatch').length >= 6
+   && document.querySelectorAll('#contrastGroup .segmented__item').length === 3
+   && document.querySelectorAll('#notifySwitches [data-notify]').length === 4`));
 
 const primaryBefore = await evaluate(`getComputedStyle(document.documentElement).getPropertyValue('--md-sys-color-primary').trim()`);
 await evaluate(`[...document.querySelectorAll('#swatches .swatch')][2].click()`);
@@ -658,13 +666,27 @@ await sleep(600);
 check("high contrast changes the scheme", onSurfaceBefore !==
   await evaluate(`getComputedStyle(document.documentElement).getPropertyValue('--md-sys-color-on-surface').trim()`));
 
-await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
-await sleep(600);
-check("Escape closes the dialog", await evaluate(`document.getElementById('settingsScrim').dataset.open === 'false'`));
+/* Each switch is its own setting, and turning one off leaves the rest alone. */
+await evaluate(`document.querySelector('#notifySwitches [data-notify="done"]').click()`);
+await sleep(400);
+check("a notification switch persists on its own", await evaluate(`(() => {
+  const saved = JSON.parse(localStorage.getItem('cbu-notify') || '{}');
+  return saved.done === false && saved.permission === true
+    && saved.question === true && saved.prompt === true; })()`));
 
-await evaluate(`document.getElementById('themeToggle').click()`);
+/* The theme switch is on this page too, not in the app bar. */
+await evaluate(`document.querySelector('#detailPane #themeToggle').click()`);
 await sleep(700);
 check("theme switch flips the scheme", await evaluate(`localStorage.getItem('cbu-theme') === 'dark'`));
+check("the switch and its label follow the scheme", await evaluate(
+  `document.querySelector('#detailPane #themeToggle').checked === true
+   && document.querySelector('#detailPane #themeLabel').textContent === 'Dark'`));
+
+await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+await sleep(600);
+check("Escape leaves the settings page", await evaluate(
+  `!document.querySelector('#detailPane #notifySwitches')
+   && document.getElementById('settingsButton').getAttribute('aria-pressed') === 'false'`));
 
 /* --------------------------------------------------- commenting on a passage */
 /* Select a passage and the panel offers Copy and Comment; commenting opens a
@@ -700,15 +722,22 @@ if (!chatSession) {
   await send("Emulation.setDeviceMetricsOverride", { width: 1600, height: 1000, deviceScaleFactor: 1, mobile: false });
   await sleep(700);
 
-  /* Nothing here may actually message a live session, so /api/say and /api/start
-     are intercepted and their bodies kept. That is also how the wire format is
-     asserted: what the panel would have sent, without sending it. */
+  /* Nothing here may actually message a session, so every route that sends is
+     intercepted and its body kept. That is also how the wire format is asserted:
+     what the panel would have sent, without sending it.
+
+     `/api/owned/say` belongs on this list and was missing from it. It is where a
+     message for a session the panel runs goes — which, since a terminal session
+     is the only kind it does not run, is most of them — so a check that ran the
+     comment rail against one of those would have started a real turn on a real
+     conversation. */
   await evaluate(`(() => {
     window.__sent = [];
     if (!window.__realFetch) window.__realFetch = window.fetch.bind(window);
     window.fetch = (url, opts) => {
       const u = String(url);
-      if ((u.includes('/api/say') || u.includes('/api/start')) && opts && opts.method === 'POST') {
+      const sends = ['/api/say', '/api/start', '/api/owned/say'].some((r) => u.includes(r));
+      if (sends && opts && opts.method === 'POST') {
         window.__sent.push(JSON.parse(opts.body));
         return Promise.resolve(new Response(JSON.stringify({ ok: true, message: 'Sent (intercepted)' }),
           { status: 200, headers: { 'Content-Type': 'application/json' } }));
@@ -1311,71 +1340,68 @@ if (!askSession) {
     check("the composer says why a blocked session cannot be typed at",
       /prompt/.test(note), note.slice(0, 80));
   }
-
-  const bar = JSON.parse(await evaluate(`(async () => {
-    const state = await (await fetch('/api/state', { cache: 'no-store' })).json();
-    return JSON.stringify({
-      canSend: !!state.canSend,
-      openHidden: document.getElementById('openButton').hidden,
-    });
-  })()`));
-  check("opening a session is offered wherever sending is on",
-    bar.openHidden === !bar.canSend, `canSend=${bar.canSend} hidden=${bar.openHidden}`);
 }
 
 /* ------------------------------------------------------- opening a session */
-/* The dialog has two states worth asserting and one line that must agree with the
-   machine. The native chooser cannot be driven from here, so it is stood in for —
-   what is being checked is the panel's half. */
-if (await evaluate(`!document.getElementById('openButton').hidden`)) {
-  await evaluate(`(() => { window.__realPicker = window.showDirectoryPicker;
-    window.showDirectoryPicker = async () => ({ name: 'claude-watchtower',
-      keys: async function* () { yield 'server.py'; yield 'static'; yield 'README.md'; } });
-    return true; })()`);
-  await evaluate(`document.getElementById('openButton').click()`);
-  await sleep(700);
-  const empty = JSON.parse(await evaluate(`(() => {
+/* The chooser is a dialog the desktop draws, which cannot be driven from here —
+   so what is checked is the panel's half: the button stands where sending is on,
+   and its menu offers a folder per session plus the way to anywhere else. */
+if (await evaluate(`!!document.getElementById('newButton')`)) {
+  await evaluate(`document.getElementById('newButton').click()`);
+  await sleep(400);
+  const menu = JSON.parse(await evaluate(`(() => {
+    const items = [...document.querySelectorAll('#sessionMenu .menu__item')];
     return JSON.stringify({
-      target: !document.getElementById('folderBrowse').hidden,
-      lead: (document.querySelector('.folder-target__lead')?.textContent || "").trim(),
-      chosen: !document.getElementById('folderChosen').hidden,
-      openDisabled: document.getElementById('folderOpen').disabled,
+      open: document.getElementById('sessionMenu').dataset.open === 'true',
+      count: items.length,
+      last: (items[items.length - 1]?.querySelector('.menu__label')?.textContent || '').trim(),
       wide: document.documentElement.scrollWidth > document.documentElement.clientWidth,
     });
   })()`));
-  check("opening a session starts with one way in and nothing to open yet",
-    empty.target && !empty.chosen && empty.openDisabled, empty.lead);
-  check("the dialog does not push the page sideways", !empty.wide);
+  check("New opens a menu of folders to start in", menu.open && menu.count >= 1,
+    `${menu.count} items`);
+  check("and the last of them reaches anywhere on the disk",
+    /another folder/i.test(menu.last), menu.last);
+  check("the menu does not push the page sideways", !menu.wide);
+  await evaluate(`document.body.click()`);
+  await sleep(300);
+  check("clicking away puts the menu away",
+    await evaluate(`document.getElementById('sessionMenu').dataset.open === 'false'`));
+}
 
-  await evaluate(`document.getElementById('folderBrowse').click()`);
-  // Placing the folder is a filesystem walk on the server, and how long it takes
-  // depends on the machine — so wait for the outcome rather than for a guess at
-  // how long it needs. Either a path lands or the field appears; both are ends.
-  for (let waited = 0; waited < 12000; waited += 300) {
-    const settled = await evaluate(`(!document.getElementById('folderChosen').hidden
-      || !document.getElementById('folderTyped').hidden
-      || document.querySelectorAll('#folderChoices .folder-row').length > 0)`);
-    if (settled) break;
-    await sleep(300);
-  }
-  const chosen = JSON.parse(await evaluate(`JSON.stringify({
-    target: !document.getElementById('folderBrowse').hidden,
-    chosen: !document.getElementById('folderChosen').hidden,
-    path: (document.getElementById('folderChosenPath')?.textContent || "").trim(),
-    openDisabled: document.getElementById('folderOpen').disabled,
-    again: !!document.getElementById('folderAgain'),
-  })`));
-  check("a folder that could be placed is named in full before anything opens",
-    chosen.chosen && !chosen.target && chosen.path.startsWith('/'), chosen.path);
-  check("and only then can a session be opened, with a way to change it",
-    !chosen.openDisabled && chosen.again);
-
-  await evaluate(`document.getElementById('folderCancel').click()`);
-  await evaluate(`(() => { if (window.__realPicker) window.showDirectoryPicker = window.__realPicker;
-    else delete window.showDirectoryPicker; return true; })()`);
-  await sleep(400);
-  check("cancelling puts the dialog away",
-    await evaluate(`document.getElementById('folderScrim').dataset.open === 'false'`));
+/* --------------------------------------------- answering a panel-run prompt */
+/* The card only stands while a turn the panel launched is waiting on somebody,
+   which no fixture can arrange — so what is checked is that its two shapes are
+   drawn from the state, by handing the renderer a prompt and reading the result. */
+{
+  const shapes = JSON.parse(await evaluate(`(() => {
+    const gate = { requestId: "r1", tool: "Write", name: "Write", what: "notes.txt",
+                   input: {}, asks: false, at: Date.now() / 1000 };
+    const question = { requestId: "r2", tool: "AskUserQuestion", name: "AskUserQuestion",
+      what: "", asks: true, at: Date.now() / 1000,
+      input: { questions: [{ question: "Tabs or spaces?", header: "Indent", multiSelect: false,
+        options: [{ label: "Tabs", description: "hard tabs" },
+                  { label: "Spaces", description: "soft tabs" }] }] } };
+    const draw = (ask) => {
+      const box = document.createElement("div");
+      box.innerHTML = ownedAskCard({ sessionId: "x" }, ask);
+      return box;
+    };
+    const a = draw(gate), b = draw(question);
+    return JSON.stringify({
+      gateAllow: (a.querySelector("[data-act=ask-allow]")?.textContent || "").trim(),
+      gateDeny: !!a.querySelector("[data-act=ask-deny]"),
+      gatePicks: a.querySelectorAll("[data-answer]").length,
+      askPicks: b.querySelectorAll(".ask-opt").length,
+      askBlocked: !!b.querySelector("[data-act=ask-allow]")?.disabled,
+      askHead: (b.querySelector(".ask-sheet__head")?.textContent || "").trim(),
+    });
+  })()`));
+  check("a permission prompt offers allowing the tool it names",
+    /allow/i.test(shapes.gateAllow) && shapes.gateDeny && shapes.gatePicks === 0, shapes.gateAllow);
+  check("a question offers its options instead", shapes.askPicks === 2, `${shapes.askPicks} options`);
+  check("and cannot be answered until one is picked", shapes.askBlocked);
+  check("the card is headed by what was asked", /indent/i.test(shapes.askHead), shapes.askHead);
 }
 
 /* ---------------------------------------------------------- touch targets */

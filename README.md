@@ -61,8 +61,10 @@ python3 server.py
 | [What it shows](#what-it-shows) | The four states, and why the one you care about is inferred rather than read |
 | [Layout](#layout-an-index-and-a-detail-pane) | The index, groups, the detail pane and its five tabs |
 | [Sending a message](#sending-a-message) | The composer, the unix socket behind it, and its three honest limits |
+| [Pasting a picture](#pasting-a-picture) | A screenshot pasted into the box, saved into the session's folder and sent as a path |
 | [The question it is asking](#the-question-it-is-asking) | The multiple-choice question a blocked session is standing at, read from the panel |
 | [Opening a session](#opening-a-session) | The native folder picker, and placing the folder it returns |
+| [Changes to files](#changes-to-files-in-the-conversation) | The patch a message carries, folded to a few lines, and the whole of it on a click |
 | [Commenting on a passage](#commenting-on-a-passage) | Select what it said, and say what you think of it |
 | [Permission mode](#permission-mode) | How much rope a session has, when it was true, and why it is read-only |
 | [Git and History](#git-and-history) | Staging, committing and pushing in the editor's own Source Control layout, and a commit graph drawn from real ancestry |
@@ -130,6 +132,7 @@ The middle line is Claude's own one-line description of the conversation, which 
 
 The filter chips at the top of the index count each state and narrow the list to one of them. Click the same chip again, or **all**, to go back.
 
+
 ### Groups
 
 Several Claudes in one repository is the usual shape, so the index groups them: two or more sessions sharing a working folder sit under a header named after the folder, with a count and one dot per state inside it. A folder with a single session stays a plain row — a group of one is noise. Click a header to fold the group away; a folded group holding something that needs an answer still shows the dot for it.
@@ -186,6 +189,26 @@ A message sent to a session that is mid-turn is queued at its prompt, exactly as
 
 > **Sending is loopback-only, regardless of `--host`.** A prompt is an instruction to an agent holding tools and a checkout, so a panel exposed to the network keeps the transcript and loses the composer. `--no-send` switches it off on loopback too.
 
+### Pasting a picture
+
+**Ctrl-V a screenshot into the composer and it goes with the message.** Not in it — as a path.
+
+Every transport the panel has takes a string: the messaging socket takes one, a held pipe takes one, and neither has anywhere to put a PNG. So the picture is written to a file and the message names the file, which is a thing any session can act on: it opens it with the tool it opens any file with. What goes out is what you typed, then a line per picture:
+
+```
+what is wrong with this dialog?
+
+[Pasted image: /home/you/project/.claude/watchtower-images/paste-20260822-141233-a1b2c3.png]
+```
+
+The file lands in the session's **own folder**, under `.claude/watchtower-images/`. Not `/tmp`, which is swept out from under a conversation you come back to tomorrow, and not the panel's config directory, which a session may have no permission to read: it goes somewhere the session already reads from. Pictures older than a fortnight are swept by the next paste, so the folder does not grow for the life of the machine.
+
+The upload starts on the paste rather than on Send, so the round trip happens while you are still writing the sentence about it. What is drawn above the box is the file as it stands — a thumbnail, and either the name it was saved as, `Saving…`, or why not — with **Remove** on each to leave one out. Sending waits for anything still saving rather than sending a path to a file that is not there yet, and a picture with nothing typed beside it is a message in its own right.
+
+Only what a browser puts on the clipboard as a picture is taken over: PNG, JPEG, GIF, WebP and BMP, up to 12 MB. A pasted picture the panel does not recognise is refused before it is uploaded, and the extension is decided by its type rather than by any name in the request. Pasting text is left entirely to the browser.
+
+> **Same gate as sending**, and for the same reason turned up a notch: this writes a file into a checkout. Loopback only, and off entirely under `--no-send`.
+
 ## The question it is asking
 
 "Needs an answer" says a session is blocked on you. It does not say what it wants, and until you know that you have to go and look — which is the trip the panel exists to save.
@@ -200,27 +223,47 @@ A question a subagent asked is left out: it is not one you can answer.
 
 ## Opening a session
 
-**Open session**, at the head of the session list, asks for a folder and starts `claude` there.
+**New**, beside the filter chips at the head of the session list, starts a session without going through a row's menu first. A new session needs a folder, so the button offers the folders already on the list — one entry each, the panel reading a folder off a session it is already showing rather than taking a path from the browser.
 
-The dialog holds one way in: an outlined target that opens the **browser's own native folder dialog** — the real one your desktop draws, not a list drawn by the panel. Once a folder is placed the target gives up its room to the path, named in full under *Starting in*, because that line is the only thing on screen saying which checkout a session is about to start in. **Open session** stays disabled until there is one.
+**What it makes is an interactive session**, run by the panel: pick a folder and it is simply there, selected, with the caret in the box — no dialog, and nothing to fill in first. That takes naming it ourselves: `--session-id` accepts a uuid of the panel's choosing, so the row can exist before a word has been said. Without a name of its own a session announces nothing until it is sent something, which would have meant asking for the first message in a dialog before there was a session to type at.
 
-Which dialog opens matters, because two exist and they do not read the same way. `showDirectoryPicker()` is the folder chooser proper: it asks to *view* the folder, returns a handle, and the panel reads only the names at the top level. A `webkitdirectory` input reaches the same place, but the browser frames it as an upload — *"Upload 12,000 files to this site?"* — and walks the entire tree to answer it. So the picker is used where it exists (Chrome, Edge) and the input only as the fallback (Firefox, Safari).
+*In a terminal instead* is still there, at the foot of the menu, and says what it costs: a session a terminal runs cannot have its mode picked here and cannot have its prompts answered here. It is the exception now rather than the only door.
 
-**Nothing is uploaded, on either path.** What leaves the page is the folder's name and up to forty of the names directly inside it. No file is opened and no content is read — the fallback's wording is the browser's, not a description of what happens.
+Under those, **Another folder…** reaches anywhere on the disk, and still without being told a path: it opens your desktop's own folder chooser — `zenity`, `kdialog`, or the one Python's `tkinter` draws, whichever is installed — and starts the session where you picked. The browser asks for the dialog; what comes back out of it never passed through the browser at all, so `/api/new` keeps its rule that a folder comes off a session on screen and never off a request. Cancelling is an ordinary outcome and says so.
 
-The reason any of this is needed is that a browser will not tell a page where a folder *is*. `webkitdirectory` reports each file's path relative to whatever you chose (`Mujoco/src/main.py`); `showDirectoryPicker()` returns a handle carrying only a name. Neither yields `/home/coen/Workspace/Projects/Mujoco`, which is what a session has to start in. That boundary is deliberate and no flag lifts it.
+Both need the loopback gate that sending needs, for the same reason: they run a command on this machine. A desktop with none of the three choosers, or a panel with no display to draw on, says so on the menu item rather than offering a button that cannot work.
 
-The name and those entries are a fingerprint, though, and that is enough. Both go to the server, which walks down from your home directory looking for the one folder of that name holding those entries — bounded on depth, wall clock, hits, and a skip list for the directories that hold thousands of entries nobody starts a session in. It answers in a fifth of a second on this machine. Three outcomes, and each is honest about which it is:
+## Changes to files, in the conversation
 
-| The fingerprint | What happens |
-|---|---|
-| Matches one folder | That is the folder. Its full path is named on the dialog before you open anything, because starting a session in the wrong checkout is the mistake worth guarding against. |
-| Matches several | It asks. A generic name with a weak fingerprint — `src` in a tree with a dozen of them — is exactly where a guess would be wrong. |
-| Matches nothing | A field appears. The search covers your home directory, so a folder somewhere else, or one picked on another machine when the panel is being read from one, has no other way to be named. |
+A session that edits a file used to leave one line in the chat — `Edit  /home/you/project/server.py` — which says that something happened to a file and nothing whatever about what. **The change itself is shown**, under the tool line that made it: a few lines of patch, `+14 −3`, and the whole of it a click away.
 
-`~` and a relative path both work in that field, and the folder is checked before anything runs — a path that is missing, is a file, or cannot be read is refused by name rather than as a general failure.
+It is not reconstructed from what the tool was asked to do. Claude Code writes a `structuredPatch` beside every Edit and Write result — real hunks against the real file, with the line numbers the file actually has — so the panel shows what was recorded rather than a diff rebuilt from an `old_string` and a `new_string`, which would have neither line numbers nor any guarantee of being what landed.
 
-> **This route takes a folder from the request**, which every other form of starting a session did not — those took it from a session already on screen, so they could not be pointed anywhere the panel was not already showing. What holds it is the loopback gate, and anyone through that gate can already put a prompt into a session that holds tools and a checkout, which is the greater power of the two.
+**Folded, and folded at the right place.** A hunk opens with its context, so a preview that starts at the top of the patch is a preview of the three lines that did *not* change, followed by a fade. The preview starts one line above the first line that actually changes. Green rows for what arrived, red for what went — the tint on the row rather than colour on the text, which is how an editor draws it and what keeps the text the colour text is. Click the bar or the patch itself and it opens whole; the count on the bar says how much more there is before you do.
+
+The folded preview **clips** rather than scrolls, and that is a deliberate word. The diff a Git row opens is a scroller with `overscroll-behavior: contain`, which is right there and wrong in the middle of a conversation: a box that cannot scroll but has been told not to pass scrolling on is a dead patch of the chat — the wheel lands on it and nothing moves. Clipping puts the wheel back where it belongs, which is the conversation.
+
+**Open, it takes the whole pane**, and shows two files side by side the way you would read a change in an editor or in Meld: before on the left in red, after on the right in green, each with its own line numbers, and the lines that answer each other on the same row.
+
+Two files want the width of both, and the conversation is the one thing on screen that can lend it — a comparison squeezed into the column a message occupies is two narrow columns, which is worse than the one column it replaced. So reading a change is somewhere the pane *goes* rather than something that unfolds inside it: the bar carries the way back, Escape does the same, and the conversation is exactly where you left it when you come back to it. The session, its state, its composer and every other tab stay put — this stands in front of the conversation, not the panel.
+
+With the pane to itself it takes the pane's width rather than the longest line's: two halves, and a long line wraps inside its half. The comparison scrolls one way only, because a comparison you have to scroll sideways to read is a comparison of two things you cannot see at once. Both cells of a row are cells of one grid row, so whatever wraps, the two sides stay level.
+
+That pairing is the whole of the work. A unified patch is one column because it is a text format — the sign in the first character is the only room it has to say what happened — and on screen there is room for the thing the sign stands in for. So a run of removals and the run of additions that follows it are read as one edit written twice, and zipped: first removed against first added, second against second. Whichever run is longer leaves rows with nothing on the other side, washed flat rather than coloured, because the file really does not have a line there.
+
+It is one grid rather than two scrollers, so the two sides cannot drift apart — there is nothing to keep in sync because there is only one thing. The hunk header stays a row across the full width, since the jump it marks is in the file rather than in either version of it.
+
+> **The pane keeps your place.** It used to keep it only in the two cases it had been taught — you were at the bottom, or the conversation had just grown at the top — and every other rebuild landed at scroll position 0. Opening a change threw you to the very top of the conversation, and so did a poll arriving while you read back through it. Anything that is neither of those two cases now comes back exactly where it was, and the comparison is the one thing that deliberately does not: it opens at the top of the change, because that is where a change starts.
+
+The [Git tab](#git-and-history)'s diff stays one column. It opens *inside* a list of files you are scanning, several at a time, where a second column costs more than it gives; the change in the chat opens because you asked for that one.
+
+**Opening it is what fetches it.** The transcript is re-read on every poll while the chat tab is open, and carrying every patch in full through every one of those reads would be paying, once a second, for something read once. So the conversation carries a preview and a size, and `/api/change` answers with the whole patch for the one you clicked — its own walk back through the same transcript, stopped at the tool call you named.
+
+A selection wins over the click, the same way [Ctrl+C](#stopping-a-turn) defers to it: dragging across the visible lines to quote them must not fold the thing you were reading out from under you.
+
+> **A file changed by a shell command does not appear here.** `sed -i`, a heredoc, `git checkout`, a formatter — the tool that ran was Bash, and Bash records what it printed, not what it touched. There is nothing written down to show, and the panel does not go looking at the file to guess. [Git](#git-and-history) is where that shows up: it reads the working tree itself, so a change is a change however it was made.
+
+What a subagent changed stays out, like the rest of a sidechain: it is not this conversation.
 
 ## Commenting on a passage
 
@@ -292,10 +335,26 @@ Among the facts in the detail header is a pill for how much rope the session has
 **It says when it was true, because it cannot always be current.** A session writes its mode into the transcript only when the metadata block is re-appended — on a resume, at exit, once the transcript has grown past a threshold — and never at the moment the mode changes. A session that is working therefore reports within seconds; one sitting at its prompt keeps reporting whatever it last said, for as long as it sits there. A few older sessions have never written one at all, and those show nothing rather than a guess.
 
 > **There is deliberately no way to change it from here**, and the reason is worth recording. Nothing in a session's socket sets the mode — it takes a message and a rename, and that is all; `set_permission_mode` exists in Claude Code but only on the transports an SDK or the browser bridge speaks. That leaves pressing Shift+Tab, and the panel cannot aim a keypress at a *session*: X11 pairs windows, while a terminal window holds tabs and a VS Code window holds terminals. A press sent at a window lands in whichever tab has focus, which may be a different Claude — so the panel's own matcher regularly has two sessions behind one window id. Quietly loosening the wrong session's permissions is not a thing to get wrong occasionally, and a keypress the panel cannot verify (see the paragraph above) would do exactly that. It was built, tried, and taken out again.
+>
+> **What did become possible is narrower and sits elsewhere.** A session no process is holding can have its next turn *launched* by the panel, in a mode you pick — see [Turns run from the panel](#turns-run-from-the-panel). That is not changing a running session's mode; it is choosing the mode a turn starts in, which is the only form of the question that has an honest answer.
 
 **State trace.** The strip under the detail header is that session's recent history, one coloured band per state, newest at the right. It answers the question a single status lamp cannot: has this been waiting for a while, is it churning between shell commands, or has it been quietly working the whole time. The strip scales to the session's own lifetime up to 30 minutes — the left label tells you the span.
 
-**Notifications.** The first click anywhere on the page asks for notification permission. After that, any session flipping into `waiting` raises a desktop notification, and the tab title and favicon show how many are waiting.
+**Notifications.** The first click anywhere on the page asks for notification permission. After that, a session arriving at a prompt raises a desktop notification, and the tab title and favicon show how many are waiting. The notification names what is being asked — *needs permission* with the tool it wants to run, *has a question* with the header Claude gave it, or plainly *needs you* for a terminal prompt the panel cannot read — and clicking it brings the panel up with that session selected. A prompt the panel is holding stays on screen until it is looked at, because those run out and are refused if nobody answers; a terminal session's prompt waits as long as you do.
+
+**And when it has finished.** A turn ending raises its own notification — *is done*, *Finished, and waiting at its prompt* — which is the other half of watching a session: you go away while it works, and the thing you want to be told is that it has stopped needing to. It is announced once per turn and only for a session actually seen working, so a row arriving from offline, or a kept session waking up already idle, says nothing. `shell` is deliberately not counted as finished though the list draws it as waiting: Claude Code writes it both on the way into a foreground command and again as a turn ends, so a session dipping through it mid-turn would otherwise announce itself done and then carry on working.
+
+**Two levels of switch, because there are two questions.** Which *kinds* of notification you want at all is a setting for the whole panel, under the gear in the top right. **Settings → Notifications** reads as one sentence — *raise a desktop notification when a session…* — with a switch completing it four ways: *wants permission to use a tool*, *asks you a multiple-choice question*, *stops at a prompt only its own terminal can answer*, *finishes a turn and goes quiet*. All four are on by default, and each carries a sample of the notification it turns on, drawn as the little card it will arrive as. A sample says more than a sentence about when it fires, and it is the only place you can see one without waiting for a session to raise it. Which *sessions* may use the kinds you have left on is a switch on each session, under **Details → Notifications**: *when it waits for an answer* and *when it finishes a turn*. Muting a session from its row menu silences it altogether, and the finished-a-turn switch dims to say so.
+
+**The browser's permission is a separate question, and gets its own answer.** What the switches decide is what the panel would like to tell you; whether it is allowed to tell you anything at all is the browser's to say. So when it has not said yes, the page carries a notice rather than a line of small print — *your browser has not let the panel show notifications yet, none of the switches above can reach you until it does* — with an **Allow notifications** button that asks. If the browser is blocking them outright the notice turns red and points at the padlock in the address bar, because there is nothing the panel can press from here.
+
+**Light and dark is a setting like any other**, so it lives on that page beside contrast and the base colour rather than in the app bar. It was the only setting up there, and a switch in the bar reads as a thing to flip often — it is not; it is picked once and left.
+
+**Settings is a page, not a dialog.** The gear opens it where a conversation would be, and the gear stays lit while it is there. Nothing on it is a decision to come back from — every switch takes effect as it is pressed and there is nothing to confirm — so a scrim was buying a modality the page did not want, and on a short window it put a scrolling box inside a scrolling box. Picking any session is the way out, as is **Done** or Escape; no row on the list claims to be current while the page is showing, because none of them is what the pane is showing.
+
+All of it is keyed on what the session is standing on rather than on its status, so a session that goes from one gate straight to the next — a tool allowed, the next one gated a moment later — is announced both times rather than only when it first stopped.
+
+**A prompt shows on the row.** A session standing at one carries a badge on its list row saying which kind it is, followed by what it is: `permission · wants to run Bash`, `question · asks "Which database?"`, or `prompt · waiting at its own prompt`. The badge goes first on the supporting line, which is clipped from the right, so it survives however narrow the pane gets. A permission gate the panel is holding also moves the row into the amber band and up to the top of the list — the turn is still technically running, but it cannot go on without you, and calling that "working" hid the one session that needed a decision.
 
 ## Git and History
 
@@ -414,15 +473,34 @@ Two honest limits:
 
 **End session**, at the bottom of the Details tab, closes a session you no longer want running. It asks first — naming the session, its folder and its pid, and saying so plainly when the session is mid-turn, because ending it there drops whatever it was doing.
 
+Ending it also takes its row off the dashboard, unless the row is [pinned](#keeping-a-session-after-it-closes). Stopping and removing were two separate asks for a while, which meant a session you had just ended sat on the list as a stopped row until you noticed and asked again — the panel keeping things you had explicitly finished with. Pinning is the one thing that says *keep this row past its process*, so it is the one thing a stop leaves standing, and the dialog says which of the two is about to happen.
+
 Confirming sends `SIGTERM`, the same signal `Ctrl-C`-ing the process would, so Claude Code shuts itself down and writes out its transcript. **Force quit** in the same dialog sends `SIGKILL` instead, for a session too wedged to answer; nothing is flushed. Either way the transcript already on disk is left alone — only the process goes.
 
 The pid recorded in the session file is re-checked against `/proc` immediately before signalling, so a stale panel can never kill an unrelated process that inherited the number. The ended session shows as **closed** for a few seconds, then leaves the list.
 
 ## Keeping a session after it closes
 
-A row normally lives and dies with its process. Turn on **Keep in the dashboard** — from the right-click menu, or the switch in the Details tab — and the row stays after the session is gone: same name, same folder, same conversation, marked **stopped** and pinned with a small marker in the list. Nothing about the session is copied; the transcript is read from where Claude Code already keeps it.
+A row normally lives and dies with its process. A **kept** row outlives it: same name, same folder, same conversation, marked **stopped**. Nothing about the session is copied; the transcript is read from where Claude Code already keeps it.
 
-**Start it up** in the header runs `claude --resume <session id>` in that folder, in a new terminal window, and the session picks the conversation up where it left off. You can skip the button: type into the composer of a stopped session and it starts up *and* delivers what you wrote, as soon as the new process is listening (the panel waits for its socket in the background, up to 90 seconds).
+There are two ways a row is kept, and the only difference is how long:
+
+| | |
+|---|---|
+| **Held**, for as long as the panel runs | Every row the panel makes for itself — a session it [started](#turns-run-from-the-panel), a session it [made interactive](#make-interactive). It survives a page reload, and goes when the panel goes, because whatever was running here is not running any more either |
+| **Pinned**, for good | **Pin to the dashboard**, from the right-click menu or the switch in the Details tab. Written down, marked with a small pin in the list, and the only kind that is still there after the panel restarts |
+
+Panel-run sessions used to be written down as well, which made every one of them permanent whether or not that was wanted: the panel decided what you were keeping, and the only way out was to go and unkeep each one. Now it keeps them for as long as it can honestly claim to be running them, and pinning is yours to ask for.
+
+**Remove from the dashboard** is what **End session** becomes once there is nothing left to end: a kept row whose process went on its own. It asks about the row rather than about the conversation — nothing of the transcript goes with it, and `claude --resume` in that folder still finds it. There is only ever one of the two on a row, because stopping and removing are the same act reached from different sides, and offering both meant a menu with two endings and a dashboard that quietly filled up with sessions you had already finished with.
+
+**Stop running it here** is that act on a session the panel is holding: the panel lets go, and the row goes with it unless it is pinned. It is the same **End session** every other row has — a session the panel runs has a process behind it too, a pipe rather than a terminal — and the row spent a while as the one row on the list whose menu ended at *Mute notifications*, because `alive` reads false for it and that was what the item was gated on. Pin it first if you want to keep typing at it later; unpinned, ending it is ending it.
+
+**Start it up** in the header runs `claude --resume <session id>` in that folder, in a new terminal window, and the session picks the conversation up where it left off. You can skip the button: type into the composer of a stopped session and it starts up *and* delivers what you wrote, as soon as the new process is listening.
+
+That is not a special case of the composer, it is the whole of it. **A message is never refused for the state the session was in when you pressed Send**, because that is not the state it will be delivered in: sessions close while you are typing, sockets go with a suspended machine, a process comes up two seconds after the click. So every message is accepted and handed to one deliverer per session, which asks again every second for two minutes, drains in the order you typed, and starts the session back up if nothing is running it — over its messaging socket if it is listening, down the panel's own pipe if the panel runs it, in a fresh terminal if nothing does. Only three things still turn a message away: the panel not being on loopback, a session standing at a prompt of its own, which cannot read a queued message until somebody answers it, and a tenth message [typed ahead](#typing-ahead-of-a-turn) of a turn the panel is running.
+
+The composer used to say *"this session is not listening for messages"* and take the box away. It was true and useless: it described a state you could not see, had not caused, and could do nothing about — while the panel already knew what to do about it.
 
 The terminal is whichever of Ghostty, WezTerm, kitty, Alacritty, Konsole, GNOME Terminal, Xfce Terminal, `x-terminal-emulator` or xterm it finds first. Override it with `CLAUDE_WATCHTOWER_TERMINAL`, giving the terminal and the flag that takes a command:
 
@@ -432,13 +510,178 @@ CLAUDE_WATCHTOWER_TERMINAL="kitty --"
 
 A session the panel starts is a session in its own right, never a child of whatever started the panel. The panel is often run from inside a session itself, and Claude Code stamps its environment on everything it launches — inherit that stamp and the new session comes up nested, with no session file, no transcript and no chat of its own — what [What it shows](#what-it-shows) describes about nested sessions. So the terminal is opened with those session-scoped variables stripped — `CLAUDECODE`, `CLAUDE_PID`, `CLAUDE_CODE_SESSION_ID` and the rest. Settings you put in your own profile, `CLAUDE_CONFIG_DIR` and the other `CLAUDE_CODE_*` options among them, are passed through untouched.
 
-Starting a session runs a command on this machine, so it sits behind the same loopback gate as sending a message: off unless the panel is bound to a loopback address. What is kept lives in `~/.config/claude-watchtower/sticky.json`.
+Starting a session runs a command on this machine, so it sits behind the same loopback gate as sending a message: off unless the panel is bound to a loopback address. Pinned rows live in `~/.config/claude-watchtower/sticky.json`; held ones live in the panel's memory and nowhere else. A file written before the distinction holds panel-run rows too, and those read as pinned — what was already permanent stays permanent.
+
+## Turns run from the panel
+
+A kept session — one whose process has gone, but whose row is still here — takes its next turn from the panel. **Send** does it: the panel launches `claude --print --resume <id>` in the session's folder, which picks up the conversation that is already there and appends to the same transcript. Same chat, no fork, nothing new to look at afterwards.
+
+The button says *Send* and nothing else. It was a pair for a while — **Run it here** beside **In a terminal** — and a pair asks, of every message you write, a question about process management before it will carry the message: *who should run this?* The answer was the panel every time, and the other button's real function was to send your words somewhere you were not looking. So there is one button, and starting a stopped session is part of sending to it rather than a decision to make first. Nothing hands a conversation back to a terminal any more; **Make interactive** is a one-way door, and the dialog says so.
+
+Which makes the permission mode a per-turn choice. **Runs in** — *Manual*, *Plan*, *Accept edits* — sits above the box, and switching is instant because nothing is applied when you switch: the mode is an argument, and the next turn is launched with whatever it says. There is no process to signal and nothing to restart, which is the whole reason this is small enough to trust.
+
+Four modes and not six. `bypassPermissions` and `dontAsk` are left out because they never ask anybody: a panel that can answer prompts would have nothing to answer, and no way to know what had been done in its name.
+
+**Auto** is offered, because it is Claude Code's own default and leaving it out meant the panel could not run a session the way its terminal already does — but it is not the cautious mode its name suggests. A classifier decides what needs approval, and what it approves never reaches the panel at all; in testing it ran `rm -rf` with no prompt raised. *Manual*, *Plan* and *Accept edits* either ask or hold back.
+
+What *Manual* does not mean is that every tool is gated: Claude Code decides for itself that some commands are safe enough not to ask about — an `echo` ran in a Manual turn with no prompt raised at all — so the guarantee is that nothing needing approval gets it, not that nothing runs.
+
+### The mode, and what it asks
+
+**The mode sits in the header, beside the session's name** — a single connected run of segments, the way M3 draws one choice out of several, with the one in force filled. No tick beside it: the fill has already said so, and a tick is the same fact told twice.
+
+**And it is small on purpose** — a line among the header's other lines rather than a control in a form. Part of why it read large was a bug rather than a size: the rule set `font: inherit` on the chip, which as the later class selector beat the typescale class in its markup, so it had been rendering at the header's body size all along with `md-label-small` doing nothing.
+
+**It is drawn in the header's own colour, not in one of its own.** The header wears whatever colour the session's state is, so the bar is made from that: the track is the header's foreground held back to a hairline and a wash, and the chosen segment is that foreground at full strength with the header colour punched out of it. Nothing in it is a fixed hex, so it belongs to the header on every state and in both schemes — where before it was a panel of `surface` with a grey outline, sitting on the colour like something pasted on. The four modes had an accent each, which made the loudest thing in the header a setting rather than what the session was doing; the chip names its mode, so it does not also need a hue.
+
+### Answering what it asks
+
+A turn the panel runs is launched with `--permission-prompt-tool stdio`, which is undocumented in `--help` and is the same mechanism the official VS Code extension uses. It means Claude Code asks over the pipe the panel is holding rather than at a terminal, so **the prompt arrives in the panel and the tool does not run until you answer it**. The composer gives up its room to what is being asked, and the turn stands there — genuinely stopped, not polling.
+
+Two things come up that one channel, told apart by whether the request says it needs a person:
+
+| What it is | What you get |
+|---|---|
+| A permission prompt | The tool it wants and what it wants to do with it, then **Allow** or **Refuse** |
+| A multiple-choice question | The question, every option with the sentence Claude wrote about it, and **Answer** — one pick, or several where the question allows it |
+
+Answering a question *is* allowing it: the picks are written back into the input the tool was going to run with, keyed by the question's own text, which is the shape Claude Code reads them out of.
+
+It is drawn as the one place in the panel where a decision is *taken* rather than reported — its own raised surface with a tinted bar naming what is being asked, each option a full row you press with the indicator M3 uses for the kind of choice it is (a radio where one answer is wanted, a box where several are), and one primary action. **Enter sends**, in the composer and in the new-session dialog both.
+
+**And your answer appears in the conversation.** It has to be dug out: a question is a tool call, so what you picked is written down as that tool's result and nowhere else — `Your questions have been answered: "…"="Tabs"` — and a turn holding nothing but a tool result is otherwise skipped, which left the transcript showing Claude asking something and then carrying on for no visible reason. The panel reads those results and shows the answer where you gave it, marked *answered here*.
+
+> **Nobody answering is a refusal.** A turn parked on a prompt holds a pipe and a process, so the wait has a deadline — ten minutes — and running out refuses rather than allows. The turn is told, and says so in the conversation. Verified: an unanswered write came back `The permission request timed out with no answer, so it was refused`, and no file was created.
+
+### Typing ahead of a turn
+
+A turn takes minutes, and the next thing you want to ask usually arrives while you are reading the last answer. So type it: the box stays open while a turn runs, and what you write is **held and sent the moment that turn ends**.
+
+What it used to say was *"It is still answering the last one"*. That was true, and it was the panel making its own timing your problem — the message was written, the panel knew exactly when it could go in, and it asked you to remember to come back and press Send again. A terminal does not ask that. Typing ahead of a running turn is one of the oldest things Claude Code does, and it lands at the prompt.
+
+One turn runs at a time, and that part is not a limitation the queue works around — two turns appending to one conversation is the failure this whole area is built to avoid. So each queued message waits for the *result* of the one before it, exactly as it would have if you had waited yourself before sending, and the queue drains in the order you typed.
+
+**What is waiting is shown, above the box it was typed in**, with **Drop** beside each. Both halves matter. A message that vanished into a promise is indistinguishable from one that was dropped, so it is on screen; and the turn that was running when you typed it may well answer it anyway, in which case the last thing you want is for it to be asked again as though nothing had happened. Nothing can be taken back once it has gone down the pipe, and the panel says which of the two happened rather than reporting success for a message that is already being answered.
+
+The queue is drained by the reader thread that saw the turn end, not by the browser — a panel with no page open drains it too — and it is capped at ten, which is the one place a refusal says something worth hearing: past that you have typed more than you can have meant one conversation to answer in order.
+
+Two more things follow from the queue being the panel's rather than Claude Code's:
+
+- **A prompt standing in front of the turn does not hide it.** The composer gives its room to what is being asked, but what you typed ahead is still drawn above it — that queue goes in after the turn this prompt is holding up, which is exactly when you might want it back.
+- **Nothing waiting is lost if the process goes.** It is handed back to the same deliverer every other message goes through, which starts the session up and puts it in. Letting go of a session deliberately — **End session** — clears the queue instead, because that is not a session anyone wants restarted to deliver a message they have finished with.
+
+### Stopping a turn
+
+**Stop** sits beside Send, and Ctrl+C does the same thing. It stops the turn where it stands: the session stays up, the conversation keeps everything it had got to, and the next thing you type is answered normally — which is what Ctrl+C at a prompt does, and the reason for wanting it is the same. You read the first paragraph of what it is doing and you can already see it is answering the wrong question.
+
+It is one `{"subtype": "interrupt"}` down the control channel the [mode](#the-mode-and-what-it-asks) is set on, and the panel holds that channel for exactly as long as it is running the session. Measured against a held session: the request comes back `{"subtype": "success", "response": {"still_queued": []}}`, the transcript gains a `[Request interrupted by user]` turn where Claude Code stopped, the turn ends `error_during_execution`, and the process is still there and takes the next turn as if nothing had happened.
+
+That result matters more than it looks. An interrupted turn *reports itself as an error*, and read at face value the row said `error_during_execution` in red at somebody who had just pressed Stop. A turn the panel stopped is a turn that did what it was told, so it is recorded as **you stopped it** and is not a failure.
+
+**Anything typed ahead goes with it.** The [queue](#typing-ahead-of-a-turn) was written for the train of thought you have just stopped, and delivering it a tenth of a second later — into a session now waiting to hear what you actually want — is the opposite of what stopping meant. The panel says how many it dropped rather than dropping them quietly.
+
+While a turn is standing at a [prompt of its own](#answering-what-it-asks) the box and the button both give their room to the question, so there is no Stop there: **Refuse** — or **Skip**, for a question — is the way out of that one, and it is on the card already.
+
+Ctrl+C defers to the browser in one way: **anything selected wins**. A selection in the page, or in the box you are typing in, and Ctrl+C copies as it always did. It only reaches the turn when there is nothing to copy — which is the same moment a terminal would have read it as an interrupt.
+
+> **A session running in a terminal cannot be stopped from here, and the button says so rather than going missing.** Ctrl+C at a terminal is not a signal, it is a *keystroke*: Claude Code reads it in raw mode, and nothing outside the pty can deliver a keystroke to it. The nearest thing from out here is `SIGINT` to its pid, and that was measured rather than assumed — it does not stop the turn, it **ends the session**. Working or idle, Claude Code printed its `claude --resume` line and exited. So the panel does not offer a Stop that quietly kills a session: the button is drawn disabled, naming the Ctrl+C that does work, with **Make interactive** on the bar above as the way to have a turn it *can* stop.
+
+### How full the conversation is
+
+Under the mode chips, a rule and a percentage: how much of the model's context window this conversation is carrying. It is the last request's total input — fresh tokens, cache reads and cache writes together, which is everything the model had in front of it when it last answered. That is the same figure `/context` reports, and it comes off the transcript, so **every session has one**, terminal or not.
+
+Nothing new is read for it. `scan_usage` already walked the transcript for the Usage tab and already remembered this number; it was simply never leaving that tab, so the one place it mattered — a conversation getting full while you are in it — was the one place it was not. The scan is incremental, which is what makes it affordable on every poll: measured on this machine, 33–76 ms to read a 2.6–7.4 MB transcript the first time and 0.03–0.1 ms every time after.
+
+The bar changes colour twice: at three quarters, and again at nine tenths, which is roughly where Claude Code stops waiting and compacts on its own.
+
+**Compact** appears past halfway. It summarises everything so far and carries on from the summary, and it asks first — not because anything is lost from disk, since the transcript is untouched and the chat above reads the same afterwards, but because what the session *remembers* is replaced by a summary of itself and there is no putting that back. Below half it is not offered at all: an offer to throw away the middle of a conversation with half its room still free is an offer to lose something for nothing.
+
+**It is only offered for a session the panel runs**, and the reason is the transport rather than the policy — see [Slash commands](#slash-commands), which is the general version of it. A message over a session's messaging socket is queued with slash commands switched off, so the text would arrive and do nothing; a held pipe is the other transport and it *does* expand them. Checked against 2.1.239 rather than assumed — a `/compact` turn down a held pipe answered with:
+
+```jsonc
+{"type":"system","subtype":"status","status":"compacting"}
+{"type":"system","subtype":"status","status":null,"compact_result":"success"}
+{"type":"system","subtype":"init", …}          // it starts over from the summary
+{"type":"system","subtype":"compact_boundary",
+ "compact_metadata":{"trigger":"manual","pre_tokens":24071,"post_tokens":3661, …}}
+```
+
+Those frames are the whole reason the panel reads `system` frames at all. **The turn's own result is empty** — a compaction ends `is_error: false` with `""` — so on the outcome machinery alone it reads as a turn that finished and said nothing. And the percentage above the button does not move either, because it is taken from the last request the model *answered* and the next one has not happened yet. Between them, a compaction would look exactly like a button that did nothing. So what it actually did is reported from `compact_metadata` — *compacted 24k → 3,661* — and a refusal (`compact_error`, e.g. *Not enough messages to compact*) is reported as a refusal rather than folded into a success.
+
+`trigger` is carried through as well, so a compaction Claude Code did **on its own** is reported too, and marked as its own rather than passed off as something you asked for.
+
+**While it runs, the session is called *Compacting*.** From the pipe's side a compaction is a turn like any other, so on `status` alone it read as *Working* — the one thing it is not doing. It is throwing the middle of the conversation away, and that is worth telling apart from a turn you asked for, so the word is taken from `OWNED_COMPACT` rather than from the status. It is a drawn state only: deliberately out of `STATE_ORDER`, so it gets no filter chip and no lamp, and no session is counted twice.
+
+And the bar fills while it does. Nothing on the wire says how far along a compaction is — `compacting` goes up, then there is silence until the result — so the figure is elapsed time bent through a curve, which is exactly what the terminal shows you and exactly the same curve: Claude Code 2.1.239 computes `1 - exp(-seconds / 90)` and caps it at 95%. The cap is the honest part, and the reason it was copied rather than invented: it never claims to be finished, and a compaction watched in both places should not be 40% in one and 70% in the other. The tooltip says what it is measuring — *how long it has been going, not how much is left* — and the bar stops reporting the conversation while it runs, since that reading cannot move until the next turn anyway. It walks forward on the panel's own clock, beside the durations, rather than by repainting the pane once a second for a number no signature can see change.
+
+> **A compaction the process does not outlive** is marked as one that stopped part way through. The record of how the last one went is worth keeping; the *running* flag is not, because nothing is coming to clear it and the panel would go on saying *Compacting* about a session that is not running at all.
+
+> **Not while a turn is running.** Sending it through the ordinary path would put it in the [queue](#typing-ahead-of-a-turn), which is right for a message and wrong for this: a compaction is not typed ahead, it rewrites what the session remembers. Queued, the button would say *Compacting…* for a compaction that had not started, and then fire one later that nobody asked for a second time. It refuses instead, and says to let the turn finish.
+
+### Slash commands
+
+Whether `/something` works is a question about the **transport**, not about the command — and the panel used to answer it with one hardcoded list for both transports, which made it wrong for half of them.
+
+Over a session's **messaging socket**, every slash command is inert. Claude Code queues an injected message with expansion switched off on purpose, since command markdown can carry inline shell, so `/compact` arrives as eight characters of prose. The panel does not pretend otherwise: it turns what you typed into the sentence that asks for it — *"Use the compact command."* — which is the one thing an injected turn can do. For a session in a terminal that is all still true.
+
+Over a **held pipe** they are expanded, and the session says so itself. Its `init` frame carries both lists, and down that transport the terminal-only one is two entries long:
+
+```jsonc
+"terminal_slash_commands": ["doctor", "color"],
+"slash_commands": ["compact", "context", "model", "clear", "usage", "effort", …]  // 47 of them
+```
+
+So for a session the panel runs, **the session's own answer wins over the panel's guess**. Guessed, it refused `/compact` on the one kind of session where compacting works — *"/compact only works at this session's own prompt"*, said to somebody looking at a Compact button that does exactly that. Asked, it is right, and it stays right when Claude Code adds a command or a plugin brings one.
+
+Two things follow, and both are the opposite of what the panel did before:
+
+- **What you typed is what goes.** No rewriting into prose: the session expands it, and `Use the compact command.` reads as a request where `/compact` compacts. The line under the box says so — *Goes in as `/compact` — this session runs it* — rather than reporting a translation that is no longer happening.
+- **The picker offers them.** The catalogue is a walk of the skill and command folders on disk, so it finds what was written down and misses what is built in — `/compact`, `/context`, `/model`, `/clear` have no file to find. A command you cannot type the name of is a command you do not have, so the session's list is folded in, with the catalogue's entries winning where both know a name, since only those carry a description.
+
+**A session that has not spoken yet still takes them.** Falling back to the socket list until the first `init` frame arrived looked careful and was the bug in its own right: a held process emits nothing until it is sent something, so *every* session started and not yet typed at has an empty list — and a session you have just brought up is exactly when you reach for `/compact`. Whether a command is expanded is settled by the transport and is known without asking anyone; only the exceptions need the session. So a held pipe defaults to the two above and replaces them the moment it is told better.
+
+### Make interactive
+
+A session running in a terminal cannot have its turns taken, because something else is holding its transcript, and two processes appending to one conversation is the failure this whole area is littered with. **Make interactive** is the one way across: it keeps the row, ends the terminal session, and leaves the same conversation with nobody holding it — which is the state a panel turn needs. It asks first, because it ends a running process.
+
+**And that is the only session it is offered for.** A terminal holding the transcript is the whole of what stops the panel running a session, so it is the whole of the test: alive in a terminal means *Make interactive*, and everything else — kept, closed, adopted, held open, or simply not known to be alive — is run from here, with its mode chips and its box. What that replaced was a test spelt out state by state, which had gaps between the states nobody had thought of. A session whose terminal had closed fell in one: past *stopped*, so it was nobody's, and it got no mode, no way in, and a box that only offered to open a terminal. A session in the middle of a turn the panel was running fell in another, because starting the turn moved its status off *stopped* without ever recording that the session was now ours — so mid-turn the chips went away and the row offered to make interactive the thing it was running. Both looked like the panel losing track of a session when you reloaded the page, which is when a row is drawn from scratch. Running a turn on a session now records that it is ours, on the way, the same as adopting one does.
+
+Nothing is lost from the conversation. The row is kept *before* anything is signalled, so the transcript, the folder and the name survive the process that was showing them. It does not go back, though: there is no button that hands a conversation to a terminal, and the dialog says as much before you agree to it. `claude --resume` in the session's folder is still there if a terminal is what you want.
+
+**It comes up running, and stays running.** The panel holds one `claude --print --input-format stream-json` open per interactive session — alive between turns, serving turn after turn down the same pipe — so the row reads *Waiting · here* or *Working · here* the way any other session does, and there is a real process behind it. Adopting starts it at once; you do not have to send anything to bring it up.
+
+Picking a chip moves it in the same frame you click it, and the request follows. It can afford to: the endpoint answers in single-digit milliseconds, while the state poll that used to be waited on afterwards takes half a second or more — so waiting for confirmation made a setting applied in one frame feel like it had not registered. A refusal puts the chip back and says why.
+
+Holding the pipe is also what makes the mode a **live** setting rather than a choice for next time. `set_permission_mode` is refused on the messaging socket, because its callback is not registered on that transport — but this one owns the session's stdio, where it is, and it answers `{"subtype":"success","response":{"mode":"acceptEdits"}}` and takes effect on the very next tool. Picking a chip on a running session changes what it is allowed to do, then and there, with nothing restarted. The bar says **Running in** rather than *Runs in* when that is what is happening.
+
+**Pin it and it survives the panel restarting.** A held process belongs to the panel, so it goes when the panel goes. A [pinned](#keeping-a-session-after-it-closes) session comes back: its row was written down, so the panel picks the session back up on its next start and says so on the way (`note: running 66574f01 here`) — without that, a restart left the row saying *Runs from here* with nothing behind it, which reads as the interactive session having vanished when it was the panel that had. An unpinned one does not come back, and its claim to be *running here* is dropped on the way past, because a session the panel is running that nothing on the list shows is worse than no row at all. A session somebody has since opened in a terminal is left alone either way, because that terminal holds its transcript.
+
+**The mode outlives all of it.** Pinned or not, ended or restarted, the mode you picked is a choice about the conversation rather than a fact about whatever process was serving it — so the session comes back into the mode it was left in, not into the default. The whole `owned` record used to be dropped in both those places, which was near enough harmless while it only ever meant *adopted*; a turn run from the panel now records itself there too, so dropping it was quietly resetting the mode of every session anyone had typed at.
+
+Letting go is **End session**, which for an interactive session means the panel stops holding it rather than signalling anything. The panel also lets go on its way out — on Ctrl-C, on `kill`, and through `atexit` — because a held `claude` left on a transcript with nobody to send to it is the two-processes-one-conversation hazard arriving by the back door.
+
+A session that has never spoken is taken over too. It has no transcript, so `--resume` would fail with *"No conversation found"* — it is started here under its own id instead, empty, in the same folder, which is what the panel already does for a session it started itself and nobody has typed at. The dialog says there is nothing to carry over rather than promising a conversation that does not exist.
+
+Two things it will not do:
+
+| | |
+|---|---|
+| Take *"signalled"* for *"stopped"* | It waits for the process to actually go before reporting success. Interactive Claude Code exits on `SIGTERM` but is not always reaped at once, so what is checked is whether the process has ended, not whether `/proc` still lists it |
+| Force anything you did not ask it to | A session mid-turn takes a moment to stop. **Force it** appears only once asking has demonstrably not worked |
+
+> **What makes a session the panel's is never its status.** A held session's status is `idle` or `busy`, exactly like one in a terminal, and it has no messaging socket at all — so anything that asks *is this stopped?* or *is it listening?* to decide whether the panel owns it gets the answer wrong the moment it comes up running. Ownership is its own question (`runsHere`), asked before either of those, and what it asks is whether anything else is alive on the transcript. Getting it wrong four times produced, in turn: the mode chips vanishing, **Make interactive** reappearing on an interactive session, a composer that said *"this session is not listening for messages"* about a session the panel was holding a live pipe to, and a session standing at a prompt with a composer that said only *answer the prompt in the terminal* — no box, and no button to stop it being a terminal's problem, which is a dead end on the one row you are most stuck on. A reason and a way out are both true at once, so both are drawn.
+
+> **A turn of the panel's own is not a session.** The `claude` a panel turn runs holds the same transcript as the session it belongs to, so without being told otherwise the panel lists it as a live session — the row leaves *Runs from here* mid-turn and offers to make interactive the thing it is in the middle of running. Turns register as the panel's own errands, the way `/usage` and the commit-message run do.
+
+> **Two processes on one transcript stays impossible.** A turn only runs for a session no live process holds, and only one at a time. `/api/start` refuses while a panel turn is in flight, for the same reason from the other direction.
+
+The turn is launched and let go of: the panel does not sit holding it. What comes back appears in the conversation above like any other turn, because it is read from the transcript like any other turn, and the composer says a turn is running while one is. If it fails, the reason is kept and shown under **Runs in** until the next one.
 
 ## Design
 
 The interface follows Material Design 3. Nothing about it is hand-picked colour:
 
-**Dynamic colour.** The whole palette is generated in the browser from a single seed by `@material/material-color-utilities` — the same library Material uses — and written to the document as `--md-sys-color-*` custom properties. Open **Settings** (the gear in the app bar) to change the base colour from a preset or any colour at all; every surface, container, outline, and state colour is derived from it and the choice is remembered. The scheme uses the `SchemeVibrant` variant, which keeps the seed's hue with strong accents while leaving containers at the pastel tones that guarantee contrast against their `on-` roles.
+**Dynamic colour.** The whole palette is generated in the browser from a single seed by `@material/material-color-utilities` — the same library Material uses — and written to the document as `--md-sys-color-*` custom properties. Open **Settings** (the gear in the app bar, which opens a page in the detail pane) for light or dark, contrast, and the base colour from a preset or any colour at all; every surface, container, outline, and state colour is derived from it and the choice is remembered. The scheme uses the `SchemeVibrant` variant, which keeps the seed's hue with strong accents while leaving containers at the pastel tones that guarantee contrast against their `on-` roles.
 
 Settings also exposes MD3's three **contrast levels** (standard, medium, high), which widen the tonal distance between paired roles for legibility.
 
@@ -496,6 +739,7 @@ systemctl --user enable --now claude-watchtower
 | `static/fonts/` | Roboto and Roboto Mono, self-hosted |
 | `static/vendor/` | `material-color-utilities`, for dynamic colour |
 | `tests/ui-check.mjs` | UI checks over CDP (tokens, contrast, settings) |
+| `tests/paste-check.py` | The write behind a pasted picture, and the endpoint that does it |
 | `claude-watchtower.service` | Optional systemd user unit |
 
 ## Tests
@@ -519,7 +763,17 @@ google-chrome --headless=new --remote-debugging-port=9333 \
 node tests/ui-check.mjs
 ```
 
-`tests/ui-check.mjs` drives a throwaway headless Chrome over the DevTools protocol and asserts the things a screenshot cannot: that every MD3 token resolves, that the four state containers are distinct and stay distinct after the base colour changes, that every piece of text on screen clears 4.5:1, that the index lists each session with a host icon and a state lamp, that clicking a row opens its detail and every tab renders, that the filter chips filter, that sessions sharing a folder group themselves and picked rows can be grouped, folded and ungrouped by hand, that the plan chip shows how much has gone, colours each figure for its band and opens a dialog with a bar per limit — skipped, with a reason, on a read-only panel or where `/usage` does not answer — that the settings dialog changes the scheme and persists it, that Usage either shows a cost and a row per model or says plainly that there is nothing to total yet, and that interactive targets reach 48dp. Node 24+, no dependencies. Override `PANEL_URL` / `CDP_URL` to point elsewhere.
+`tests/composer-check.mjs` needs neither a browser nor a running panel: it lifts the composer's template out of the page, hands it a session in each state and asserts what it draws — that a live session still shows the mode bar, disabled and saying what would free it, that a kept one's chips can be picked, that a standing prompt takes the box's room, and that a blocked session leads with its reason. `node tests/composer-check.mjs`, any Node, no setup. It exists because a duplicate `const` in that function turned the whole inline script into a syntax error, and nothing else in the suite runs without a Chrome.
+
+`tests/paste-check.py` needs neither a browser nor a panel of your own: it drives the write behind a pasted picture, then the endpoint over a real socket with a fake session standing in for a running one. That the file lands under `.claude/watchtower-images/` in the session's own folder and carries the bytes off the clipboard, that two pastes in the same second do not collide, that anything which is not a picture — HTML, a shell script — is refused rather than written with an extension of its choosing, that a body far too big for any screenshot is turned away without being held in memory, that the fortnight sweep clears what an earlier paste left while leaving the fresh ones, and that with sending off nothing is written at all. `python3 tests/paste-check.py`.
+
+`tests/chat-check.mjs` lifts the functions that draw a file change in the conversation and asserts what they draw. Folded: that a tool which changed nothing carries nothing, that the patch is coloured line by line and folded until it is asked to open, that the bar counts what it did and says how much more there is, that the folded patch is a click target of its own, that opening keeps the preview on screen until the whole change lands, and that what a patch contains is escaped rather than run. Opened: that the hunk header is a row across both sides, that an unchanged line is the same row on both, that a removal and the line that replaced it share a row while a removal with nothing to answer it leaves the other side empty, that the numbering carries on correctly past a change of unequal length, and that both panes are drawn and named. `node tests/chat-check.mjs`, any Node, no setup.
+
+`tests/change-check.py` writes a transcript by hand into a temp folder and reads it back through the panel's own reader: that a change is filed under the tool call that made it, that a command which only printed something carries none, that a file written whole reads as all added, that a subagent's edits stay out with the rest of its sidechain, that the preview starts one line above the first thing that changed, and that the whole patch comes back when it is asked for by id. `python3 tests/change-check.py`.
+
+`tests/turn-check.py` needs neither, and no panel either: it drives what the server does with a turn it is running — against a fake pipe, so nothing is started and nothing is sent, and every assertion is on what the panel writes down that pipe and when. The queue: a message typed mid-turn is held rather than refused, order and cap hold, a `result` frame is what drains it, a message sent in the gap between a turn ending and the queue draining does not overtake one already waiting, dropping takes back only what has not gone in yet, and anything still waiting when the process dies goes to the deliverer while letting go of a session deliberately clears it. And stopping: one `interrupt` on the control channel, the queue dropped with it, and the interrupted turn's own `error_during_execution` result read as *you stopped it* rather than as a turn that went wrong — while a turn nobody stopped still reads as one that did. `python3 tests/turn-check.py`.
+
+`tests/ui-check.mjs` drives a throwaway headless Chrome over the DevTools protocol and asserts the things a screenshot cannot: that every MD3 token resolves, that the four state containers are distinct and stay distinct after the base colour changes, that every piece of text on screen clears 4.5:1, that the index lists each session with a host icon and a state lamp, that clicking a row opens its detail and every tab renders, that the filter chips filter, that sessions sharing a folder group themselves and picked rows can be grouped, folded and ungrouped by hand, that the plan chip shows how much has gone, colours each figure for its band and opens a dialog with a bar per limit — skipped, with a reason, on a read-only panel or where `/usage` does not answer — that the settings page changes the scheme and persists it, that Usage either shows a cost and a row per model or says plainly that there is nothing to total yet, and that interactive targets reach 48dp. Node 24+, no dependencies. Override `PANEL_URL` / `CDP_URL` to point elsewhere.
 
 The Git checks want a session whose folder is in a repository: they find one from `/api/state`, then assert that both tabs appear, that Git reads the branch and marks every file with its status letter and a way to open it while carrying no graph, that the files land in the editor's three groups, that the commit box and its split button are there when writing is on — and that a read-only panel says so and offers nothing — that a row opens exactly one diff and closes it again, that History draws one node per commit and keeps no file list, that each rail is the same height as its row — a mismatch there is what leaves the lanes broken at every join — that both clear 4.5:1, and that all five tabs stay reachable at 48dp. With no such fixture they say so and skip rather than failing for a reason that has nothing to do with the panel.
 
@@ -541,6 +795,7 @@ PANEL_URL=http://127.0.0.1:8787 node tests/ui-check.mjs
 |---|---|
 | `GET /api/state` | Every live session, with status, trace, window match, and the `question` it is standing at if it is standing at one |
 | `GET /api/transcript` | `?sessionId=…&limit=…` — the recent conversation |
+| `GET /api/change?sessionId=…&id=…` | The whole of one file change, by the tool-use id its preview in the chat carries: the patch as unified text, what it added and removed, and whether it was long enough to be clipped |
 | `GET /api/usage` | `?sessionId=…` — that session's token totals per model, the cost they come to, and the size of its last context |
 | `GET /api/plan` | The subscription's limits, read by running `claude --print /usage`; `?force=1` skips the five-minute cache; loopback only |
 | `GET /api/git` | `?sessionId=…` — that session's repository: branch, upstream drift, changed files, recent commits with their parents, and the branches it could switch to |
@@ -550,13 +805,23 @@ PANEL_URL=http://127.0.0.1:8787 node tests/ui-check.mjs
 | `POST /api/identify` | Ask a session's terminal which window it is showing, and remember it |
 | `POST /api/pair` | Click a window to bind it to a session |
 | `POST /api/unpair` | Forget a manual pairing |
-| `POST /api/sticky` | `{"sessionId": "...", "sticky": true}` — keep this session's row after its process goes |
-| `POST /api/start` | `{"sessionId": "...", "text": "..."}` — resume a kept session in a terminal, delivering `text` once it listens; loopback only |
-| `POST /api/new` | `{"cwd": "~/some/folder"}` to open a session in a folder, or `{"sessionId": "..."}` to open one beside an existing session. Loopback only |
+| `POST /api/sticky` | `{"sessionId": "...", "pinned": true}` — pin this session's row, so it is still here after the panel restarts. Unpinning does not remove the row: a session the panel runs keeps one for as long as it runs |
+| `POST /api/forget` | `{"sessionId": "..."}` — take a kept row off the list, pinned or not, stopping the session first if the panel was running it. The transcript is left alone. `/api/end` covers the ordinary case; this is the one for a row with no process behind it |
+| `POST /api/start` | `{"sessionId": "...", "text": "..."}` — resume a kept session in a terminal, delivering `text` once it listens; loopback only. Nothing in the panel calls it any more: the composer's *In a terminal* was its only caller and is gone. Kept because the endpoint is the documented way to ask for a terminal, and because `deliver_later` still starts a session this way when a message is waiting for one that has closed |
+| `POST /api/new` | `{"sessionId": "..."}` — a fresh session in a terminal, in that session's folder; the folder is read off the session, never taken from the request; loopback only |
+| `POST /api/new-folder` | A fresh session in a folder chosen at a chooser on this machine. Takes no path — the body is ignored — and answers `cancelled` when nobody picked one; loopback only |
 | `POST /api/rename` | `{"sessionId": "...", "name": "..."}` — name a session yourself; an empty name puts its own name back |
-| `POST /api/end` | `{"sessionId": "...", "force": false}` — SIGTERM that session, or SIGKILL when `force` |
+| `POST /api/end` | `{"sessionId": "...", "force": false}` — SIGTERM that session, or SIGKILL when `force`. Its row goes too unless pinned; the answer's `removed` says whether it did |
+| `POST /api/owned/mode` | `{"sessionId": "...", "mode": "default\|plan\|acceptEdits"}` — remember the mode the next panel-run turn uses; starts nothing; loopback only |
+| `POST /api/owned/adopt` | `{"sessionId": "...", "force": false}` — keep the row, end the terminal session holding it, and leave its next turn to the panel. A session that has never spoken is started here under its own id rather than resumed. Refuses rather than reporting success if the process does not actually stop; loopback only |
+| `POST /api/owned/new` | `{"sessionId": "..."}` for a folder off that session, or `{"pick": true}` for one from a chooser — a new session the panel runs, named by the panel and answering with that name. Takes no first message: the session exists before anything is said to it; loopback only |
+| `POST /api/owned/answer` | `{"sessionId": "...", "requestId": "...", "behavior": "allow\|deny", "answers": {"<the question>": ["Label"]}}` — settle the prompt a panel turn is standing on. The `requestId` must be the one now standing, so an answer meant for a prompt that has gone is refused; loopback only |
+| `POST /api/owned/say` | `{"sessionId": "...", "text": "...", "mode": "..."}` — run one turn on that session's transcript with `claude --print --resume`, answering as soon as it is launched. A turn already running does not refuse it: the message is held and goes in when that turn ends. Refuses if a live process holds the session, or if ten messages are already waiting; loopback only |
+| `POST /api/owned/interrupt` | `{"sessionId": "..."}` — stop the turn a session the panel holds is in the middle of, and drop anything typed ahead of it. Refuses for a session the panel is not holding, or one that is not working; loopback only |
+| `POST /api/owned/compact` | `{"sessionId": "..."}` — summarise the conversation so far and carry on from the summary, by sending `/compact` down the held pipe. Refuses mid-turn, with anything queued, while a compaction is already running, or for a session something else is running; loopback only |
+| `POST /api/owned/unqueue` | `{"sessionId": "...", "index": 0}` — take back something typed ahead, before the session reaches it. Omit `index` to drop everything still waiting. Answers with what is left; loopback only |
 | `POST /api/say` | `{"sessionId": "...", "text": "..."}` — send a message into that session; loopback only |
-| `POST /api/locate` | `{"name": "Mujoco", "children": ["src", "README.md"]}` — where that folder is on disk, from what the browser's native picker gives up. Answers with every match, since more than one is a question rather than a guess; loopback only |
+| `POST /api/paste-image` | `{"sessionId": "...", "mime": "image/png", "data": "<base64>"}` — write a pasted picture into that session's folder under `.claude/watchtower-images/` and answer with its `path`, for the message to name. The folder is the session's own and never comes from the request; the extension comes from `mime`, which must be one of PNG, JPEG, GIF, WebP or BMP, and the picture from 12 MB down; loopback only |
 
 A dead process is never reported: each session file records the pid's start time, and the panel re-checks it against `/proc` so a recycled pid cannot masquerade as a live session.
 
