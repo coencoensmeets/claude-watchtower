@@ -28,7 +28,8 @@ from pathlib import Path
 import threading
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-import server as S  # noqa: E402
+from watchtower import config, http  # noqa: E402
+from watchtower import paste as S  # noqa: E402
 
 FAILED = 0
 
@@ -89,11 +90,11 @@ check("and the fresh ones are left alone", Path(path).exists())
 # One fake session, in the folder made above. Nothing is running; the endpoint
 # only ever wants the folder, and it must come from the panel rather than the
 # request — which is what standing in here checks.
-S.SAY_ENABLED = True
-S.Handler._session_by_id = lambda self, session_id: (  # type: ignore[assignment]
+config.SAY_ENABLED = True
+http.Handler._session_by_id = lambda self, session_id: (  # type: ignore[assignment]
     {"sessionId": "s1", "cwd": work} if session_id == "s1" else None)
 
-httpd = ThreadingHTTPServer(("127.0.0.1", 0), S.Handler)
+httpd = ThreadingHTTPServer(("127.0.0.1", 0), http.Handler)
 threading.Thread(target=httpd.serve_forever, daemon=True).start()
 base = f"http://127.0.0.1:{httpd.server_address[1]}"
 
@@ -128,7 +129,7 @@ code, data = post({"sessionId": "s1", "mime": "image/png", "data": "A" * (S.POST
 check("a body too big for any screenshot is turned away", code == 413, str(data))
 
 # The gate is the same as sending's, because saving a picture is part of sending.
-S.SAY_ENABLED = False
+config.SAY_ENABLED = False
 code, data = post({"sessionId": "s1", "mime": "image/png",
                    "data": base64.b64encode(PIXEL).decode()})
 check("with sending off, nothing is written either", code == 403, str(data))

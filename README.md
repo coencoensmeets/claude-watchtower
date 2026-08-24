@@ -2,8 +2,8 @@
 <p align="center">
   <a href="https://github.com/coencoensmeets/claude-watchtower">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="static/claude-watchtower-transparent-dark.svg">
-      <img src="static/claude-watchtower-transparent.svg" alt="Logo" height="170">
+      <source media="(prefers-color-scheme: dark)" srcset="docs/assets/claude-watchtower-transparent-dark.svg">
+      <img src="docs/assets/claude-watchtower-transparent.svg" alt="Logo" height="170">
     </picture>
   </a>
 
@@ -33,7 +33,9 @@
 
 See at a glance which session is working, which finished, and which is waiting on you — then click **Focus window** to jump to the terminal or editor that owns it.
 
-Python standard library only. No install step, no dependencies, nothing leaves the machine.
+Python standard library only, no packages to install, nothing leaves the machine.
+
+The panel's frontend is TypeScript, so it is built before it is served — but there is still nothing to install for it. Node strips TypeScript types itself, so the build needs a Node binary and no npm packages at all, and `python3 server.py` runs it for you when anything under `web/` has changed. If Node is not on the machine and cannot be put there, `python3 -m venv .venv && .venv/bin/pip install nodejs-wheel-binaries` puts one in the project instead.
 
 ## Quick start
 
@@ -687,7 +689,7 @@ Settings also exposes MD3's three **contrast levels** (standard, medium, high), 
 
 **State colours.** Each session state gets a legal MD3 role pair — the container tone fills the avatar and the detail header, the matching `on-` tone draws every glyph on it, so contrast is guaranteed by construction. `working` uses the scheme's own primary, so it always matches your base colour. `waiting`, `running`, and `ready` are extended custom colours with semantic base hues (warm, teal, indigo) that are nudged to the nearest hue keeping at least 35° from the primary and from each other. That is why no two states ever look alike, whichever base colour you pick.
 
-**Typography** is Roboto, MD3's typeface, self-hosted in `static/fonts` with the baseline type scale as `--md-sys-typescale-*` tokens. Shapes come from the shape scale (chips small/8dp, chat bubbles large/16dp, list rows and buttons full, dialog extra-large/28dp) and elevation is expressed as container tone rather than shadow, with shadows reserved for the scrolled app bar, the dialog, and the snackbar.
+**Typography** is Roboto, MD3's typeface, self-hosted in `web/assets/fonts` with the baseline type scale as `--md-sys-typescale-*` tokens. Shapes come from the shape scale (chips small/8dp, chat bubbles large/16dp, list rows and buttons full, dialog extra-large/28dp) and elevation is expressed as container tone rather than shadow, with shadows reserved for the scrolled app bar, the dialog, and the snackbar.
 
 **Motion** comes from the same token set — `--md-sys-motion-duration-*` and `--md-sys-motion-easing-*` — and one rule governs everything that floats over the panel: it arrives and it leaves, rather than arriving and then blinking out. The jump buttons over the transcript, the context menu, and the quote bar all rise into place and shrink away on the standard 200ms; the panel below the tab strip fades in when it changes tab or session, and pointedly *not* when a poll rebuilds it, so a working session never has what you are reading pulsing at you. Anyone whose system asks for less of it gets none of it, smooth scrolling included: `prefers-reduced-motion` is honoured globally.
 
@@ -696,8 +698,12 @@ Components used: top app bar, navigation-drawer style list items, filter chips, 
 ## Options
 
 ```bash
-python3 server.py --port 8787 --host 127.0.0.1 [--no-send]
+python3 server.py --port 8787 --host 127.0.0.1 [--no-send] [--build] [--no-build]
 ```
+
+`--build` builds the frontend and exits; `--no-build` serves whatever is already
+built, however stale. Neither is needed day to day — starting the panel builds
+what has changed and nothing else.
 
 > **`--host 0.0.0.0` exposes the panel to your network.** There is no authentication and the focus endpoint moves windows on this machine, so only do that on a network you trust. Sending input switches itself off on any non-loopback bind; `--no-send` switches it off on loopback as well.
 
@@ -734,30 +740,68 @@ systemctl --user enable --now claude-watchtower
 
 | Path | What's inside |
 |---|---|
-| `server.py` | Session discovery, window matching, JSON API |
-| `static/index.html` | The panel — Material 3, one file, no build step |
-| `static/fonts/` | Roboto and Roboto Mono, self-hosted |
-| `static/vendor/` | `material-color-utilities`, for dynamic colour |
+| `server.py` | The way in: arguments, the frontend build, the polling thread, serve |
+| `watchtower/` | The panel itself — `config`, `proc`, `sessions`, `rows`, `store`, `transcript`, `usage`, `catalog`, `windows`, `control`, `input`, `owned`, `paste`, `plan`, `git/`, `http` |
+| `watchtower/build.py` | Finds Node and runs the frontend build when `web/` has changed |
+| `tools/build.mjs` | The build: strips types, concatenates stylesheets, copies assets |
+| `web/index.html` | The page shell — markup only |
+| `web/styles/` | The stylesheet, Material 3 |
+| `web/src/` | The panel's TypeScript: `main.ts` orchestrates, `views/` are the tabs, `ui/` the pieces they share |
+| `web/assets/fonts/` | Roboto and Roboto Mono, self-hosted |
+| `web/assets/vendor/` | `material-color-utilities`, for dynamic colour |
+| `dist/` | The built frontend, which is what the panel serves. Generated; not in git |
+| `tests/python/` | Unit tests over the readers, and over the package's own wiring |
+| `tests/fixtures.py` | Stands up a session in every state |
 | `tests/ui-check.mjs` | UI checks over CDP (tokens, contrast, settings) |
 | `tests/paste-check.py` | The write behind a pasted picture, and the endpoint that does it |
+| `tests/turn-check.py` | The queue behind a panel-run turn, and stopping one |
+| `tests/chat-check.mjs` | The change a message carries, drawn without a browser |
+| `tests/composer-check.mjs` | The composer's own template, drawn without a browser |
 | `claude-watchtower.service` | Optional systemd user unit |
+| `docs/cleanup-plan.md` | The staged refactor this layout is partway through |
 
 ## Tests
 
-1. Start a panel — a fixture directory shows every state at once:
+There are two suites: unit tests over the readers, which need nothing, and the
+UI checks, which drive a real browser against a running panel.
+
+```bash
+python3 -m unittest discover -s tests/python
+```
+
+These cover the parsing and arithmetic the panel is built on — the git status
+and log readers, the `/usage` report, how a stale status expires, what a
+transcript block summarises to, and the per-model cost. Standard library only,
+no fixtures, no panel, well under a second.
+
+The UI checks want a panel with something to show. `tests/fixtures.py` stands
+one up with a session in every state:
+
+1. Start the fixtures, and leave them running:
+
+```bash
+python3 tests/fixtures.py
+```
+
+Give it a minute before believing what you see. A session first seen gets the
+benefit of the doubt until there are two CPU readings to compare, so everything
+reads as working for the first fifty seconds or so — including the fixtures
+whose whole point is to settle to ready.
+
+2. Start a panel against them — the command is printed for you:
 
 ```bash
 CLAUDE_WATCHTOWER_SESSION_DIR=/path/to/fixtures python3 server.py --port 8788
 ```
 
-2. Start a throwaway browser with CDP open:
+3. Start a throwaway browser with CDP open:
 
 ```bash
 google-chrome --headless=new --remote-debugging-port=9333 \
   --user-data-dir=$(mktemp -d) about:blank
 ```
 
-3. Run the checks:
+4. Run the checks:
 
 ```bash
 node tests/ui-check.mjs
@@ -797,6 +841,7 @@ PANEL_URL=http://127.0.0.1:8787 node tests/ui-check.mjs
 | `GET /api/transcript` | `?sessionId=…&limit=…` — the recent conversation |
 | `GET /api/change?sessionId=…&id=…` | The whole of one file change, by the tool-use id its preview in the chat carries: the patch as unified text, what it added and removed, and whether it was long enough to be clipped |
 | `GET /api/usage` | `?sessionId=…` — that session's token totals per model, the cost they come to, and the size of its last context |
+| `GET /api/commands` | `?sessionId=…` — the skills and slash commands that session could be asked for, read from the project's folders, yours, and any enabled plugin's. A session that has gone is answered with what is true of every session rather than a 404 |
 | `GET /api/plan` | The subscription's limits, read by running `claude --print /usage`; `?force=1` skips the five-minute cache; loopback only |
 | `GET /api/git` | `?sessionId=…` — that session's repository: branch, upstream drift, changed files, recent commits with their parents, and the branches it could switch to |
 | `GET /api/git/diff` | `?sessionId=…&path=…&staged=1` — one changed file's unified diff, one side at a time |
@@ -808,6 +853,7 @@ PANEL_URL=http://127.0.0.1:8787 node tests/ui-check.mjs
 | `POST /api/sticky` | `{"sessionId": "...", "pinned": true}` — pin this session's row, so it is still here after the panel restarts. Unpinning does not remove the row: a session the panel runs keeps one for as long as it runs |
 | `POST /api/forget` | `{"sessionId": "..."}` — take a kept row off the list, pinned or not, stopping the session first if the panel was running it. The transcript is left alone. `/api/end` covers the ordinary case; this is the one for a row with no process behind it |
 | `POST /api/start` | `{"sessionId": "...", "text": "..."}` — resume a kept session in a terminal, delivering `text` once it listens; loopback only. Nothing in the panel calls it any more: the composer's *In a terminal* was its only caller and is gone. Kept because the endpoint is the documented way to ask for a terminal, and because `deliver_later` still starts a session this way when a message is waiting for one that has closed |
+| `POST /api/editor` | `{"sessionId": "..."}` — open that session's folder in VS Code, if one of the `code` commands is on PATH. The folder is read off the session, never taken from the request; loopback only |
 | `POST /api/new` | `{"sessionId": "..."}` — a fresh session in a terminal, in that session's folder; the folder is read off the session, never taken from the request; loopback only |
 | `POST /api/new-folder` | A fresh session in a folder chosen at a chooser on this machine. Takes no path — the body is ignored — and answers `cancelled` when nobody picked one; loopback only |
 | `POST /api/rename` | `{"sessionId": "...", "name": "..."}` — name a session yourself; an empty name puts its own name back |

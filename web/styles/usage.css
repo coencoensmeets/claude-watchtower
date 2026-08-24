@@ -1,0 +1,45 @@
+  /* ============================== detail: usage ============================ */
+  /* The figures that answer "what has this cost", big enough to read at a
+     glance and laid out so a narrow pane stacks them rather than shrinking. */
+  .use-tiles {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+    gap: var(--md-sys-spacing-3); margin-bottom: var(--md-sys-spacing-6);
+  }
+  .use-tile {
+    padding: var(--md-sys-spacing-4);
+    border-radius: var(--md-sys-shape-corner-large);
+    background: var(--md-sys-color-surface-container-low);
+  }
+  /* The money is the headline; the rest are supporting counts. */
+  .use-tile--lead { background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); }
+  .use-tile__label { color: var(--md-sys-color-on-surface-variant); }
+  .use-tile--lead .use-tile__label { color: inherit; opacity: 0.8; }
+  .use-tile__value { margin-top: var(--md-sys-spacing-1); overflow-wrap: anywhere; }
+  .use-tile__note { margin-top: 2px; opacity: 0.75; }
+
+  /* How full the context is. A bar rather than a number because the thing you
+     want to know is how close to the edge it is, not the figure itself. */
+  .use-bar {
+    height: 10px; border-radius: var(--md-sys-shape-corner-full); overflow: hidden;
+    background: var(--md-sys-color-surface-container-highest);
+    margin: var(--md-sys-spacing-3) 0 var(--md-sys-spacing-2);
+  }
+  .use-bar__fill { height: 100%; background: var(--md-sys-color-primary); border-radius: inherit; }
+  /* Past three quarters of the window, compaction is close enough to be worth
+     saying so in the same colour the panel uses for a session wanting attention. */
+  .use-bar__fill[data-tight="1"] { background: var(--md-extended-color-waiting-color, var(--md-sys-color-tertiary)); }
+  .use-bar__fill[data-tight="2"] { background: var(--md-sys-color-error); }
+  .use-legend { display: flex; justify-content: space-between; gap: var(--md-sys-spacing-3);
+    color: var(--md-sys-color-on-surface-variant); }
+
+  /* One row per model, with the token columns that make the cost add up. */
+  .use-table { width: 100%; border-collapse: collapse; }
+  .use-table th, .use-table td {
+    padding: var(--md-sys-spacing-2) var(--md-sys-spacing-2);
+    border-top: 1px solid var(--md-sys-color-outline-variant); text-align: right;
+  }
+  .use-table th { color: var(--md-sys-color-on-surface-variant); font-weight: 500; white-space: nowrap; }
+  .use-table th:first-child, .use-table td:first-child { text-align: left; overflow-wrap: anywhere; }
+  .use-table td:last-child { font-weight: 700; }
+  .use-scroll { overflow-x: auto; }
+

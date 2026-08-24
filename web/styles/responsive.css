@@ -1,0 +1,24 @@
+  /* =============================== responsive ============================== */
+  /* Compact: one pane at a time, with a back affordance — the canonical
+     list-detail behaviour below 600dp. */
+  @media (max-width: 899px) {
+    .panes { grid-template-columns: 1fr; }
+    .panes[data-view="list"] .detail-pane { display: none; }
+    .panes[data-view="detail"] .list-pane { display: none; }
+    .panes[data-view="detail"] .back-button { display: grid; }
+    .app-bar__supporting { display: none; }
+    /* No room for it beside the title once the bar is this narrow. */
+    .app-bar__nudge { display: none; }
+    .detail-header, .tab-panel { padding-inline: var(--md-sys-spacing-4); }
+    /* Tighter tabs so four of them mostly fit before the strip has to scroll,
+       while keeping the 48dp target height. */
+    .tab { padding-inline: var(--md-sys-spacing-4); }
+    .msg { max-width: 92%; }
+  }
+  @media (min-width: 1400px) {
+    .panes { grid-template-columns: 380px 1fr; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before { animation: none !important; transition-duration: 1ms !important; }
+  }

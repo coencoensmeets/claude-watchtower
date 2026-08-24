@@ -1,0 +1,70 @@
+  /* ================================= dialog ================================ */
+  .scrim {
+    position: fixed; inset: 0; z-index: 10;
+    background: color-mix(in srgb, var(--md-sys-color-scrim) 32%, transparent);
+    display: grid; place-items: center; padding: var(--md-sys-spacing-4);
+    opacity: 0; pointer-events: none;
+    transition: opacity var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+  }
+  .scrim[data-open="true"] { opacity: 1; pointer-events: auto; }
+  .dialog {
+    width: min(560px, 100%); max-height: 90vh; overflow: auto;
+    background: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);
+    border-radius: var(--md-sys-shape-corner-extra-large);
+    padding: var(--md-sys-spacing-6);
+    transform: scale(0.9); opacity: 0;
+    transition: transform var(--md-sys-motion-duration-medium4) var(--md-sys-motion-easing-emphasized-decelerate),
+                opacity var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+  }
+  .scrim[data-open="true"] .dialog { transform: scale(1); opacity: 1; }
+  .dialog__headline { margin-bottom: var(--md-sys-spacing-2); }
+  .dialog__supporting { color: var(--md-sys-color-on-surface-variant); margin-bottom: var(--md-sys-spacing-6); }
+  /* Shown only by the questions that need something typed — naming a branch. */
+  .dialog__field {
+    width: 100%; box-sizing: border-box; height: 44px;
+    margin: calc(-1 * var(--md-sys-spacing-3)) 0 var(--md-sys-spacing-6);
+    padding: 0 var(--md-sys-spacing-3);
+    border: 1px solid var(--md-sys-color-outline); border-radius: var(--md-sys-shape-corner-small);
+    background: var(--md-sys-color-surface-container-lowest); color: var(--md-sys-color-on-surface);
+    font: inherit;
+  }
+  .dialog__field:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: -1px; border-color: transparent; }
+  .dialog__actions { display: flex; justify-content: flex-end; gap: var(--md-sys-spacing-2); }
+  /* Keeps the last-resort action away from the one people mean to press. */
+  .dialog__actions-start { margin-right: auto; color: var(--md-sys-color-on-surface-variant); }
+  /* The plan report is a page of prose and bars rather than two controls. */
+  .dialog--wide { width: min(640px, 100%); }
+
+  .swatches { display: flex; flex-wrap: wrap; gap: var(--md-sys-spacing-3); align-items: center; }
+  .swatch {
+    width: 48px; height: 48px; flex: none; position: relative;
+    border-radius: var(--md-sys-shape-corner-full);
+    border: 2px solid transparent; background: var(--swatch);
+    cursor: pointer; display: grid; place-items: center;
+    transition: transform var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-emphasized);
+  }
+  .swatch:hover { transform: scale(1.08); }
+  .swatch[aria-pressed="true"] { border-color: var(--md-sys-color-on-surface); }
+  .swatch svg { width: 22px; height: 22px; opacity: 0; stroke: var(--swatch-on); }
+  .swatch[aria-pressed="true"] svg { opacity: 1; }
+  .swatch--custom { background: var(--md-sys-color-surface-container-highest); overflow: hidden; }
+  .swatch--custom input { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; padding: 0; cursor: pointer; opacity: 0; }
+  .swatch--custom svg { opacity: 1; stroke: var(--md-sys-color-on-surface-variant); }
+  .seed-readout { color: var(--md-sys-color-on-surface-variant); margin-top: var(--md-sys-spacing-3); }
+  .code { font-family: var(--md-ref-typeface-mono); background: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface); padding: 1px 6px; border-radius: var(--md-sys-shape-corner-extra-small); }
+
+  /* ================================ snackbar =============================== */
+  .snackbar {
+    position: fixed; left: 50%; bottom: var(--md-sys-spacing-6); z-index: 12;
+    transform: translate(-50%, calc(100% + 48px));
+    display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+    min-height: 48px; padding: var(--md-sys-spacing-3) var(--md-sys-spacing-4);
+    background: var(--md-sys-color-inverse-surface); color: var(--md-sys-color-inverse-on-surface);
+    border-radius: var(--md-sys-shape-corner-extra-small);
+    box-shadow: 0 4px 8px 3px color-mix(in srgb, var(--md-sys-color-shadow) 15%, transparent),
+                0 1px 3px color-mix(in srgb, var(--md-sys-color-shadow) 30%, transparent);
+    max-width: min(560px, calc(100vw - 32px));
+    transition: transform var(--md-sys-motion-duration-long2) var(--md-sys-motion-easing-emphasized);
+  }
+  .snackbar[data-open="true"] { transform: translate(-50%, 0); }
+

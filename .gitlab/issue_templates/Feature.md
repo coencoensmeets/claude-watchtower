@@ -21,7 +21,7 @@ Title suggestion: "Feature: <short description>"
 
 ## Scope
 
-- [ ] Frontend only (`static/`)
+- [ ] Frontend only (`web/`)
 - [ ] Server / API (`server.py`)
 - [ ] Reads new Claude Code session data
 - [ ] Requires an external tool (e.g. `xdotool`, `git`)

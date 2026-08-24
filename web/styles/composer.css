@@ -1,0 +1,147 @@
+  /* =============================== composer ================================ */
+  /* Sits outside the scrolling panel so it stays put as the conversation moves. */
+  .composer {
+    flex: none; display: flex; gap: var(--md-sys-spacing-2); align-items: flex-end;
+    padding: var(--md-sys-spacing-3) var(--md-sys-spacing-6) var(--md-sys-spacing-4);
+    border-top: 1px solid var(--md-sys-color-outline-variant);
+    background: var(--md-sys-color-surface);
+    position: relative;
+  }
+  /* The rule above the box is the handle. It overlays rather than sits in the
+     flow, so the grab area is a comfortable 12px without moving anything. */
+  .composer-grip {
+    position: absolute; top: -6px; left: 0; right: 0; height: 12px;
+    border: 0; padding: 0; background: none; cursor: ns-resize; touch-action: none;
+  }
+  .composer-grip::before {
+    content: ""; position: absolute; left: 0; right: 0; top: 5px; height: 2px;
+    border-radius: 1px; background: transparent; transition: background 120ms ease;
+  }
+  .composer-grip:hover::before,
+  .composer-grip:focus-visible::before,
+  .composer-grip.is-dragging::before { background: var(--md-sys-color-primary); }
+  .composer-grip:focus-visible { outline: none; }
+  .composer__field {
+    flex: 1 1 auto; min-width: 0; resize: none; max-height: 40vh;
+    padding: var(--md-sys-spacing-3) var(--md-sys-spacing-4);
+    border-radius: var(--md-sys-shape-corner-large);
+    border: 1px solid var(--md-sys-color-outline);
+    background: var(--md-sys-color-surface-container-lowest);
+    color: var(--md-sys-color-on-surface);
+    font: inherit; font-family: var(--md-sys-typescale-body-large-font, inherit);
+  }
+  .composer__field:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: -2px; border-color: transparent; }
+  .composer__field:disabled { background: color-mix(in srgb, var(--md-sys-color-on-surface) 4%, transparent);
+    border-color: var(--md-sys-color-outline-variant); color: var(--md-sys-color-on-surface-variant); }
+  .composer__send { flex: none; min-height: 48px; }
+  /* Stop, beside Send. Icon-only and tonal: it is the second thing you can do to
+     a turn, not the first, and a word beside Send would read as a second Send. */
+  .composer__stop { flex: none; min-height: 48px; min-width: 48px;
+    padding: 0 var(--md-sys-spacing-3); }
+  .composer__stop svg { width: 18px; height: 18px; }
+  /* The mode the next panel-run turn starts in. It sits above the box because
+     it is a property of the send, not of the session — nothing is applied until
+     something is sent. */
+  /* The composer is a row; the bar is a row of its own above it, so the box
+     wraps only when there is a bar to wrap for. */
+  .composer:has(.owned-bar), .composer:has(.queued), .composer:has(.attached) { flex-wrap: wrap; }
+  /* What was typed while it was answering, waiting its turn above the box it was
+     typed in. Read-only apart from the one thing worth doing to it: taking it
+     back before the session gets to it. */
+  .queued {
+    flex: 1 0 100%; display: flex; flex-direction: column; gap: var(--md-sys-spacing-1);
+    margin-bottom: var(--md-sys-spacing-1);
+  }
+  .queued__head { color: var(--md-sys-color-on-surface-variant); }
+  .queued__list { list-style: none; margin: 0; padding: 0;
+    display: flex; flex-direction: column; gap: var(--md-sys-spacing-1); }
+  .queued__item {
+    display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+    padding: var(--md-sys-spacing-1) var(--md-sys-spacing-2)
+             var(--md-sys-spacing-1) var(--md-sys-spacing-3);
+    border-radius: var(--md-sys-shape-corner-medium);
+    border: 1px dashed var(--md-sys-color-outline-variant);
+    background: color-mix(in srgb, var(--md-sys-color-on-surface) 4%, transparent);
+    color: var(--md-sys-color-on-surface-variant);
+  }
+  .queued__place { flex: none; color: var(--md-sys-color-on-surface-variant); opacity: 0.8; }
+  .queued__text { flex: 1 1 auto; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .queued__drop { flex: none; }
+  /* Pictures pasted into the box, waiting to be named in the message. A row of
+     its own above the field, like the queue, since it is about the message being
+     written rather than about the session. */
+  .attached {
+    flex: 1 0 100%; display: flex; flex-direction: column; gap: var(--md-sys-spacing-1);
+    margin-bottom: var(--md-sys-spacing-1);
+  }
+  .attached__head { color: var(--md-sys-color-on-surface-variant); }
+  .attached__list { list-style: none; margin: 0; padding: 0;
+    display: flex; flex-wrap: wrap; gap: var(--md-sys-spacing-2); }
+  .attached__item {
+    display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+    padding: var(--md-sys-spacing-1) var(--md-sys-spacing-1)
+             var(--md-sys-spacing-1) var(--md-sys-spacing-2);
+    border-radius: var(--md-sys-shape-corner-medium);
+    border: 1px solid var(--md-sys-color-outline-variant);
+    background: var(--md-sys-color-surface-container-lowest);
+    max-width: 100%;
+  }
+  /* One that did not save says so in the colour errors are said in here, and
+     keeps its thumbnail: it is still recognisably the thing you pasted. */
+  .attached__item--failed { border-color: var(--md-sys-color-error); }
+  .attached__item--failed .attached__name { color: var(--md-sys-color-error); }
+  .attached__thumb {
+    flex: none; width: 40px; height: 40px; object-fit: cover;
+    border-radius: var(--md-sys-shape-corner-small);
+    background: color-mix(in srgb, var(--md-sys-color-on-surface) 6%, transparent);
+  }
+  .attached__name { min-width: 0; max-width: 26ch;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    color: var(--md-sys-color-on-surface-variant); }
+  .attached__drop { flex: none; }
+  .owned-bar {
+    flex: 1 0 100%;
+    display: flex; flex-wrap: wrap; align-items: center; gap: var(--md-sys-spacing-2);
+  }
+  .owned-bar__label { color: var(--md-sys-color-on-surface-variant); }
+  .owned-bar__last { color: var(--md-sys-color-error); }
+  .owned-bar__why { color: var(--md-sys-color-on-surface-variant); opacity: 0.9; }
+  .owned-bar__adopt svg { width: 16px; height: 16px; }
+  /* Why it is off, in the place the reader is already looking. */
+  .composer__why { flex: 1 1 auto; margin: 0; color: var(--md-sys-color-on-surface-variant); }
+
+  /* --------------------------- what you can ask for ----------------------- */
+  /* Floats over the conversation rather than sitting in the flow: the box below
+     must not jump as the list grows and shrinks under the typing. */
+  .cmdbar {
+    position: absolute; z-index: 8;
+    left: var(--md-sys-spacing-6); right: var(--md-sys-spacing-6);
+    bottom: calc(100% - var(--md-sys-spacing-3));
+    background: var(--md-sys-color-surface-container);
+    border-radius: var(--md-sys-shape-corner-medium);
+    box-shadow: 0 2px 6px 2px color-mix(in srgb, var(--md-sys-color-shadow) 15%, transparent),
+                0 1px 2px 0 color-mix(in srgb, var(--md-sys-color-shadow) 30%, transparent);
+    overflow: hidden;
+  }
+  .cmdbar__list { list-style: none; margin: 0; padding: var(--md-sys-spacing-2) 0;
+    max-height: min(40vh, 320px); overflow-y: auto; overscroll-behavior: contain; }
+  .cmdbar__item {
+    display: flex; align-items: baseline; gap: var(--md-sys-spacing-3);
+    width: 100%; border: 0; background: none; cursor: pointer; text-align: left;
+    padding: var(--md-sys-spacing-2) var(--md-sys-spacing-4);
+    color: var(--md-sys-color-on-surface);
+  }
+  .cmdbar__item[aria-selected="true"] { background: var(--md-sys-color-secondary-container);
+    color: var(--md-sys-color-on-secondary-container); }
+  .cmdbar__name { flex: none; font-family: var(--md-ref-typeface-mono); }
+  .cmdbar__desc { flex: 1 1 auto; min-width: 0; color: var(--md-sys-color-on-surface-variant);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cmdbar__item[aria-selected="true"] .cmdbar__desc { color: inherit; opacity: 0.85; }
+  .cmdbar__source { flex: none; color: var(--md-sys-color-on-surface-variant); opacity: 0.8; }
+  /* The sentence that will actually be sent, said before it is. */
+  .cmdbar__as { margin: 0; padding: var(--md-sys-spacing-3) var(--md-sys-spacing-4);
+    color: var(--md-sys-color-on-surface-variant);
+    border-top: 1px solid var(--md-sys-color-outline-variant); }
+  .cmdbar__list:empty + .cmdbar__as, .cmdbar > .cmdbar__as:first-child { border-top: 0; }
+

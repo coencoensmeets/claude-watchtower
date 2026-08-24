@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Claude sessions</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div class="app">
+  <header class="app-bar">
+    <button class="icon-button md-state back-button" id="backButton" aria-label="Back to the session list">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+    </button>
+    <div class="app-bar__headline">
+      <h1 class="app-bar__title md-title-medium">Claude Watchtower</h1>
+      <span class="app-bar__supporting md-label-medium" id="barSupporting"></span>
+    </div>
+    <div class="app-bar__nudge md-label-large" id="barNudge" hidden aria-live="polite">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 3s5.5 6 5.5 10a5.5 5.5 0 0 1-11 0C6.5 9 12 3 12 3z"/>
+      </svg>
+      <span id="barNudgeText"></span>
+    </div>
+    <div class="app-bar__actions">
+      <button class="plan-chip md-state md-label-large" id="planButton" hidden
+              aria-haspopup="dialog" title="How much of your plan has gone">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path class="plan-gauge__arc" d="M4 18a8 8 0 1 1 16 0"/>
+          <path class="plan-gauge__needle" d="M12 18l4.5-5.5"/>
+        </svg>
+        <span id="planChipText">plan</span>
+      </button>
+      <button class="icon-button md-state" id="settingsButton" aria-label="Settings" title="Settings" aria-pressed="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3.2"/>
+          <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.9 19.3a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.7 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.7a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9v.09A1.7 1.7 0 0 0 21 10.1a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1.03z"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="panes" id="panes" data-view="list">
+    <nav class="list-pane" aria-label="Sessions">
+      <div class="list-sticky">
+        <div class="list-top">
+          <ul class="chip-set" id="chipSet"></ul>
+          <button class="new-button md-state md-label-large" id="newButton" type="button"
+                  aria-haspopup="menu" title="Start a new session">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+            <span>New</span>
+          </button>
+        </div>
+        <div class="pick-bar" id="pickBar" hidden>
+          <span class="pick-bar__count md-label-large" id="pickCount" role="status" aria-live="polite"></span>
+          <button class="button button--text md-state" id="pickClear" type="button">Clear</button>
+          <button class="button button--tonal md-state" id="pickGroup" type="button">Group</button>
+        </div>
+      </div>
+      <ul class="session-list" id="sessionList"></ul>
+      <p class="list-empty md-body-medium" id="listEmpty" hidden></p>
+    </nav>
+    <section class="detail-pane" id="detailPane" aria-live="polite"></section>
+  </div>
+</div>
+
+<div class="scrim" id="planScrim" data-open="false">
+  <div class="dialog dialog--wide" role="dialog" aria-modal="true" aria-labelledby="planHeadline">
+    <h2 class="dialog__headline md-headline-small" id="planHeadline">Your plan</h2>
+    <p class="dialog__supporting md-body-medium" id="planHead"></p>
+    <div id="planBody"></div>
+    <div class="dialog__actions">
+      <span class="plan-age md-label-small dialog__actions-start" id="planAge"></span>
+      <button class="button button--text md-state" id="planRefresh">Refresh</button>
+      <button class="button button--filled md-state" id="closePlan">Done</button>
+    </div>
+  </div>
+</div>
+
+<div class="scrim" id="endScrim" data-open="false">
+  <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="endHeadline" aria-describedby="endSupporting">
+    <h2 class="dialog__headline md-headline-small" id="endHeadline">End this session?</h2>
+    <p class="dialog__supporting md-body-medium" id="endSupporting"></p>
+    <div class="dialog__actions">
+      <button class="button button--text md-state dialog__actions-start" id="endForce">Force quit</button>
+      <button class="button button--text md-state" id="endCancel">Cancel</button>
+      <button class="button button--danger md-state" id="endConfirm">End session</button>
+    </div>
+  </div>
+</div>
+
+<!-- Taking a live session's turns means ending the process that holds its
+     transcript, which is not a thing to do on one click. What is at stake is the
+     terminal, not the conversation: the row is kept, so the chat stays. -->
+<div class="scrim" id="adoptScrim" data-open="false">
+  <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="adoptHeadline" aria-describedby="adoptSupporting">
+    <h2 class="dialog__headline md-headline-small" id="adoptHeadline">Make this interactive?</h2>
+    <p class="dialog__supporting md-body-medium" id="adoptSupporting"></p>
+    <div class="dialog__actions">
+      <button class="button button--text md-state dialog__actions-start" id="adoptForce" hidden>Force it</button>
+      <button class="button button--text md-state" id="adoptCancel">Cancel</button>
+      <button class="button button--filled md-state" id="adoptConfirm">Make interactive</button>
+    </div>
+  </div>
+</div>
+
+<!-- Asked before anything that loses work: discarding a change, deleting a file
+     that was never committed. Everything else on the Git tab can be undone with
+     git itself, so nothing else stops to ask. -->
+<div class="scrim" id="askScrim" data-open="false">
+  <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="askHeadline" aria-describedby="askSupporting">
+    <h2 class="dialog__headline md-headline-small" id="askHeadline"></h2>
+    <p class="dialog__supporting md-body-medium" id="askSupporting"></p>
+    <input class="dialog__field md-body-medium md-mono" id="askField" type="text" hidden
+      autocomplete="off" spellcheck="false">
+    <div class="dialog__actions">
+      <button class="button button--text md-state" id="askCancel">Cancel</button>
+      <button class="button button--danger md-state" id="askConfirm">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<div class="menu" id="sessionMenu" role="menu" data-open="false" hidden></div>
+
+<div class="quote-chip md-label-large" id="quoteChip" role="toolbar" aria-label="What to do with the selected passage" data-open="false" hidden></div>
+
+<div class="snackbar md-body-medium" id="snackbar" role="status" aria-live="polite" data-open="false"></div>
+
+
+<script type="module" src="/main.js"></script>
+</body>
+</html>

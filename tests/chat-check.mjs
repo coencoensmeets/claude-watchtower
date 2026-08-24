@@ -10,12 +10,25 @@
 //
 // A failure prints the case and exits 1.
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const page = readFileSync(join(here, "..", "static", "index.html"), "utf8");
+
+/* The panel is a package of modules now, and a function can be lifted out of
+   whichever one holds it — so what is read is all of them, joined. Importing
+   them instead would need a DOM: half of them touch `document` as they load. */
+function sources(dir) {
+  return readdirSync(dir).flatMap((name) => {
+    const path = join(dir, name);
+    if (statSync(path).isDirectory()) return sources(path);
+    return name.endsWith(".ts") ? [readFileSync(path, "utf8")] : [];
+  });
+}
+const page = sources(join(here, "..", "web", "src")).join("\n");
+
+const unexport = (text) => text.replace(/(^|\n)export /g, "$1");
 
 function lift(name) {
   const start = page.indexOf(`function ${name}(`);
@@ -23,7 +36,7 @@ function lift(name) {
   let depth = 0;
   for (let at = page.indexOf("{", start); at < page.length; at++) {
     if (page[at] === "{") depth++;
-    else if (page[at] === "}" && --depth === 0) return page.slice(start, at + 1);
+    else if (page[at] === "}" && --depth === 0) return unexport(page.slice(start, at + 1));
   }
   throw new Error(`${name} does not close`);
 }
@@ -33,8 +46,8 @@ const { changeBlock, changePanel, diffBody, diffRows, sideBySide, full, busy, sh
   const ICON = { back: "<svg/>" };
   const changeFull = new Map();
   const changeBusy = new Set();
-  let changeShown = null;
-  let transcript = null;
+  /* What the modules read out of state.ts, stubbed with the same shape. */
+  const chat = { changeShown: null, transcript: null };
   ${lift("diffBody")}
   ${lift("diffRows")}
   ${lift("sideBySide")}
@@ -42,7 +55,7 @@ const { changeBlock, changePanel, diffBody, diffRows, sideBySide, full, busy, sh
   ${lift("changePanel")}
   return { changeBlock, changePanel, diffBody, diffRows, sideBySide,
            full: changeFull, busy: changeBusy,
-           show: (id, t) => { changeShown = id; transcript = t; } };`)();
+           show: (id, t) => { chat.changeShown = id; chat.transcript = t; } };`)();
 
 let failures = 0;
 function check(what, ok, note = "") {
@@ -163,10 +176,13 @@ check("a change whose preview is the whole of it promises no more lines",
    right for the diff a Git row opens — and a box that cannot scroll but has been
    told not to pass scrolling on is a dead patch of the chat. The wheel lands on
    it and nothing moves, which is exactly what happened. */
+const styles = readdirSync(join(here, "..", "web", "styles"))
+  .map((name) => readFileSync(join(here, "..", "web", "styles", name), "utf8")).join("\n");
+
 function ruleBody(selector) {
-  const at = page.indexOf(`  ${selector} {`);
+  const at = styles.indexOf(`  ${selector} {`);
   if (at < 0) throw new Error(`${selector} is not in the stylesheet any more`);
-  return page.slice(at, page.indexOf("}", at));
+  return styles.slice(at, styles.indexOf("}", at));
 }
 const peek = ruleBody(".change__diff--peek");
 check("the folded preview clips rather than scrolls", /overflow:\s*clip/.test(peek), peek.replace(/\s+/g, " "));

@@ -1,0 +1,17 @@
+/* ---------------------------------------------------------------- element refs */
+export const panes = document.getElementById("panes");
+export const settingsButton = document.getElementById("settingsButton");
+export const sessionList = document.getElementById("sessionList");
+export const listEmpty = document.getElementById("listEmpty");
+export const detailPane = document.getElementById("detailPane");
+export const chipSet = document.getElementById("chipSet");
+export const barSupporting = document.getElementById("barSupporting");
+export const barNudge = document.getElementById("barNudge");
+export const barNudgeText = document.getElementById("barNudgeText");
+export const snackbar = document.getElementById("snackbar");
+export const endScrim = document.getElementById("endScrim");
+export const backButton = document.getElementById("backButton");
+export const pickBar = document.getElementById("pickBar");
+export const pickCount = document.getElementById("pickCount");
+export const pickGroup = document.getElementById("pickGroup");
+export const pickClear = document.getElementById("pickClear");

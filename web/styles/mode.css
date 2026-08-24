@@ -1,0 +1,103 @@
+  /* ============================= mode chips ================================ */
+  /* One connected run of segments rather than four loose chips: they are one
+     choice, and M3 draws a single choice as a segmented button.
+
+     It lives on the detail header, which wears whatever colour the session's
+     state is, so it is drawn in that colour rather than in one of its own: the
+     track is the header's own foreground held back to a hairline and a wash,
+     and the chosen segment is that foreground at full strength with the header
+     colour punched out of it. Nothing here is a fixed hex, so the bar belongs
+     to the header on every state and in both schemes — where a panel of
+     `surface` with a grey outline sat on top of it like something pasted on.
+
+     Falling back to the surface roles keeps it drawable anywhere the state
+     properties are not set.
+
+     Deliberately small: a line among the header's other lines rather than a
+     control in a form. M3's 40dp segmented button turned the header into mostly
+     this, and even the 24dp it started at read large because a `font: inherit`
+     here was quietly beating the typescale class on the chip — see below. What
+     it does not do is fake the difference: it used to claim a 48dp target with
+     a negative-inset `::after`, which `md-state`'s `overflow: hidden` clipped
+     away, so the target was its own height all along. It still is, and the
+     height is the honest figure. */
+  /* How full the conversation is, under the mode chips. A rule rather than a
+     tile: it is a background reading most of the time, and only earns attention
+     when it is close to full or has a button on it. */
+  .ctx {
+    display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+    margin: var(--md-sys-spacing-2) 0 0; flex-wrap: wrap;
+    color: var(--md-sys-color-on-surface-variant);
+  }
+  .ctx__bar {
+    width: 96px; height: 6px; flex: none;
+    border-radius: var(--md-sys-shape-corner-full); overflow: hidden;
+    background: var(--md-sys-color-surface-container-highest);
+  }
+  .ctx__fill {
+    height: 100%; border-radius: inherit; background: var(--md-sys-color-primary);
+    transition: width 240ms var(--md-sys-motion-easing-standard, ease);
+  }
+  .ctx__fill[data-tight="1"] { background: var(--md-extended-color-waiting-color, var(--md-sys-color-tertiary)); }
+  .ctx__fill[data-tight="2"] { background: var(--md-sys-color-error); }
+  /* Filling because a compaction is running, not because the conversation is
+     that full. Drawn as something in flight rather than a reading: the stripes
+     move, so a bar that is barely creeping still says it is alive. */
+  .ctx__fill[data-going="1"] {
+    background: repeating-linear-gradient(115deg,
+      var(--md-sys-color-primary) 0 8px,
+      color-mix(in srgb, var(--md-sys-color-primary) 62%, transparent) 8px 16px);
+    background-size: 32px 100%;
+    animation: ctx-going 900ms linear infinite;
+  }
+  @keyframes ctx-going { to { background-position: 32px 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    .ctx__fill[data-going="1"] { animation: none; }
+  }
+  .ctx__read { font-variant-numeric: tabular-nums; }
+  .ctx__do { min-height: 32px; padding-inline: var(--md-sys-spacing-3); }
+  .ctx__do svg { width: 16px; height: 16px; }
+  .ctx__said { opacity: 0.9; }
+  .ctx__said[data-bad="1"] { color: var(--md-sys-color-error); opacity: 1; }
+  .mode-bar {
+    display: inline-flex; align-items: stretch;
+    margin: var(--md-sys-spacing-2) 0 0;
+    border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+    border-radius: var(--md-sys-shape-corner-full);
+    overflow: hidden;
+    background: color-mix(in srgb, currentColor 7%, transparent);
+  }
+  .mode-chip {
+    position: relative;
+    display: inline-flex; align-items: center;
+    min-height: 24px; padding: 0 9px;
+    border: 0; border-inline-start: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+    background: transparent; color: inherit; opacity: 0.7;
+    /* No `font` here on purpose. It is a class selector like `md-label-small`
+       is, and being the later of the two in this sheet a `font: inherit` beat
+       it — so the chip has been rendering at the header's own body size and the
+       typescale class on it was doing nothing. The class supplies the whole
+       shorthand, which is also what keeps the UA button font out. */
+    cursor: pointer;
+    transition: background var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+                color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+                opacity var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+  }
+  .mode-chip:first-child { border-inline-start: 0; }
+  .mode-chip:hover { opacity: 1; background: color-mix(in srgb, currentColor 10%, transparent); }
+  /* Which mode is in force is the thing worth seeing across a room, and an
+     inverse segment says it louder than a tint could — while still being made
+     of nothing but the two colours the header is already wearing. The mode is
+     named on the chip, so it does not also need a hue of its own; the four
+     accent fills this replaces were the loudest thing in a header whose colour
+     is supposed to be saying what the session is doing. */
+  .mode-chip[aria-pressed="true"] {
+    opacity: 1; font-weight: 600;
+    background: var(--state-on-container, var(--md-sys-color-on-surface));
+    color: var(--state-container, var(--md-sys-color-surface));
+  }
+  .mode-chip[aria-pressed="true"]:hover {
+    background: var(--state-on-container, var(--md-sys-color-on-surface));
+  }
+  .mode-chip:focus-visible { outline: 2px solid currentColor; outline-offset: -3px; z-index: 1; }
+

@@ -1,0 +1,102 @@
+  /* ================================== base ================================= */
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  /* The scheme is generated in JS, so hold the first paint until the tokens
+     exist rather than flashing an unthemed page. */
+  html:not([data-scheme-ready]) body { visibility: hidden; }
+  body {
+    background: var(--md-sys-color-surface);
+    color: var(--md-sys-color-on-surface);
+    font: var(--md-sys-typescale-body-medium-weight) var(--md-sys-typescale-body-medium-size)/var(--md-sys-typescale-body-medium-line-height) var(--md-sys-typescale-body-medium-font);
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    transition: background var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-standard);
+  }
+  :focus-visible {
+    outline: 3px solid var(--md-sys-color-primary);
+    outline-offset: 2px;
+    border-radius: var(--md-sys-shape-corner-extra-small);
+  }
+
+  /* Material 3 state layer: a tinted overlay, never an opacity change */
+  .md-state { position: relative; overflow: hidden; isolation: isolate; }
+  .md-state::before {
+    content: ""; position: absolute; inset: 0; z-index: -1;
+    background: currentColor; opacity: 0;
+    transition: opacity 120ms var(--md-sys-motion-easing-standard);
+  }
+  .md-state:hover::before { opacity: var(--md-sys-state-hover-opacity); }
+  .md-state:focus-visible::before { opacity: var(--md-sys-state-focus-opacity); }
+  .md-state:active::before { opacity: var(--md-sys-state-pressed-opacity); }
+  .md-ripple {
+    position: absolute; border-radius: var(--md-sys-shape-corner-full); transform: scale(0); z-index: -1;
+    background: currentColor; opacity: 0.16; pointer-events: none;
+    animation: md-ripple var(--md-sys-motion-duration-medium4) var(--md-sys-motion-easing-standard) forwards;
+  }
+  @keyframes md-ripple { to { transform: scale(2.5); opacity: 0; } }
+
+  /* ============================== app shell ================================ */
+  html, body { height: 100%; }
+  body { overflow: hidden; }
+  .app { display: flex; flex-direction: column; height: 100vh; }
+
+  .app-bar {
+    display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+    height: 64px; flex: none; padding: 0 var(--md-sys-spacing-4);
+    background: var(--md-sys-color-surface-container);
+    color: var(--md-sys-color-on-surface);
+    position: relative;
+  }
+  .app-bar__headline { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: var(--md-sys-spacing-3); }
+  /* Echoes the wordmark: uppercase, a little tracking to keep the caps open. The
+     logo's roughened edges are outlines in the SVG rather than a typeface, so
+     this is as close as text can get with the bundled Roboto. */
+  .app-bar__title {
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em;
+  }
+  .app-bar__supporting { color: var(--md-sys-color-on-surface-variant); white-space: nowrap; }
+  .app-bar__actions { display: flex; align-items: center; gap: var(--md-sys-spacing-2); flex: none; }
+
+  /* When every session is working there is nothing to answer, so the middle of
+     the bar — otherwise empty — says to go and do something else for a minute.
+     Centred on the bar rather than laid out between the title and the actions,
+     so the title never shifts as the nudge comes and goes. It is out of the
+     flow, so it cannot take a click either: pointer-events go through it. */
+  .app-bar__nudge {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+    /* 40% of the bar keeps a wide gap either side of the title and the actions;
+       the ch cap only bites past ~1600px, where 40% is more room than a nudge
+       needs. Narrower bars get a narrower pill, and under 900px none at all. */
+    max-width: min(56ch, 40%); pointer-events: none;
+    padding: 6px var(--md-sys-spacing-3);
+    border-radius: var(--md-sys-shape-corner-full);
+    background: color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent);
+    color: var(--md-sys-color-primary);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .app-bar__nudge svg { width: 18px; height: 18px; flex: none; }
+  .app-bar__nudge[hidden] { display: none; }
+
+  .icon-button {
+    width: 40px; height: 40px; flex: none; position: relative;
+    display: grid; place-items: center;
+    border: 0; border-radius: var(--md-sys-shape-corner-full);
+    background: transparent; color: var(--md-sys-color-on-surface-variant);
+    cursor: pointer;
+  }
+  .icon-button::after { content: ""; position: absolute; inset: -4px; }
+  .icon-button svg { width: 24px; height: 24px; }
+
+  /* Canonical list-detail: the list is a pane, not a page. */
+  .panes { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 340px 1fr; }
+  .list-pane {
+    min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+    background: var(--md-sys-color-surface-container-low);
+    border-right: 1px solid var(--md-sys-color-outline-variant);
+    padding-bottom: var(--md-sys-spacing-4);
+  }
+  /* The header and tabs stay put; only the panel below them scrolls. */
+  .detail-pane { min-height: 0; overflow: hidden; background: var(--md-sys-color-surface); display: flex; flex-direction: column; }
+

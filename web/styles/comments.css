@@ -1,0 +1,149 @@
+  /* ========================= comments: rail and cards ====================== */
+  /* Docs-style: the passage keeps its place in the transcript and the remark
+     sits out in the margin, level with it. The rail is an overlay rather than a
+     column so the transcript's own layout is untouched — only its right padding
+     changes when the rail is up. */
+  /* The card sits under the message it is about, in the flow of the conversation,
+     indented from the left. The indent is what keeps it reading as a note
+     attached to that message rather than another turn in the thread — which is
+     the whole risk of putting it here rather than out in a margin.
+
+     Under, not beside: a margin costs a quarter of the pane on an ordinary
+     window, and every card in it has to be anchored and re-anchored against a
+     scrolling column it is not part of. Here the transcript's own layout does
+     the positioning, and there is nothing to keep in sync. */
+  .rail { position: static; pointer-events: none; }
+  .rail__inner { display: contents; }
+  /* Cards sit level with their passages, so one can be behind this — it is
+     pinned to the foot of the rail while they scroll past. The ring of pane
+     colour is what keeps it reading as floating over them rather than jammed
+     between two of them. */
+  /* Pinned over the foot of the conversation rather than at the end of it: the
+     cards are scattered down the transcript, so the way to send them cannot be
+     parked next to any one of them. */
+  .rail__send {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    bottom: var(--md-sys-spacing-3); pointer-events: auto; z-index: 4;
+    box-shadow: 0 0 0 6px var(--md-sys-color-surface);
+  }
+  /* An MD3 outlined card: container tone and an outline, no shadow. Elevation in
+     this panel is expressed as tone — shadows are kept for the scrolled app bar,
+     the dialog and the snackbar, which are the things that genuinely float. */
+  .ccard {
+    position: relative;
+    margin: var(--md-sys-spacing-2) 0 var(--md-sys-spacing-4) 40px;
+    max-width: 520px;
+    padding: var(--md-sys-spacing-3);
+    background: var(--md-sys-color-surface-container-low);
+    color: var(--md-sys-color-on-surface);
+    border: 1px solid var(--md-sys-color-outline-variant);
+    border-radius: var(--md-sys-shape-corner-medium);
+    pointer-events: auto;
+    transition: border-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+  }
+  /* An elbow back up to the message it belongs to, so the indent reads as
+     attachment rather than as a stray narrow bubble. */
+  .ccard::before {
+    content: ""; position: absolute; left: -20px; top: -10px; width: 18px; height: 26px;
+    border-left: 2px solid var(--md-sys-color-outline-variant);
+    border-bottom: 2px solid var(--md-sys-color-outline-variant);
+    border-bottom-left-radius: var(--md-sys-shape-corner-small);
+  }
+  .ccard[data-active="true"]::before { border-color: var(--md-sys-color-primary); }
+  /* A comment on one of your own messages hangs off the right, under the bubble
+     it belongs to — the indent only reads as attachment when it points back at
+     the side the message is on, and your messages sit at the other edge. */
+  .ccard--user { align-self: flex-end; margin-inline: 0 40px; }
+  .ccard--user::before {
+    left: auto; right: -20px;
+    border-left: 0; border-bottom-left-radius: 0;
+    border-right: 2px solid var(--md-sys-color-outline-variant);
+    border-bottom-right-radius: var(--md-sys-shape-corner-small);
+  }
+  .ccard--user[data-active="true"]::before { border-color: var(--md-sys-color-primary); }
+  .ccard__label {
+    margin: 0 0 var(--md-sys-spacing-2); color: var(--md-sys-color-primary);
+    display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+  }
+  .ccard__label svg { width: 16px; height: 16px; }
+  .ccard[data-active="true"] { border-color: var(--md-sys-color-primary); }
+  /* The message the open card belongs to, so the pair is unmistakable. */
+  .msg--linked, .activity-row--linked {
+    outline: 2px solid var(--md-sys-color-primary); outline-offset: 3px;
+    border-radius: var(--md-sys-shape-corner-large);
+  }
+  .ccard__quote {
+    margin: 0 0 var(--md-sys-spacing-2); padding-inline-start: var(--md-sys-spacing-2);
+    border-inline-start: 2px solid var(--md-sys-color-primary);
+    color: var(--md-sys-color-on-surface-variant);
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  /* MD3 outlined text field: extra-small shape, outline at rest, a two-pixel
+     primary outline while focused. */
+  .ccard__field {
+    width: 100%; min-height: 64px; resize: none; padding: var(--md-sys-spacing-3);
+    background: transparent; color: var(--md-sys-color-on-surface);
+    border: 1px solid var(--md-sys-color-outline);
+    border-radius: var(--md-sys-shape-corner-extra-small); font: inherit;
+  }
+  .ccard__field::placeholder { color: var(--md-sys-color-on-surface-variant); }
+  .ccard__field:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: -2px;
+    border-color: transparent; }
+  .ccard__remark { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .ccard__actions { display: flex; gap: var(--md-sys-spacing-1); justify-content: flex-end;
+    margin-top: var(--md-sys-spacing-2); }
+  /* Text buttons, the MD3 component for actions on a card — not underlined
+     links. 40dp tall with the hit area taken out to 48dp, the way every other
+     compact target in this panel does it. */
+  .ccard__actions .button { min-height: 40px; padding-inline: var(--md-sys-spacing-3); }
+  .ccard__actions .button::after {
+    content: ""; position: absolute; left: 0; right: 0; top: -4px; bottom: -4px;
+  }
+  /* Narrow: no room for a margin, so a card opens over the transcript instead,
+     anchored to the passage it belongs to. */
+  .rail[data-mode="popover"] { width: min(320px, 92vw); background: none; }
+  .rail[data-mode="popover"] .ccard { position: fixed; inset-inline: auto; width: min(320px, 92vw); z-index: 21; }
+  .rail[data-mode="popover"] .ccard:not([data-active="true"]) { display: none; }
+
+  /* ============================== quote chip =============================== */
+  /* Select something Claude said and this rises over it. Fixed and a child of
+     body for the same reason the context menu is: the detail pane is rebuilt
+     under it on any poll that changes the transcript. */
+  .quote-chip {
+    position: fixed; z-index: 20;
+    display: flex; align-items: stretch; gap: 0;
+    height: 36px; padding: 0;
+    border: 0; border-radius: var(--md-sys-shape-corner-small);
+    background: var(--md-sys-color-inverse-surface);
+    color: var(--md-sys-color-inverse-on-surface);
+    font: inherit; white-space: nowrap;
+    box-shadow: 0 2px 6px 2px color-mix(in srgb, var(--md-sys-color-shadow) 15%, transparent),
+                0 1px 2px 0 color-mix(in srgb, var(--md-sys-color-shadow) 30%, transparent);
+    opacity: 0; transform: scale(0.92); transform-origin: bottom center;
+    transition: opacity var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+                transform var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-emphasized-decelerate);
+  }
+  .quote-chip[data-open="true"] { opacity: 1; transform: scale(1); }
+  /* State layers rather than a hand-rolled hover fill, so these behave like every
+     other pressable thing in the panel. The bar reads at 40dp; the hit area is
+     taken out to 48dp with a pseudo-element, the way the other compact targets
+     here do it. */
+  .quote-chip__act {
+    position: relative; overflow: visible; isolation: isolate;
+    display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+    padding: 0 var(--md-sys-spacing-4); border: 0; background: none; color: inherit;
+    font: inherit; cursor: pointer; white-space: nowrap;
+    border-radius: var(--md-sys-shape-corner-small);
+  }
+  .quote-chip__act::before {
+    content: ""; position: absolute; inset: 0; z-index: -1;
+    background: currentColor; opacity: 0; border-radius: inherit;
+    transition: opacity var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+  }
+  .quote-chip__act:hover::before { opacity: var(--md-sys-state-hover-opacity); }
+  .quote-chip__act:focus-visible::before { opacity: var(--md-sys-state-focus-opacity); }
+  .quote-chip__act::after { content: ""; position: absolute; left: 0; right: 0; top: -4px; bottom: -4px; }
+  .quote-chip__act + .quote-chip__act { box-shadow: inset 1px 0 0 0 color-mix(in srgb, currentColor 25%, transparent); }
+  .quote-chip__act:focus-visible { outline: 2px solid var(--md-sys-color-inverse-primary); outline-offset: -2px; }
+  .quote-chip svg { width: 18px; height: 18px; }
+

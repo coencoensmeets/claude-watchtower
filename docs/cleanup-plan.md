@@ -5,9 +5,89 @@ package and a TypeScript/CSS frontend, without giving up the thing that makes
 the project pleasant to adopt: `git clone && python3 server.py` still starts a
 working panel.
 
-Nothing here is implemented yet. This document is the plan.
+The plan below is the original one. What each phase actually settled — including
+the places it was wrong — is recorded under Progress.
 
-## Where we are
+## Progress
+
+Phases 0–3, 5 and 6 are done. Phases 4 and 7 are not started.
+
+| Phase | State |
+|---|---|
+| 0 — safety net | done: 95 unit tests, `tests/fixtures.py`, service file fixed |
+| 1 — build pipeline | done: `web/` → `dist/`, Node type stripping, no packages |
+| 2 — CSS split | done: 17 stylesheets, cascade order preserved exactly |
+| 3 — TypeScript modules | done: 6,611 lines of inline script → 24 modules |
+| 4 — types | not started |
+| 5 — Python package | done: server.py 6,066 → 117 lines across 22 modules |
+| 6 — route table | done: 31 routes in a table, with tests over it |
+| 7 — docs split | not started |
+
+The split was first done against an older `server.py` and `static/index.html`
+than the ones it landed on, and catching it up settled the question of how to do
+that: **re-split from the newer file rather than merge into the older split.**
+131 of the 164 functions the two had in common differed, so reconciling them one
+at a time would have been the whole job done twice, with judgement calls at every
+step and no way to tell a deliberate change from a lost one. Re-splitting is a
+move, and a move can be checked: the stylesheets concatenate back to the original
+byte for byte, and every function is the text that was in the page.
+
+What is *not* a move is the state block and the imports, which is where the care
+went — see below.
+
+What phase 3 settled, which the original plan only guessed at:
+
+- **Shared mutable state was the whole problem.** 34 of 72 top-level `let`
+  bindings were written from more than one place, and a module cannot assign to
+  an imported binding. They live in `state.ts` as fields on six objects. The
+  test for whether a binding belongs there is simply whether a second module
+  writes it — most do not, and stay with their own code.
+- **A scanner that guesses at a slash gets the whole file wrong.** `return
+  /^(https?:\/\/)[^\s"']+$/` read as a division, so the `"` inside the character
+  class opened a string that swallowed the next hundred and fifty lines — with
+  `renderMarkdown` inside them. It still landed in the right module and still
+  ran, but nothing knew it was declared, so it was never exported and never
+  imported: the conversation pane threw on every draw and the panel sat on
+  *Reading the conversation…* for good. A slash after a keyword is a regex, and
+  the split is now checked against a plain line scan: every top-level
+  declaration in the page has to be one the splitter registered.
+- **A rename is a rename of code, not of text.** This file is mostly HTML in
+  template literals, so rewriting `git` to `repo.git` across the raw text turned
+  `class="git-badge"` into `class="repo.git-badge"` — the git tab lost its
+  header and kept its file list, which is exactly the kind of half-broken that
+  reads as working. Strings, template text, comments and regexes are walked past;
+  only code, including what is inside `${...}`, is rewritten.
+- **The call graph was a web, not a layer.** Every subsystem ended by calling
+  `render()`, so extracting any of them created an import cycle. `refresh.ts`
+  inverts it: main.ts hands its render loop over at boot and everything else
+  asks for a redraw without knowing where the loop lives.
+- **Text-level moves need a real scanner.** This file is mostly template
+  literals full of HTML, so counting brackets or matching identifiers in the raw
+  text goes wrong in ways that still compile.
+
+What phase 5 settled:
+
+- **The Python half was in far better shape than this plan assumed.** No
+  lower-case module-level names at all, ninety constants, and only two names
+  rebound while the panel runs. Those two — `SAY_ENABLED` and `PLAN_RUNNING` —
+  are the only ones that cannot be imported by name, and are read as
+  `config.SAY_ENABLED` so the lookup happens when it is asked for.
+- **A path anchored to `__file__` is the thing to check when moving a module.**
+  `STATIC_DIR` was the repository root while it lived in server.py and became
+  `watchtower/dist` the moment it moved into the package. Every static file
+  404'd while the API answered perfectly — a blank page with a working back end.
+- **ruff checks names within a file, not import targets.** `from
+  watchtower.config import TRANSCRIPT_LIMIT_MAX` passed every check and took the
+  panel down on startup. `tests/python/test_package.py` closes that gap: it
+  imports every module and reads every `from watchtower.x import y` statically.
+
+What is left in `main.ts` is the orchestrator — polling, the index and its
+groups, the detail pane's tab dispatch, the composer, the dialogs, boot. The
+sections that became features of their own since — pasted pictures, the turns
+the panel runs, the change viewer, notifications, the settings page — are
+modules of their own rather than more of main.ts.
+
+## Where we were
 
 | | lines | shape |
 |---|---|---|

@@ -1,0 +1,104 @@
+  /* ============================== the ask sheet ============================ */
+  /* What a session asks, drawn where the composer would be. It is the only place
+     in the panel where a decision is *taken* rather than reported, so it is given
+     the weight M3 gives a dialog: its own raised surface, a tinted bar naming
+     what is being asked, and one primary action. */
+  .composer--asking { display: block; padding-bottom: var(--md-sys-spacing-4); }
+  .ask-sheet {
+    display: flex; flex-direction: column;
+    border-radius: var(--md-sys-shape-corner-large);
+    background: var(--md-sys-color-surface-container-low);
+    border: 1px solid var(--md-sys-color-outline-variant);
+    /* Level 2: it is standing in front of the conversation, waiting. */
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 2px 6px 2px rgb(0 0 0 / 0.15);
+    overflow: hidden;
+    animation: ask-rise var(--md-sys-motion-duration-medium2, 300ms)
+               var(--md-sys-motion-easing-emphasized, cubic-bezier(0.2, 0, 0, 1));
+  }
+  @keyframes ask-rise {
+    from { opacity: 0; transform: translateY(8px) scale(0.99); }
+    to { opacity: 1; transform: none; }
+  }
+  .ask-sheet__bar {
+    display: flex; align-items: center; gap: var(--md-sys-spacing-3);
+    padding: var(--md-sys-spacing-3) var(--md-sys-spacing-4);
+    background: var(--md-sys-color-secondary-container);
+    color: var(--md-sys-color-on-secondary-container);
+  }
+  .ask-sheet__icon { display: inline-flex; flex: none; }
+  .ask-sheet__icon svg { width: 20px; height: 20px; }
+  .ask-sheet__head { flex: 1 1 auto; min-width: 0; }
+  .ask-sheet__badge {
+    flex: none; padding: 2px var(--md-sys-spacing-2);
+    border-radius: var(--md-sys-shape-corner-full);
+    background: color-mix(in srgb, currentColor 14%, transparent);
+    text-transform: lowercase; opacity: 0.9;
+  }
+  .ask-sheet__body {
+    display: flex; flex-direction: column; gap: var(--md-sys-spacing-4);
+    padding: var(--md-sys-spacing-4);
+    max-height: 46vh; overflow-y: auto;
+  }
+  .ask-sheet__what {
+    margin: var(--md-sys-spacing-2) 0 0; padding: var(--md-sys-spacing-2) var(--md-sys-spacing-3);
+    border-radius: var(--md-sys-shape-corner-small);
+    background: var(--md-sys-color-surface-container-high);
+    color: var(--md-sys-color-on-surface-variant);
+    overflow-wrap: anywhere;
+  }
+  .ask-q { display: flex; flex-direction: column; gap: var(--md-sys-spacing-2); }
+  .ask-q__text { margin: 0; }
+  .ask-q__how { margin: 0; color: var(--md-sys-color-on-surface-variant); }
+  .ask-q__options { list-style: none; margin: 0; padding: 0;
+    display: flex; flex-direction: column; gap: var(--md-sys-spacing-2); }
+  /* Each option is a whole row you press, with the indicator M3 uses for the
+     kind of choice it is: a radio where one answer is wanted, a box where
+     several are. */
+  .ask-opt {
+    position: relative; width: 100%;
+    display: flex; align-items: flex-start; gap: var(--md-sys-spacing-3);
+    min-height: 48px; padding: var(--md-sys-spacing-3);
+    border: 1px solid var(--md-sys-color-outline-variant);
+    border-radius: var(--md-sys-shape-corner-medium);
+    background: var(--md-sys-color-surface); color: var(--md-sys-color-on-surface);
+    font: inherit; text-align: start; cursor: pointer;
+    transition: border-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+                background var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+  }
+  .ask-opt__mark {
+    flex: none; width: 18px; height: 18px; margin-top: 2px;
+    border: 2px solid var(--md-sys-color-outline);
+    transition: border-color 120ms ease, background 120ms ease;
+  }
+  .ask-opt__mark--one { border-radius: var(--md-sys-shape-corner-full); }
+  .ask-opt__mark--many { border-radius: 4px; }
+  .ask-opt[aria-pressed="true"] {
+    border-color: var(--md-sys-color-primary);
+    background: color-mix(in srgb, var(--md-sys-color-primary) 10%, var(--md-sys-color-surface));
+  }
+  .ask-opt[aria-pressed="true"] .ask-opt__mark {
+    border-color: var(--md-sys-color-primary);
+    background: var(--md-sys-color-primary);
+    box-shadow: inset 0 0 0 3px var(--md-sys-color-surface);
+  }
+  .ask-opt[aria-pressed="true"] .ask-opt__mark--many {
+    box-shadow: none;
+    /* The tick belongs here, where it is the only thing saying so. */
+    background: var(--md-sys-color-primary) no-repeat center /
+      12px 12px url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
+  }
+  .ask-opt:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: 1px; }
+  .ask-opt__body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .ask-opt__why { color: var(--md-sys-color-on-surface-variant); }
+  .ask-sheet__foot {
+    display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+    padding: var(--md-sys-spacing-3) var(--md-sys-spacing-4);
+    border-top: 1px solid var(--md-sys-color-outline-variant);
+    background: var(--md-sys-color-surface);
+  }
+  .ask-sheet__note { flex: 1 1 auto; color: var(--md-sys-color-on-surface-variant); }
+  @media (max-width: 560px) {
+    .ask-sheet__foot { flex-wrap: wrap; }
+    .ask-sheet__note { flex-basis: 100%; }
+  }
+

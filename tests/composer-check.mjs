@@ -12,12 +12,27 @@
 //
 // A failure prints the case and exits 1.
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const page = readFileSync(join(here, "..", "static", "index.html"), "utf8");
+
+/* The panel is a package of modules now, and a function can be lifted out of
+   whichever one holds it — so what is read is all of them, joined. Importing
+   them instead would need a DOM: half of them touch `document` as they load. */
+function sources(dir) {
+  return readdirSync(dir).flatMap((name) => {
+    const path = join(dir, name);
+    if (statSync(path).isDirectory()) return sources(path);
+    return name.endsWith(".ts") ? [readFileSync(path, "utf8")] : [];
+  });
+}
+const page = sources(join(here, "..", "web", "src")).join("\n");
+
+/* `export` is the module's word to its importers and means nothing inside the
+   scope these are lifted into. */
+const unexport = (text) => text.replace(/(^|\n)export /g, "$1");
 
 /* The function, lifted by matching its braces — no bundler, no parser. */
 function lift(name) {
@@ -26,7 +41,7 @@ function lift(name) {
   let depth = 0;
   for (let at = page.indexOf("{", start); at < page.length; at++) {
     if (page[at] === "{") depth++;
-    else if (page[at] === "}" && --depth === 0) return page.slice(start, at + 1);
+    else if (page[at] === "}" && --depth === 0) return unexport(page.slice(start, at + 1));
   }
   throw new Error(`${name} does not close`);
 }
@@ -38,21 +53,24 @@ function lift(name) {
    backticks are tracked so a template literal's own punctuation does not end
    the statement early. */
 function liftConst(name) {
-  const start = page.search(new RegExp(`(?:^|\\n)const ${name} = `));
+  const start = page.search(new RegExp(`(?:^|\\n)(?:export )?const ${name} = `));
   if (start < 0) throw new Error(`${name} is not in the page any more`);
   let depth = 0, tick = false;
-  for (let at = page.indexOf("=", start); at < page.length; at++) {
+  for (let at = page.indexOf("=", page.indexOf(`const ${name}`, start)); at < page.length; at++) {
     const ch = page[at];
     if (ch === "\\") { at++; continue; }
     if (ch === "`") { tick = !tick; continue; }
     if (tick) continue;
     if ("({[".includes(ch)) depth++;
     else if (")}]".includes(ch)) depth--;
-    else if (ch === ";" && depth === 0) return page.slice(start, at + 1);
+    else if (ch === ";" && depth === 0) return unexport(page.slice(start, at + 1));
   }
   throw new Error(`${name} does not close`);
 }
 
+/* What the modules read out of state.ts, stubbed with the same shape — the
+   panel keeps its shared state on these objects because a module cannot assign
+   to an imported binding. */
 const stubs = `
 const escapeHtml = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const OWNED_MODE_LABEL = { default: "Manual", auto: "Auto", plan: "Plan", acceptEdits: "Accept edits" };
@@ -63,7 +81,6 @@ const ownedAskCard = () => "<ASKCARD>";
 let IMAGES = {};
 const imagesFor = (id) => IMAGES[id] || [];
 const sendBlockedReason = LIFTED_BLOCKED;
-let skew = 0;
 let CATALOG = { entries: [], terminalOnly: [] };
 const catalog = { get entries() { return CATALOG.entries; },
                   get terminalOnly() { return CATALOG.terminalOnly; } };
@@ -72,7 +89,10 @@ const catalog = { get entries() { return CATALOG.entries; },
 const { composer, modeBar, setFeed, setImages, sendBlockedReason, runsHere, queuedStrip,
         stopButton, attachedStrip, contextBar, terminalOnly, sentAs, knownCommand,
         compactPct, drawnStateOf, STATE, STATE_ORDER, setCatalog } = new Function(
-  `const feed = { canSend: true };
+  `const app = { feed: { canSend: true }, skew: 0 };
+   const chat = { transcript: null, changeShown: null };
+   const ui = { composerHeight: null };
+   const sayDrafts = new Map();
    ${lift("sendBlockedReason").replace("function sendBlockedReason", "const LIFTED_BLOCKED = function")}
    ${stubs}
    ${liftConst("runsHere")}
@@ -104,7 +124,7 @@ const { composer, modeBar, setFeed, setImages, sendBlockedReason, runsHere, queu
    ${lift("composer")}
    return { composer, modeBar, runsHere, queuedStrip, stopButton, attachedStrip, contextBar,
             compactPct, drawnStateOf, STATE, STATE_ORDER,
-            sendBlockedReason: LIFTED_BLOCKED, setFeed: (f) => { FEED = f; feed.owned = f; },
+            sendBlockedReason: LIFTED_BLOCKED, setFeed: (f) => { FEED = f; app.feed.owned = f; },
             setImages: (i) => { IMAGES = i; },
             terminalOnly, sentAs, knownCommand,
             setCatalog: (c) => { CATALOG = c; } };`)();
@@ -502,11 +522,13 @@ check("and before it has said anything, nothing is ruled out",
   knownCommand("nonesuch", { sessionId: "quiet", status: "stopped", alive: false }) === true);
 
 for (const name of CALLED) {
-  const declared = new RegExp(`(?:^|\\n)\\s*(?:async\\s+)?(?:function|const|let)\\s+${name}\\b`).test(page);
+  const declared = new RegExp(
+    `(?:^|\\n)\\s*(?:export\\s+)?(?:async\\s+)?(?:function|const|let)\\s+${name}\\b`).test(page);
   if (!declared) check(`${name} is defined, not just called`, false);
 }
 check(`every name the page leans on is defined (${CALLED.length} checked)`,
-  CALLED.every((name) => new RegExp(`(?:^|\\n)\\s*(?:async\\s+)?(?:function|const|let)\\s+${name}\\b`).test(page)));
+  CALLED.every((name) => new RegExp(
+    `(?:^|\\n)\\s*(?:export\\s+)?(?:async\\s+)?(?:function|const|let)\\s+${name}\\b`).test(page)));
 
 console.log(failures ? `\n${failures} failed` : "\nall ok");
 process.exit(failures ? 1 : 0);

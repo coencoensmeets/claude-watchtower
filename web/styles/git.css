@@ -1,0 +1,306 @@
+  /* =============================== detail: git ============================= */
+  /* The branch line: where HEAD is, and how far it has drifted from upstream. */
+  .git-head { display: flex; align-items: center; gap: var(--md-sys-spacing-3); flex-wrap: wrap;
+    margin-bottom: var(--md-sys-spacing-4); }
+  .git-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px var(--md-sys-spacing-3);
+    border-radius: var(--md-sys-shape-corner-small);
+    background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container);
+  }
+  .git-badge svg { width: 15px; height: 15px; }
+  /* A badge that does something. Same pill, but it takes a press: the branch
+     opens the branch list, the drift counts push and pull what they are counting. */
+  .git-badge--button { border: 0; cursor: pointer; font: inherit; letter-spacing: inherit;
+    position: relative; }
+  .git-badge--button::after { content: ""; position: absolute; inset: -6px; }
+  .git-badge--button[data-git="branch-menu"] svg:last-child { width: 13px; height: 13px; opacity: 0.7; }
+  /* The drift counts, filled so they read as work waiting rather than as another
+     line of description. Amber for the one that is yours to do — the same colour
+     this panel uses for a session that needs an answer — and the primary tone for
+     what is arriving from the remote. */
+  .git-badge--drift { gap: 5px; }
+  .git-badge--drift[data-way="push"] {
+    background: var(--md-extended-color-waiting-container, var(--md-sys-color-tertiary-container));
+    color: var(--md-extended-color-waiting-on-container, var(--md-sys-color-on-tertiary-container));
+  }
+  .git-badge--drift[data-way="pull"] {
+    background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);
+  }
+  /* The word is the part that says what to do about it. It stays: the header
+     wraps, so a narrow pane puts the badges on their own line rather than
+     squeezing them, and "↑1" alone is exactly the thing that was too quiet. */
+  .git-badge__verb { opacity: 0.85; }
+  .git-badge--quiet { background: transparent; color: var(--md-sys-color-on-surface-variant);
+    padding-inline: 0; }
+
+  /* The commit box, laid out as the editor lays it out: the message above, the
+     one filled button below, and the rest of the commit's variants folded into
+     the arrow beside it. */
+  .scm-commit { display: flex; flex-direction: column; gap: var(--md-sys-spacing-3);
+    margin-bottom: var(--md-sys-spacing-4); }
+  /* The box holds the sparkle in its own corner, which is where the editors that
+     have this put it — inside the field it fills in, not beside the button that
+     uses it. The field keeps room for it so a long message never runs underneath. */
+  .scm-commit__box { position: relative; display: flex; }
+  /* Named through its parent so it outranks .scm-icon's own `position: relative`
+     below: lose that and the button rejoins the flow, taking its width out of the
+     field it is supposed to be sitting inside. */
+  .scm-commit__box .scm-commit__ai { position: absolute; top: 6px; right: 6px; }
+  .scm-commit__ai[data-busy="1"] { color: var(--md-sys-color-primary); }
+  .scm-commit__ai[data-busy="1"] svg { animation: scm-thinking 1.4s var(--md-sys-motion-easing-standard) infinite; }
+  @keyframes scm-thinking { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.45; transform: scale(0.88); } }
+  .scm-commit__field {
+    width: 100%; box-sizing: border-box; resize: none; overflow: hidden;
+    min-height: 56px; padding: var(--md-sys-spacing-3);
+    padding-right: 44px;
+    border: 1px solid var(--md-sys-color-outline); border-radius: var(--md-sys-shape-corner-small);
+    background: var(--md-sys-color-surface-container-lowest); color: var(--md-sys-color-on-surface);
+    font: inherit;
+  }
+  .scm-commit__field:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: -1px; border-color: transparent; }
+  .scm-commit__field:disabled { opacity: 0.6; cursor: not-allowed; }
+  /* Split button: one target for the common case, a narrow one for the rest.
+     The two halves meet flat so they read as the one control they are. */
+  .scm-commit__go { flex: 1 1 auto; border-radius: var(--md-sys-shape-corner-full) 0 0 var(--md-sys-shape-corner-full); }
+  .scm-commit__more { flex: none; width: 44px; padding: 0;
+    border-radius: 0 var(--md-sys-shape-corner-full) var(--md-sys-shape-corner-full) 0;
+    border-left: 1px solid color-mix(in srgb, var(--md-sys-color-on-primary) 30%, transparent); }
+  .scm-commit__row { display: flex; align-items: stretch; gap: 1px; }
+  .scm-commit__row .button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* A group of changed files — Merge, Staged, Changes — each with the actions
+     that apply to the whole group in its header. */
+  .scm-group { margin-bottom: var(--md-sys-spacing-4); }
+  .scm-group__head { display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+    min-height: 32px; }
+  .scm-group__title { flex: 1 1 auto; min-width: 0; color: var(--md-sys-color-on-surface-variant);
+    text-transform: uppercase; letter-spacing: 0.06em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .scm-count { display: inline-grid; place-items: center; min-width: 20px; height: 18px;
+    padding: 0 5px; margin-inline-start: var(--md-sys-spacing-2);
+    border-radius: var(--md-sys-shape-corner-full);
+    background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container);
+    letter-spacing: 0; }
+  .scm-actions { flex: none; display: flex; align-items: center; gap: 2px; }
+
+  /* Row actions appear on hover, as they do in the editor — but they stay put on
+     a touch screen and for anyone moving through the list by keyboard, where
+     there is no hover to reveal them. */
+  .scm-icon {
+    width: 30px; height: 30px; flex: none; position: relative;
+    display: grid; place-items: center; border: 0; border-radius: var(--md-sys-shape-corner-full);
+    background: transparent; color: var(--md-sys-color-on-surface-variant); cursor: pointer;
+  }
+  .scm-icon svg { width: 17px; height: 17px; }
+  /* Drawn at the editor's density, but reaching 44px like every other target
+     here. The extra 7px spills into the gap between rows, so two neighbouring
+     icons overlap slightly at their edges — a tap anywhere on the icon itself
+     still lands on its own row, which is the part that matters. */
+  .scm-icon::after { content: ""; position: absolute; inset: -7px; }
+  .scm-icon:disabled { opacity: 0.4; cursor: not-allowed; }
+  .scm-icon--danger:hover { color: var(--md-sys-color-error); }
+
+  /* One row per changed file: name, then the folder it sits in, then what
+     happened to it — the editor's order, which reads name-first down the list. */
+  .git-files { display: flex; flex-direction: column; }
+  .git-file {
+    display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+    padding: 2px var(--md-sys-spacing-2) 2px 0;
+    border-radius: var(--md-sys-shape-corner-extra-small);
+    min-height: 34px;
+  }
+  .git-file__open { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: var(--md-sys-spacing-2);
+    background: none; border: 0; padding: var(--md-sys-spacing-1) var(--md-sys-spacing-2);
+    color: inherit; font: inherit; text-align: left; cursor: pointer; border-radius: inherit; }
+  .git-file__name { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .git-file__dir { flex: 1 1 auto; min-width: 0; color: var(--md-sys-color-on-surface-variant);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+  .git-file__from { flex: none; color: var(--md-sys-color-on-surface-variant); }
+  .git-file__xy { flex: none; width: 1.6ch; text-align: center; font-weight: 700;
+    color: var(--md-sys-color-on-surface-variant); }
+  .git-file[data-open="1"] { background: var(--md-sys-color-surface-container-high); }
+  .git-file:hover { background: var(--md-sys-color-surface-container-high); }
+  /* Hidden until the row is under the pointer or holds the focus — but never
+     hidden where hover does not exist, or they could not be reached at all. */
+  .git-file .scm-actions { opacity: 0; transition: opacity 90ms linear; }
+  .git-file:hover .scm-actions, .git-file:focus-within .scm-actions, .git-file[data-open="1"] .scm-actions { opacity: 1; }
+  @media (hover: none) { .git-file .scm-actions { opacity: 1; } }
+  /* Added, modified, removed and conflicted each get a colour that is already in
+     the scheme, so they follow the base colour like everything else. */
+  .git-file[data-mark="A"] .git-file__xy,
+  .git-file[data-mark="U"] .git-file__xy { color: var(--md-extended-color-idle-color, var(--md-sys-color-primary)); }
+  .git-file[data-mark="M"] .git-file__xy,
+  .git-file[data-mark="R"] .git-file__xy { color: var(--md-extended-color-waiting-color, var(--md-sys-color-tertiary)); }
+  .git-file[data-mark="D"] .git-file__xy { color: var(--md-sys-color-error); }
+  .git-file[data-mark="!"] .git-file__xy { color: var(--md-sys-color-error); }
+
+  /* The diff a row opens, in place rather than in a second pane: the panel is one
+     column wide and side-by-side would leave neither side readable. */
+  /* Green for what arrived, red for what went — mixed from the scheme rather
+     than hardcoded, because the panel's colour is generated and these have to
+     move with it. The third is for a row that exists on one side only. */
+  .scm-diff, .diff2 {
+    --diff-add: color-mix(in srgb, var(--md-extended-color-idle-color, var(--md-sys-color-primary)) 20%, transparent);
+    --diff-del: color-mix(in srgb, var(--md-sys-color-error) 18%, transparent);
+    --diff-gone: color-mix(in srgb, var(--md-sys-color-on-surface) 5%, transparent);
+  }
+  .scm-diff {
+    margin: 0 0 var(--md-sys-spacing-2) var(--md-sys-spacing-2);
+    padding: var(--md-sys-spacing-3);
+    max-height: 420px; overflow: auto; overscroll-behavior: contain;
+    border-radius: var(--md-sys-shape-corner-small);
+    border: 1px solid var(--md-sys-color-outline-variant);
+    background: var(--md-sys-color-surface-container-lowest);
+    white-space: pre; tab-size: 4;
+  }
+  /* A changed line is a tinted row, the way every editor draws one, rather than
+     coloured text: the text stays the colour text is — which is what keeps it
+     readable, and the contrast checks honest — and the colour says what happened
+     to the line rather than having to be read as words.
+
+     `min-width: max-content` is what makes the tint run the whole length of a
+     long line instead of stopping at the edge of the box it scrolls in. */
+  .scm-diff__line { display: block; min-width: max-content; }
+  /* The same patch, in the conversation. Narrower, quieter, and folded until it
+     is asked to open: a change is something the session did, and the chat is
+     where you find out it did it — not where you read all 400 lines of it. */
+  .change { margin: var(--md-sys-spacing-1) 0 var(--md-sys-spacing-2); }
+  .change__bar {
+    display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+    width: 100%; border: 0; background: none; cursor: pointer; text-align: left;
+    padding: var(--md-sys-spacing-1) var(--md-sys-spacing-2);
+    border-radius: var(--md-sys-shape-corner-small);
+    color: var(--md-sys-color-on-surface-variant);
+  }
+  .change__file { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; color: var(--md-sys-color-on-surface); }
+  .change__stat { flex: none; }
+  .change__add { color: var(--md-extended-color-idle-color, var(--md-sys-color-primary)); }
+  .change__del { color: var(--md-sys-color-error); }
+  .change__hint { flex: 1 1 auto; text-align: right; opacity: 0.85; }
+  .change__diff { margin: 0; max-height: 420px; }
+  /* Folded. The mask is what says there is more without spending a line saying
+     so, and the whole block is the target: clicking anywhere in it opens it. */
+  /* Folded, and — this is the part that has to be said out loud — *not a scroll
+     container*. `.scm-diff` is one: it has its own overflow and its own
+     `overscroll-behavior: contain`, which is right for the diff a Git row opens
+     and wrong for a folded preview sitting in the middle of a conversation. A
+     box that cannot scroll but has been told not to pass scrolling on is a dead
+     patch of the chat: the wheel lands on it and nothing moves. `clip` clips the
+     overflow without making a scroller of it, so the wheel goes straight through
+     to the conversation, which is the only thing here anybody wants to scroll.
+     `hidden` first, for anything that does not know `clip`, with chaining put
+     back so that case degrades to merely imperfect rather than stuck. */
+  .change__diff--peek { max-height: 132px; cursor: pointer;
+    overflow: hidden; overflow: clip; overscroll-behavior: auto;
+    -webkit-mask-image: linear-gradient(to bottom, #000 74%, transparent);
+    mask-image: linear-gradient(to bottom, #000 74%, transparent); }
+  /* Open, it is the editor's own layout: before on the left, after on the right,
+     lines that answer each other on the same row. One grid rather than two
+     scrollers, so the two sides cannot drift apart — there is nothing to keep in
+     sync because there is only one thing. */
+  /* The comparison has the pane, so the pane's own scroller is the only one:
+     nothing here scrolls on its own, and nothing here stops the wheel and keeps
+     it. One scroller was already the rule that keeps the two sides from drifting
+     apart; it is also what keeps the wheel behaving like a wheel. */
+  .diff2-wrap { margin: 0; }
+  .diff2 {
+    display: grid;
+    /* Two halves of the pane rather than two columns as wide as the longest
+       line: a long line wraps inside its half. A comparison you have to scroll
+       sideways to read is a comparison of two things you cannot see at once,
+       which is the whole point of putting them beside each other. Both cells of
+       a row are cells of one grid row, so whatever wraps, the sides stay level. */
+    grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr);
+    tab-size: 4;
+  }
+  .diff2__head {
+    padding: var(--md-sys-spacing-1) var(--md-sys-spacing-3);
+    background: var(--md-sys-color-surface-container);
+    color: var(--md-sys-color-on-surface-variant);
+    border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  }
+  .diff2__head--before { grid-column: 1 / 3; }
+  .diff2__head--after { grid-column: 3 / 5; border-left: 1px solid var(--md-sys-color-outline-variant); }
+  /* The row is a grouping for the stylesheet, not a box: its four cells belong
+     to the grid, so it lays out as if it were not there. */
+  .diff2__row { display: contents; }
+  .diff2__num {
+    padding: 0 var(--md-sys-spacing-2); text-align: right; user-select: none;
+    color: var(--md-sys-color-on-surface-variant); opacity: 0.7;
+    background: inherit;
+  }
+  .diff2__num--after { border-left: 1px solid var(--md-sys-color-outline-variant); }
+  .diff2__line { padding: 0 var(--md-sys-spacing-2);
+    white-space: pre-wrap; overflow-wrap: anywhere; }
+  .diff2__row--add .diff2__num--after, .diff2__row--add .diff2__line--after { background: var(--diff-add); }
+  .diff2__row--del .diff2__num--before, .diff2__row--del .diff2__line--before { background: var(--diff-del); }
+  /* A row with nothing on its side: the file simply does not have a line there,
+     and a flat wash says so without pretending it is a change of its own. */
+  .diff2__line--gone, .diff2__num--gone { background: var(--diff-gone); }
+  /* Where the patch jumps. It is the one row that spans both sides, because the
+     gap is in the file rather than in either version of it. */
+  .diff2__gap {
+    grid-column: 1 / 5; padding: var(--md-sys-spacing-1) var(--md-sys-spacing-3);
+    color: var(--md-sys-color-primary);
+    background: color-mix(in srgb, var(--md-sys-color-primary) 8%, transparent);
+    border-block: 1px solid var(--md-sys-color-outline-variant);
+  }
+  /* The comparison, with the pane to itself. The bar stays while the diff
+     scrolls under it: it carries the way back, and a way back you have to scroll
+     to find is one you will not find. */
+  .change-full { display: flex; flex-direction: column; min-height: 100%;
+    /* Out to the edges of the pane: the padding that gives a conversation its
+       margins is width a comparison has better uses for. */
+    margin: calc(var(--md-sys-spacing-4) * -1) calc(var(--md-sys-spacing-6) * -1)
+            calc(var(--md-sys-spacing-6) * -1); }
+  .change-full__bar {
+    position: sticky; top: 0; z-index: 3;
+    display: flex; align-items: baseline; gap: var(--md-sys-spacing-2);
+    padding: var(--md-sys-spacing-2) var(--md-sys-spacing-4);
+    margin-bottom: var(--md-sys-spacing-2);
+    background: var(--md-sys-color-surface);
+    border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  }
+  .change-full__back { flex: none; }
+  .change-full__back svg { width: 18px; height: 18px; }
+  .change-full__name { flex: none; }
+  .change-full__where { flex: 1 1 auto; min-width: 0; direction: rtl; text-align: left;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    color: var(--md-sys-color-on-surface-variant); opacity: 0.8; }
+  .change-full__stat { flex: none; }
+  .change__note { margin: var(--md-sys-spacing-1) 0 0 var(--md-sys-spacing-2);
+    color: var(--md-sys-color-on-surface-variant); }
+  .scm-diff__line--add { background: var(--diff-add); }
+  .scm-diff__line--del { background: var(--diff-del); }
+  .scm-diff__line--hunk { color: var(--md-sys-color-primary); }
+  .scm-diff__line--meta { color: var(--md-sys-color-on-surface-variant); }
+
+  /* The graph: one lane per concurrent line of history, drawn beside the log. */
+  .git-graph { display: grid; grid-template-columns: auto 1fr; }
+  .git-graph__lanes { grid-column: 1; }
+  /* A fixed height, because the rail beside each row is an SVG of exactly this
+     many pixels: let the rows grow with their text and the lanes stop meeting
+     across the join. The subject is ellipsised rather than wrapped for the same
+     reason. */
+  .git-commit {
+    display: grid; grid-template-columns: subgrid; grid-column: 1 / -1;
+    align-items: center; gap: var(--md-sys-spacing-3);
+    height: 52px;
+  }
+  .git-commit__rail { grid-column: 1; align-self: stretch; display: block; }
+  /* The separator runs under the text only. Carrying it across the rail column
+     would put a 1px break through every lane, at every row. */
+  .git-commit__body { grid-column: 2; min-width: 0; align-self: stretch;
+    display: flex; flex-direction: column; justify-content: center;
+    border-top: 1px solid var(--md-sys-color-outline-variant); }
+  .git-commit__subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .git-commit__meta { color: var(--md-sys-color-on-surface-variant); display: flex; gap: 6px;
+    align-items: center; flex-wrap: wrap; }
+  .git-ref {
+    padding: 1px 6px; border-radius: var(--md-sys-shape-corner-extra-small);
+    background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);
+  }
+  .git-ref--head { background: var(--md-sys-color-tertiary-container); color: var(--md-sys-color-on-tertiary-container); }
+  .git-empty { color: var(--md-sys-color-on-surface-variant); padding: var(--md-sys-spacing-3) 0; }
+

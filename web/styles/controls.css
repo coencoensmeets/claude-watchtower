@@ -1,0 +1,179 @@
+  /* ================================= buttons =============================== */
+  .button {
+    position: relative;
+    display: inline-flex; align-items: center; justify-content: center; gap: var(--md-sys-spacing-2);
+    height: 40px; padding: 0 var(--md-sys-spacing-6);
+    border: 0; border-radius: var(--md-sys-shape-corner-full);
+    cursor: pointer; white-space: nowrap;
+    font: var(--md-sys-typescale-label-large-weight) var(--md-sys-typescale-label-large-size)/var(--md-sys-typescale-label-large-line-height) var(--md-sys-typescale-label-large-font);
+    letter-spacing: var(--md-sys-typescale-label-large-tracking);
+  }
+  .button::after { content: ""; position: absolute; inset: -4px; }
+  .button svg { width: 18px; height: 18px; flex: none; }
+  .button--filled { background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); }
+  .button--tonal { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+  .button--text { background: transparent; color: var(--md-sys-color-primary); padding: 0 var(--md-sys-spacing-3); }
+  .button--outlined { background: transparent; color: currentColor; border: 1px solid currentColor; }
+  /* On the tinted detail header, the card's own pair is the only safe fill. */
+  .detail-header .button--filled,
+  .detail-header .button--tonal { background: var(--state-on-container); color: var(--state-container); }
+  .button--danger { background: var(--md-sys-color-error); color: var(--md-sys-color-on-error); }
+  .button--danger-outlined { background: transparent; color: var(--md-sys-color-error); border: 1px solid var(--md-sys-color-error); }
+  .button:disabled { opacity: 0.38; cursor: not-allowed; }
+  .hint { display: flex; gap: 5px; justify-content: center; align-items: baseline; opacity: 0.85; }
+  .link-button { background: none; border: 0; padding: 0; cursor: pointer; color: inherit; font: inherit; text-decoration: underline; text-underline-offset: 2px; }
+
+  /* The gear stays lit while the settings page is the one on screen: it is a
+     view you are in rather than a dialog that has come and gone. */
+  .icon-button[aria-pressed="true"] {
+    background: var(--md-sys-color-secondary-container);
+    color: var(--md-sys-color-on-secondary-container);
+  }
+
+  /* ================================= switch ================================ */
+  .switch { display: inline-flex; align-items: center; gap: var(--md-sys-spacing-3); cursor: pointer; user-select: none; }
+  .switch__label { color: var(--md-sys-color-on-surface-variant); }
+  .switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .switch__track {
+    position: relative; width: 52px; height: 32px; flex: none;
+    border-radius: var(--md-sys-shape-corner-full);
+    background: var(--md-sys-color-surface-container-highest);
+    border: 2px solid var(--md-sys-color-outline);
+    transition: background var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+                border-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+  }
+  .switch__thumb {
+    position: absolute; top: 50%; left: 6px; transform: translateY(-50%);
+    width: 16px; height: 16px; border-radius: var(--md-sys-shape-corner-full);
+    background: var(--md-sys-color-outline);
+    display: grid; place-items: center;
+    transition: left var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-emphasized),
+                width var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-emphasized),
+                height var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-emphasized),
+                background var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+  }
+  .switch__thumb svg { width: 16px; height: 16px; opacity: 0; }
+  .switch input:checked + .switch__track { background: var(--md-sys-color-primary); border-color: var(--md-sys-color-primary); }
+  .switch input:checked + .switch__track .switch__thumb { left: 22px; width: 24px; height: 24px; background: var(--md-sys-color-on-primary); }
+  .switch input:checked + .switch__track .switch__thumb svg { opacity: 1; stroke: var(--md-sys-color-primary); }
+  .switch input:focus-visible + .switch__track { outline: 3px solid var(--md-sys-color-primary); outline-offset: 3px; }
+  /* A switch whose answer no longer matters — one nested under another that has
+     already said no — is dimmed rather than removed, so the setting is still
+     there to find once the one above it is back on. */
+  .switch:has(input:disabled) { opacity: 0.38; cursor: default; }
+  /* Switches are inline so one can sit in the app bar beside the theme label.
+     A run of them is a list of settings and stacks. */
+  .switch-stack { display: flex; flex-direction: column; align-items: flex-start; gap: var(--md-sys-spacing-3); }
+  /* The settings page is wide, and a single column of switches down the left of
+     it left most of the pane empty and the page taller than the window. Both of
+     these flow into as many columns as the pane can hold and collapse to one
+     when it cannot hold two. */
+  .settings-row, .notify-grid {
+    display: grid; gap: var(--md-sys-spacing-4) var(--md-sys-spacing-6);
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  }
+  .settings-row { align-items: start; }
+  .settings-row > .section { margin-bottom: 0; }
+  /* The swatches want a row to themselves — they wrap, and squeezed into a
+     third of the pane they wrap into a block taller than the two settings
+     beside them put together. */
+  .settings-row__wide { grid-column: 1 / -1; }
+  .settings-row { margin-bottom: var(--md-sys-spacing-6); }
+  .notify-grid { align-items: start; margin-top: var(--md-sys-spacing-3); }
+  /* Not small print: it is the reason none of the switches above will do
+     anything, so it is drawn as the obstacle it is and carries the one button
+     that clears it. */
+  .notify-permission {
+    display: flex; flex-direction: column; align-items: flex-start;
+    gap: var(--md-sys-spacing-3);
+    margin-top: var(--md-sys-spacing-5);
+    padding: var(--md-sys-spacing-4);
+    border-radius: var(--md-sys-shape-corner-medium);
+    background: var(--md-sys-color-surface-container-high);
+  }
+  /* Blocked or unsupported is a dead end rather than a step, and says so. */
+  .notify-permission[data-state="denied"], .notify-permission[data-state="unsupported"] {
+    background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container);
+  }
+  .notify-permission p { margin: 0; }
+  .notify-permission[hidden] { display: none; }
+  /* A sample of the notification the switch turns on, drawn as the small card
+     it will arrive as. Showing the thing itself says more than a sentence
+     describing when it fires, and it is the only place in the panel where you
+     can see one without waiting for a session to raise it. */
+  .switch__says {
+    display: block; margin-top: var(--md-sys-spacing-2);
+    padding: var(--md-sys-spacing-2) var(--md-sys-spacing-3);
+    border-radius: var(--md-sys-shape-corner-small);
+    background: var(--md-sys-color-surface-container-high);
+    color: var(--md-sys-color-on-surface-variant);
+  }
+  .switch__says b { display: block; font-weight: 600; color: var(--md-sys-color-on-surface); }
+  /* The switch is centred on a one-line label; with a sample under it the track
+     belongs at the top, beside the words it is about. */
+  .switch:has(.switch__says) { align-items: flex-start; }
+  .switch:has(.switch__says) .switch__track { margin-top: 2px; }
+
+  /* ============================== segmented button ========================= */
+  .segmented { display: inline-flex; }
+  .segmented__item {
+    height: 40px; padding: 0 var(--md-sys-spacing-4);
+    border: 1px solid var(--md-sys-color-outline);
+    background: transparent; color: var(--md-sys-color-on-surface);
+    cursor: pointer; position: relative;
+    display: inline-flex; align-items: center; gap: 6px;
+    font: var(--md-sys-typescale-label-large-weight) var(--md-sys-typescale-label-large-size)/var(--md-sys-typescale-label-large-line-height) var(--md-sys-typescale-label-large-font);
+  }
+  .segmented__item:first-child { border-radius: var(--md-sys-shape-corner-full) 0 0 var(--md-sys-shape-corner-full); }
+  .segmented__item:last-child { border-radius: 0 var(--md-sys-shape-corner-full) var(--md-sys-shape-corner-full) 0; border-left-width: 0; }
+  .segmented__item:not(:first-child):not(:last-child) { border-left-width: 0; }
+  .segmented__item[aria-pressed="true"] { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+  .segmented__item svg { width: 18px; height: 18px; display: none; }
+  .segmented__item[aria-pressed="true"] svg { display: block; }
+
+  /* ============================== context menu ============================= */
+  /* Right-clicking a session opens this over everything, positioned at the
+     pointer. Fixed, and a child of body, so a list repaint cannot tear it out. */
+  .menu {
+    position: fixed; z-index: 20; min-width: 232px; max-width: min(320px, 92vw);
+    padding: var(--md-sys-spacing-2) 0;
+    /* A short window must not put the last items out of reach — scroll instead
+       of overflowing. The cap is set from innerHeight when it opens. */
+    max-height: calc(100vh - 16px); overflow-y: auto; overscroll-behavior: contain;
+    background: var(--md-sys-color-surface-container);
+    color: var(--md-sys-color-on-surface);
+    border-radius: var(--md-sys-shape-corner-small);
+    box-shadow: 0 2px 6px 2px color-mix(in srgb, var(--md-sys-color-shadow) 15%, transparent),
+                0 1px 2px 0 color-mix(in srgb, var(--md-sys-color-shadow) 30%, transparent);
+    opacity: 0; transform: scale(0.96); transform-origin: top left;
+    transition: opacity var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+                transform var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-emphasized-decelerate);
+  }
+  .menu[data-open="true"] { opacity: 1; transform: scale(1); }
+  /* Which session this menu belongs to — the list keeps its own selection. */
+  .menu__title {
+    padding: var(--md-sys-spacing-2) var(--md-sys-spacing-4) var(--md-sys-spacing-3);
+    color: var(--md-sys-color-on-surface-variant);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .menu__item {
+    display: flex; align-items: center; gap: var(--md-sys-spacing-3);
+    width: 100%; min-height: 36px; padding: var(--md-sys-spacing-1) var(--md-sys-spacing-4);
+    border: 0; background: none; color: inherit; text-align: left; cursor: pointer;
+    font: inherit;
+  }
+  .menu__item:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: -2px; }
+  .menu__item[disabled] { color: var(--md-sys-color-on-surface-variant); opacity: 0.38; cursor: default; }
+  .menu__item--danger { color: var(--md-sys-color-error); }
+  .menu__icon { flex: none; display: grid; place-items: center; width: 20px; height: 20px; }
+  .menu__icon svg { width: 20px; height: 20px; }
+  .menu__label { flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .menu__divider { height: 1px; margin: var(--md-sys-spacing-2) 0; border: 0;
+    background: var(--md-sys-color-outline-variant); }
+  /* The row — or group header — the open menu acts on, so the target is never
+     in doubt. */
+  .session-list li[data-menu="open"] > .session-item,
+  .session-list li[data-menu="open"] > .group__header {
+    outline: 2px solid var(--md-sys-color-primary); outline-offset: -2px;
+  }
+

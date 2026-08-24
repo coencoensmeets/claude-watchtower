@@ -19,7 +19,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-import server as S  # noqa: E402
+from watchtower import transcript as S  # noqa: E402
 
 FAILED = 0
 

@@ -26,7 +26,8 @@ import threading
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-import server as S  # noqa: E402
+from watchtower import input as delivery  # noqa: E402
+from watchtower import owned as S  # noqa: E402
 
 FAILED = 0
 
@@ -92,7 +93,10 @@ def texts(proc: FakeProc) -> list[str]:
 # Nothing here may start a process, open a terminal or hand anything to the
 # deliverer, so the one function that would is stubbed for the whole run.
 DELIVERED: list[tuple[str, str]] = []
-S.deliver_later = lambda session_id, text, started=False: (
+# It is looked up on watchtower.input at the moment it is used — owned imports
+# it there rather than at the top, so the two do not make a cycle — which is
+# exactly where this has to be replaced for the stub to be the one that runs.
+delivery.deliver_later = lambda session_id, text, started=False: (
     DELIVERED.append((session_id, text)) or (True, "held"))
 
 

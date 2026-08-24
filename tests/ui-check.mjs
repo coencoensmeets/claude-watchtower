@@ -255,6 +255,22 @@ const about = JSON.parse(await evaluate(`JSON.stringify({
 check("details tab switches and shows facts", about.selected === "true" && about.facts >= 6, `${about.facts} facts`);
 check("details tab exposes window pairing and notifications", about.window && about.mute);
 
+/* The header's way into the checkout. Offered whatever state the session is in,
+   and named for what it opens rather than for the endpoint behind it. */
+const editor = JSON.parse(await evaluate(`(() => {
+  const button = document.querySelector('[data-act="editor"]');
+  return JSON.stringify({
+    there: !!button,
+    named: /vs code/i.test(button?.textContent || ""),
+    drawn: !!button?.querySelector("svg"),
+    // It names the folder it would open, which is the session's own — the
+    // request carries a session and never a path.
+    folder: (button?.title || "").includes("/"),
+  });
+})()`));
+check("the header opens the session's folder in an editor",
+  editor.there && editor.named && editor.drawn && editor.folder, JSON.stringify(editor));
+
 /* The Usage tab totals the transcript, so a fixture with no recorded model
    request has nothing to add up. Either way the tab must be there and must say
    which of the two it is rather than drawing an empty page. */
@@ -1355,17 +1371,24 @@ if (await evaluate(`!!document.getElementById('newButton')`)) {
       open: document.getElementById('sessionMenu').dataset.open === 'true',
       count: items.length,
       last: (items[items.length - 1]?.querySelector('.menu__label')?.textContent || '').trim(),
+      picksAnywhere: items.some((i) => /another folder/i.test(i.querySelector('.menu__label')?.textContent || '')),
       wide: document.documentElement.scrollWidth > document.documentElement.clientWidth,
     });
   })()`));
   check("New opens a menu of folders to start in", menu.open && menu.count >= 1,
     `${menu.count} items`);
-  check("and the last of them reaches anywhere on the disk",
-    /another folder/i.test(menu.last), menu.last);
+  check("one of them reaches anywhere on the disk", menu.picksAnywhere);
+  // Last, and on its own below a divider: a session in a terminal is the
+  // exception now — the panel cannot answer its prompts.
+  check("and the terminal route is the last word",
+    /in a terminal/i.test(menu.last), menu.last);
   check("the menu does not push the page sideways", !menu.wide);
-  await evaluate(`document.body.click()`);
+  // A press, not a click: what closes the menu is pointerdown, because the
+  // menu has to be gone before whatever was pressed acts on it.
+  await evaluate(`document.body.dispatchEvent(
+    new PointerEvent("pointerdown", { bubbles: true, composed: true }))`);
   await sleep(300);
-  check("clicking away puts the menu away",
+  check("pressing away puts the menu away",
     await evaluate(`document.getElementById('sessionMenu').dataset.open === 'false'`));
 }
 
@@ -1374,7 +1397,8 @@ if (await evaluate(`!!document.getElementById('newButton')`)) {
    which no fixture can arrange — so what is checked is that its two shapes are
    drawn from the state, by handing the renderer a prompt and reading the result. */
 {
-  const shapes = JSON.parse(await evaluate(`(() => {
+  const shapes = JSON.parse(await evaluate(`(async () => {
+    const { ownedAskCard } = await import("/views/owned.js");
     const gate = { requestId: "r1", tool: "Write", name: "Write", what: "notes.txt",
                    input: {}, asks: false, at: Date.now() / 1000 };
     const question = { requestId: "r2", tool: "AskUserQuestion", name: "AskUserQuestion",
