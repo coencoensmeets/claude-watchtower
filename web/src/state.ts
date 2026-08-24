@@ -69,6 +69,10 @@ export const app = {
     dark: matchMedia("(prefers-color-scheme: dark)").matches,
     contrast: "standard",
     notify: allNotifying(),
+    // Whether a session's header offers to open its folder in an editor. On by
+    // default: it is the state the panel shipped with, and a setting that hides
+    // a button should not be the reason a button was never seen.
+    showEditor: true,
   },
   feed: { sessions: [], now: Date.now() / 1000, historySeconds: 1800, canFocus: true, canSend: false },
   skew: 0,

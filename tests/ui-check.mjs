@@ -293,6 +293,44 @@ if (use.tiles) {
   check("usage says plainly when there is nothing to total", !!use.note, use.note);
 }
 
+/* A fixture session has asked nothing of a model, so the tab above stops at its
+   own "nothing to total" note and the drawing below it never runs — which is
+   how a panel that threw on every real session's Usage tab went out green.
+   So the panel is handed a reading of its own and asked to draw it. */
+const totals = JSON.parse(await evaluate(`(async () => {
+  const { usagePanel } = await import("/views/usage.js");
+  const { spend } = await import("/state.js");
+  const held = { usage: spend.usage, usageFor: spend.usageFor };
+  spend.usage = {
+    cost: 1.2345, context: 40_000, contextWindow: 200_000,
+    firstAt: "2026-08-24T09:00:00Z", lastAt: "2026-08-24T09:30:00Z",
+    totals: { requests: 12, input: 900, output: 300, thinking: 50,
+              cacheRead: 4000, cacheWrite5m: 500, cacheWrite1h: 0 },
+    models: [{ model: "claude-opus-5", requests: 12, input: 900, output: 300,
+               cacheRead: 4000, cacheWrite5m: 500, cacheWrite1h: 0,
+               cost: 1.2345, priced: true }],
+    agentModels: [],
+    unpriced: [],
+  };
+  spend.usageFor = "u1";
+  let html, error = "";
+  try { html = usagePanel({ sessionId: "u1", kind: "interactive" }); }
+  catch (thrown) { error = String(thrown.message); html = ""; }
+  Object.assign(spend, held);
+  const box = document.createElement("div");
+  box.innerHTML = html;
+  return JSON.stringify({
+    error,
+    tiles: box.querySelectorAll(".use-tile").length,
+    cost: (box.querySelector(".use-tile--lead .use-tile__value")?.textContent || "").trim(),
+    rows: box.querySelectorAll(".use-table tbody tr").length,
+  });
+})()`));
+check("a session that has asked something draws its totals",
+  !totals.error && totals.tiles >= 4 && totals.rows === 1,
+  totals.error || `${totals.tiles} tiles, ${totals.rows} models`);
+check("and the cost is money", /^\$/.test(totals.cost), totals.cost);
+
 await evaluate(`document.querySelector('[data-tab="chat"]').click()`);
 await sleep(800);
 

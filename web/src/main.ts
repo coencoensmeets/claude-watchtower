@@ -41,6 +41,8 @@ function loadSettings() {
   // Read key by key rather than taken whole: a kind added in a later version
   // should arrive switched on rather than undefined for everyone who has
   // already saved this.
+  const editor = localStorage.getItem("cbu-editor-button");
+  if (editor === "off" || editor === "on") app.settings.showEditor = editor === "on";
   const notify = readJson("cbu-notify", null);
   if (notify && typeof notify === "object") {
     for (const kind of NOTIFY_KINDS) {
@@ -53,6 +55,7 @@ export function persist() {
   localStorage.setItem("cbu-theme", app.settings.dark ? "dark" : "light");
   localStorage.setItem("cbu-contrast", app.settings.contrast);
   localStorage.setItem("cbu-notify", JSON.stringify(app.settings.notify));
+  localStorage.setItem("cbu-editor-button", app.settings.showEditor ? "on" : "off");
 }
 
 export function applyScheme() {

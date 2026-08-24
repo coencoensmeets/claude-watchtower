@@ -155,9 +155,12 @@ export function detailHeader(session, state, host) {
 /* Opening the session's folder in VS Code. Offered whatever state the session is
    in — a stopped one still has the checkout you were working in — and disabled
    rather than dropped when the panel cannot act, so its absence is never read as
-   a missing feature. */
+   a missing feature.
+
+   Turned off in Settings it goes away entirely: someone who does not open their
+   sessions in an editor is not helped by a disabled button explaining why. */
 function editorAction(session) {
-  if (!session.cwd) return "";
+  if (!session.cwd || !app.settings.showEditor) return "";
   const can = app.feed.canSend;
   return `<button class="button button--outlined md-state detail-header__editor" data-act="editor"
                   ${can ? "" : "disabled"} title="${can ? `Open ${escapeHtml(session.cwd)} in VS Code`

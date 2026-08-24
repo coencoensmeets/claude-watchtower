@@ -180,6 +180,21 @@ function settingsPage() {
         <div class="notify-grid" id="notifySwitches"></div>
         <div class="notify-permission" id="notifyHint" hidden></div>
       </section>
+      <!-- What a session's header offers. Only one thing so far, and it is
+           here rather than on the session because it is the same answer for
+           every session. -->
+      <section class="section">
+        <h3 class="section__title md-title-small">Session actions</h3>
+        <label class="switch">
+          <input type="checkbox" id="editorToggle">
+          <span class="switch__track"><span class="switch__thumb">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+          </span></span>
+          <span class="switch__label md-body-medium">Open in VS Code<span
+            class="switch__says md-label-small">A button on every session with a
+            folder, opening it in your editor</span></span>
+        </label>
+      </section>
       <section class="section">
         <button class="button button--text md-state" id="resetTheme">Reset colours</button>
       </section>
@@ -202,11 +217,17 @@ export function paintSettings() {
     persist();
     applyScheme();
   });
+  const editorToggle = detailPane.querySelector("#editorToggle");
+  editorToggle.checked = app.settings.showEditor;
+  editorToggle.addEventListener("change", (event) => {
+    app.settings.showEditor = event.target.checked;
+    persist();
+  });
   detailPane.querySelector("#closeSettings").addEventListener("click", () => openSettings(false));
   detailPane.querySelector("#resetTheme").addEventListener("click", () => {
     // Colours only. The button sits under the notification switches, and wiping
     // those as well would be a surprise the label does not warn about.
-    app.settings = { ...settings, seed: DEFAULT_SEED,
+    app.settings = { ...app.settings, seed: DEFAULT_SEED,
       dark: matchMedia("(prefers-color-scheme: dark)").matches, contrast: "standard" };
     persist(); applyScheme(); renderSwatches(); renderContrast(); showSnackbar("Colours reset");
   });

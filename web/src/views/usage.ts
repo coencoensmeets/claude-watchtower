@@ -51,7 +51,7 @@ export function usagePanel(session) {
     return `<p class="git-empty md-body-medium">Reading the transcript…</p>`;
   }
   const t = spend.usage.totals;
-  const every = [...usage.models, ...usage.agentModels];
+  const every = [...spend.usage.models, ...spend.usage.agentModels];
   if (!every.length) {
     return `<p class="git-empty md-body-medium">${session.kind === "child"
       ? `No transcript of its own — its usage lands in the session that started it.`
