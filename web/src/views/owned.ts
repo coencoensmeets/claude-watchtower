@@ -413,28 +413,51 @@ function stopButton(session) {
     title="${escapeHtml(why)}">${ICON.stop}</button>`;
 }
 
-/* The pictures waiting to go with the message, above the box they were pasted
-   into. A thumbnail each, because a file name is not how anyone recognises a
-   screenshot, and the path beside it, because the path is what is actually being
-   sent and there should be no doubt about that. */
+/* What is going with the message by path, above the box it was put into.
+
+   Two ways in and one strip: a picture pasted, which the panel had to save
+   before it could be named, and a file dropped from somewhere with no path to
+   give, which it saved for the same reason. A thumbnail for the picture, because
+   a file name is not how anyone recognises a screenshot; a glyph for the file,
+   which is known by its name and has no picture to show. The path is on both,
+   because the path is what is actually being sent and there should be no doubt
+   about that.
+
+   A file dropped *with* a path is not here at all — it was typed into the box as
+   a path and is part of the sentence. */
 function attachedStrip(session) {
   const shots = imagesFor(session.sessionId);
   if (!shots.length) return "";
   const rows = shots.map((shot) => {
-    const state = shot.failed ? shot.why : shot.path ? shot.name : "Saving…";
+    // A dropped file knows its name before it is saved, so it is named while it
+    // saves rather than being a nameless row that says "Saving…".
+    const state = shot.failed ? shot.why
+      : shot.path ? shot.name
+      : shot.name ? `${shot.name} — saving…`
+      : "Saving…";
+    const thumb = shot.url
+      ? `<img class="attached__thumb" src="${escapeHtml(shot.url)}" alt="">`
+      : `<span class="attached__thumb attached__thumb--file">${ICON.file}</span>`;
     return `<li class="attached__item${shot.failed ? " attached__item--failed" : ""}">
-        <img class="attached__thumb" src="${escapeHtml(shot.url)}" alt="">
+        ${thumb}
         <span class="attached__name md-label-small md-mono"
-          title="${escapeHtml(shot.path || state)}">${escapeHtml(state)}</span>
+          title="${escapeHtml(shot.path
+            ? (shot.kind === "file"
+               ? `${shot.path}\n\nA copy: the drag carried no path of its own.`
+               : shot.path)
+            : state)}">${escapeHtml(state)}</span>
         <button class="button button--text md-state attached__drop" type="button"
           data-act="unattach" data-id="${escapeHtml(shot.id)}"
-          title="Leave this picture out of the message">Remove</button>
+          title="Leave this out of the message">Remove</button>
       </li>`;
   }).join("");
+  // "picture" while they all are, which is the common case and the more precise
+  // word; "file" as soon as one of them is not.
+  const noun = shots.every((shot) => shot.kind !== "file") ? "picture" : "file";
   return `<div class="attached">
       <p class="attached__head md-label-small">${shots.length === 1
-        ? "1 picture goes with this message, by path"
-        : `${shots.length} pictures go with this message, by path`}</p>
+        ? `1 ${noun} goes with this message, by path`
+        : `${shots.length} ${noun}s go with this message, by path`}</p>
       <ul class="attached__list">${rows}</ul>
     </div>`;
 }
@@ -473,7 +496,7 @@ export function composer(session) {
        : owned.running ? "Send it a message…"
        : "Type and it starts back up…")
     : away ? "Write here — it goes in as soon as it is listening…"
-    : queued ? "Queue a message for when it finishes…" : "Send a message — paste a picture to send its path…";
+    : queued ? "Queue a message for when it finishes…" : "Send a message — drop a file to name it, paste a picture to send it…";
   // The mode lives in the header, beside the session's name, so what is left in
   // this bar is only what belongs to sending: the way in, for a session that is
   // not ours yet, and the failure of the last turn if there was one.

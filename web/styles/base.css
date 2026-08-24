@@ -76,6 +76,25 @@
     color: var(--md-sys-color-primary);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
+  /* The line itself: an anchor, inheriting the pill's colour and type so a
+     message that leads nowhere is indistinguishable from the text it replaced.
+     Only a linked one lights up — pointer-events come back on for it alone,
+     since the pill above hands its clicks through to the bar. */
+  .app-bar__nudge-line {
+    display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+    min-width: 0; color: inherit; font: inherit; text-decoration: none;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .app-bar__nudge-line[href] { pointer-events: auto; cursor: pointer; }
+  .app-bar__nudge-line[href]:hover { text-decoration: underline; text-underline-offset: 3px; }
+  .app-bar__nudge-line[href]:focus-visible {
+    outline: 2px solid var(--md-sys-color-primary); outline-offset: 4px;
+    border-radius: var(--md-sys-shape-corner-full);
+  }
+
+  /* The icon is swapped with the message, so it sits in a fixed-size box: a
+     taller glyph than the last one cannot shift the text along. */
+  .app-bar__nudge-icon { display: grid; place-items: center; width: 18px; height: 18px; flex: none; }
   .app-bar__nudge svg { width: 18px; height: 18px; flex: none; }
   .app-bar__nudge[hidden] { display: none; }
 

@@ -31,6 +31,13 @@
     font: inherit; font-family: var(--md-sys-typescale-body-large-font, inherit);
   }
   .composer__field:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: -2px; border-color: transparent; }
+  /* A file held over the box. The same ring as focus, filled a little, because
+     what is being said is "let go and it lands here" and the box is the target. */
+  .composer__field.is-dropping {
+    outline: 2px dashed var(--md-sys-color-primary); outline-offset: -2px;
+    border-color: transparent;
+    background: color-mix(in srgb, var(--md-sys-color-primary) 6%, var(--md-sys-color-surface-container-lowest));
+  }
   .composer__field:disabled { background: color-mix(in srgb, var(--md-sys-color-on-surface) 4%, transparent);
     border-color: var(--md-sys-color-outline-variant); color: var(--md-sys-color-on-surface-variant); }
   .composer__send { flex: none; min-height: 48px; }
@@ -96,6 +103,12 @@
     border-radius: var(--md-sys-shape-corner-small);
     background: color-mix(in srgb, var(--md-sys-color-on-surface) 6%, transparent);
   }
+  /* The stand-in for a file with no picture to show: the same square the
+     thumbnails occupy, so a mixed strip stays a column of names. */
+  .attached__thumb--file {
+    display: grid; place-items: center; color: var(--md-sys-color-on-surface-variant);
+  }
+  .attached__thumb--file svg { width: 20px; height: 20px; }
   .attached__name { min-width: 0; max-width: 26ch;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     color: var(--md-sys-color-on-surface-variant); }

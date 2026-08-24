@@ -1,6 +1,14 @@
 __pycache__/
 .claude/worktrees/
 
+# What the panel writes into a session's own folder: a picture pasted into the
+# composer, and a copy of a file dropped on it that carried no path of its own.
+# Both are scratch for one message — the pictures are swept after a fortnight —
+# so neither belongs in a commit. This covers the panel's own checkout; every
+# other repository the panel writes into needs the same two lines.
+.claude/watchtower-images/
+.claude/watchtower-files/
+
 # Built frontend — regenerated from web/ by `python3 server.py`.
 dist/
 .dist-build/

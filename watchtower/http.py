@@ -29,7 +29,8 @@ from watchtower.owned import (
     load_owned, owned_hold, owned_interrupt, owned_new, owned_queued, owned_release,
     owned_running, owned_say, owned_set_mode, owned_unqueue, save_owned,
 )
-from watchtower.paste import PASTE_MAX_BYTES, POST_MAX_BYTES, save_pasted_image
+from watchtower.paste import (DROP_MAX_BYTES, PASTE_MAX_BYTES, POST_MAX_BYTES,
+                              save_dropped_file, save_pasted_image)
 from watchtower.plan import read_plan
 from watchtower.proc import proc_gone
 from watchtower.rows import (
@@ -39,6 +40,7 @@ from watchtower.store import STORE
 from watchtower.transcript import (
     TRANSCRIPT_LIMIT_MAX, has_conversation, read_change, read_transcript,
 )
+from watchtower.update import do_update, read_update, running_here
 from watchtower.usage import read_usage
 from watchtower.windows import (
     WINDOWS, activate, clean_name, identify_and_pair, load_names, load_pairs, resolve_window,
@@ -256,6 +258,37 @@ class Handler(BaseHTTPRequestHandler):
         query = parse_qs(urlparse(self.path).query)
         self._json(read_plan((query.get("force") or [""])[0] == "1"))
 
+    @route("GET", "/api/update")
+    def _get_update(self) -> None:
+        # Behind the same gate as the plan reading, and for the same reason: the
+        # answer is read-only but getting it runs git and reaches the network, and
+        # the button beside it restarts a process on this machine. A panel that
+        # cannot act should not be telling you about updates it cannot apply.
+        if not config.SAY_ENABLED:
+            self._json({"ok": False, "repo": False, "canUpdate": False,
+                        "message": "Updating is off because the panel is not bound "
+                                   "to loopback"}, 403)
+            return
+        query = parse_qs(urlparse(self.path).query)
+        # The survey is held for hours; what a restart would cost is not. A turn
+        # starts and ends inside that window, so the running sessions are read
+        # here, fresh, and laid over the cached answer rather than kept in it.
+        found = read_update((query.get("force") or [""])[0] == "1")
+        self._json({**found, "running": running_here()})
+
+    @route("POST", "/api/update")
+    def _post_update(self, payload: dict, session_id: str) -> None:
+        # The sharpest thing in this file after /api/say: it moves the panel's own
+        # HEAD and replaces the process. Loopback only, and the version comes back
+        # from the browser only to be checked against what the server just read —
+        # never to be trusted as the thing to check out.
+        if not config.SAY_ENABLED:
+            self._json({"ok": False, "message": "Updating is off because the panel is not bound "
+                                                "to loopback"}, 403)
+            return
+        ok, message, restarting = do_update(str(payload.get("tag") or ""))
+        self._json({"ok": ok, "message": message, "restarting": restarting}, 200 if ok else 409)
+
     @route("GET", "/api/git")
     def _get_git(self) -> None:
         query = parse_qs(urlparse(self.path).query)
@@ -428,6 +461,34 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": False, "message": "There is no folder to save that picture in"}, 404)
             return
         ok, saved, message = save_pasted_image(cwd, str(payload.get("mime") or ""),
+                                               str(payload.get("data") or ""))
+        if not ok:
+            self._json({"ok": False, "message": message}, 400)
+            return
+        self._json({"ok": True, "path": saved, "message": message})
+
+    @route("POST", "/api/drop-file")
+    def _post_drop_file(self, payload: dict, session_id: str) -> None:
+        # A dropped file usually needs none of this: it has a path already and
+        # the message names it where it lies. This is the drop that came out of a
+        # browser's downloads or a mail client, which hands over the bytes and no
+        # path at all — so the panel writes a copy the session can read and names
+        # that. Same gate as a paste, and for the same reason: it is a write into
+        # somebody's checkout, made only to be named in a message.
+        if not config.SAY_ENABLED:
+            self._json({"ok": False, "message": "Sending is off because the panel is not bound "
+                                                "to loopback"}, 403)
+            return
+        if payload.get("oversize"):
+            self._json({"ok": False, "message": f"That file is larger than "
+                                                f"{DROP_MAX_BYTES // (1024 * 1024)} MB"}, 413)
+            return
+        session = self._session_by_id(session_id)
+        cwd = str((session or {}).get("cwd") or (kept_rows().get(session_id) or {}).get("cwd") or "")
+        if not cwd:
+            self._json({"ok": False, "message": "There is no folder to save that file in"}, 404)
+            return
+        ok, saved, message = save_dropped_file(cwd, str(payload.get("name") or ""),
                                                str(payload.get("data") or ""))
         if not ok:
             self._json({"ok": False, "message": message}, 400)

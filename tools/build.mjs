@@ -40,6 +40,7 @@ const STYLE_ORDER = [
   "chat.css",
   "facts.css",        // the Details tab
   "plan.css",         // how much of the subscription has gone, in the app bar
+  "update.css",       // a newer release of the panel, in the app bar beside it
   "usage.css",
   "git.css",          // Git and History
   "controls.css",     // buttons, switches, segmented buttons, the context menu

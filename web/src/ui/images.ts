@@ -1,4 +1,4 @@
-/* Pictures pasted into the box.
+/* What the box sends by path: pictures pasted, and files dropped without one.
 
    A message is text on every transport the panel has, so a picture travels as
    a path: it is written into the session's own folder and the message names it.
@@ -41,6 +41,9 @@ const PASTE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp
 /* Matches PASTE_MAX_BYTES on the server. Checked here too, so an oversize paste
    is refused before it is read into a string a third larger than it. */
 const PASTE_MAX_BYTES = 12 * 1024 * 1024;
+/* Matches DROP_MAX_BYTES on the server. A drop that had no path is whatever was
+   downloaded rather than a screenshot, so it is allowed to be bigger. */
+const DROP_MAX_BYTES = 32 * 1024 * 1024;
 
 /* Per session, like the draft it is going to be sent with, and for the same
    reason: switching away puts the pictures aside with the sentence they belong
@@ -55,6 +58,15 @@ export const imagesFor = (sessionId) => sayImages.get(sessionId) || [];
    and the picture you just pasted would not appear until something else moved. */
 export const imagesStamp = (sessionId) => imagesFor(sessionId)
   .map((shot) => `${shot.id}${shot.path ? "+" : shot.failed ? "!" : "…"}`).join(",");
+
+/* One row of the strip, before anything has been saved. `kind` is what it will
+   read as in the message and what the strip draws for it: a picture has a
+   thumbnail and a name it does not have yet, a file has its name from the start
+   and no picture to show. */
+const attachment = (kind, file, url) => ({
+  id: `shot${++pasteSeq}`, kind, url, type: file.type, bytes: file.size,
+  path: "", name: kind === "file" ? file.name : "", failed: false, why: "",
+});
 
 function setSayImages(sessionId, list) {
   if (list.length) sayImages.set(sessionId, list);
@@ -98,8 +110,7 @@ export async function attachPicture(session, file) {
     showSnackbar(`That picture is larger than ${Math.round(PASTE_MAX_BYTES / (1024 * 1024))} MB`);
     return;
   }
-  const shot = { id: `shot${++pasteSeq}`, url: URL.createObjectURL(file), type: file.type,
-                 bytes: file.size, path: "", name: "", failed: false, why: "" };
+  const shot = attachment("image", file, URL.createObjectURL(file));
   setSayImages(sessionId, [...imagesFor(sessionId), shot]);
   refreshDetail();
   const fail = (why) => { shot.failed = true; shot.why = why; };
@@ -123,10 +134,55 @@ export async function attachPicture(session, file) {
   if (imagesFor(sessionId).includes(shot)) refreshDetail();
 }
 
+/* One dropped file, from the drag to a path — for a drop that carried no path of
+   its own. Dragged out of Chrome's downloads, out of a mail client, out of
+   anything holding bytes rather than a file: there is nothing to name, so the
+   panel writes a copy into the session's folder and names that.
+
+   The same shape as a paste and deliberately so — the row appears before the
+   upload starts, the strip says where it got to, and Send waits for it. What
+   differs is only that the name is known from the beginning, because this one
+   came with one. */
+export async function attachFile(session, file) {
+  const sessionId = session.sessionId;
+  if (file.size > DROP_MAX_BYTES) {
+    showSnackbar(`That file is larger than ${Math.round(DROP_MAX_BYTES / (1024 * 1024))} MB`);
+    return;
+  }
+  const shot = attachment("file", file, "");
+  setSayImages(sessionId, [...imagesFor(sessionId), shot]);
+  refreshDetail();
+  const fail = (why) => { shot.failed = true; shot.why = why; };
+  try {
+    const response = await fetch("/api/drop-file", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId, name: file.name, data: await readAsBase64(file) }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (response.ok && data.ok && data.path) {
+      shot.path = data.path;
+      // The name the panel gave it, which is not always the name it was dropped
+      // under: a second drop of the same name is a second file.
+      shot.name = data.path.split("/").pop();
+    } else {
+      fail(data.message || "The panel could not save it");
+    }
+  } catch (error) {
+    fail("Could not reach the server");
+  }
+  if (imagesFor(sessionId).includes(shot)) refreshDetail();
+}
+
 /* The clipboard, filtered down to what is worth uploading. A copied region of a
    web page arrives as HTML *and* a bitmap; a copied file arrives as a file. Both
    are pictures here. Text is left alone entirely — the browser's own paste is
    what should happen to it, so this returns nothing and does not intervene. */
+/* Whether a file is one the paste route can save. Asked of a dropped file by
+   kind rather than by identity: `getAsFile()` hands back a fresh object every
+   call, so a picture off a drag is never the same object twice and comparing
+   them would send every dropped screenshot down the wrong route. */
+export const isPicture = (file) => PASTE_TYPES.has(file?.type);
+
 export function picturesOn(clipboard) {
   const items = [...(clipboard?.items || [])];
   return items
@@ -142,7 +198,11 @@ export function picturesOn(clipboard) {
    the sentence, not before: what you asked for reads first. */
 function withImages(body, shots) {
   if (!shots.length) return body;
-  const lines = shots.map((shot) => `[Pasted image: ${shot.path}]`).join("\n");
+  // Named for how it got here, because that is the difference the session might
+  // care about: a pasted picture exists nowhere else, where a saved copy of a
+  // dropped file came from somewhere you had a moment ago.
+  const lines = shots.map((shot) => shot.kind === "file"
+    ? `[Dropped file: ${shot.path}]` : `[Pasted image: ${shot.path}]`).join("\n");
   return body ? `${body}\n\n${lines}` : lines;
 }
 

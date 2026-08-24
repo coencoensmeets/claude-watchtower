@@ -67,7 +67,7 @@ def git_branch(cwd: str) -> str | None:
 # allowlist is here so that a later write path has to add itself deliberately
 # rather than inheriting the ability to run anything.
 GIT_READ_COMMANDS = frozenset({"status", "log", "rev-parse", "stash", "diff", "remote",
-                               "for-each-ref", "check-ref-format"})
+                               "for-each-ref", "check-ref-format", "describe"})
 
 
 def git_run(root: str, args: list[str], timeout: float = 6.0) -> tuple[bool, str]:

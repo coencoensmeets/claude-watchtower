@@ -8,6 +8,9 @@
     background: transparent; color: inherit; cursor: pointer; font: inherit; letter-spacing: inherit;
     position: relative;
   }
+  /* Same as the update chip beside it: a `display` of its own beats the `hidden`
+     attribute, and a read-only panel sets that attribute to take the chip away. */
+  .plan-chip[hidden] { display: none; }
   .plan-chip svg { width: 16px; height: 16px; }
   #planChipText { display: inline-flex; align-items: baseline; gap: 6px;
     font-variant-numeric: tabular-nums; }

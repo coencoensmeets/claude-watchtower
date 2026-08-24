@@ -11,10 +11,11 @@ import { isAmbiguous, windowSays } from "./sessions/facts.js";
 import { ASK_ICON, ASK_WORD, STATE, STATE_ORDER, displaySince, drawnStateOf, standingAsk, stateKeyOf } from "./sessions/state.js";
 import { CHAT_LIMIT_MAX, CHAT_PAGE, app, chat, loadKeySet, mutedSessions, quietWhenDone, readJson, repo, sayDrafts, selected, sessionById, sidebar, spend, ui } from "./state.js";
 import { askConfirm, askScrim, closeAsk } from "./ui/ask.js";
-import { backButton, barNudge, barNudgeText, barSupporting, chipSet, detailPane, endScrim, listEmpty, panes, pickBar, pickClear, pickCount, pickGroup, sessionList, settingsButton } from "./ui/dom.js";
+import { backButton, barNudge, barNudgeIcon, barNudgeLink, barNudgeText, barSupporting, chipSet, detailPane, endScrim, listEmpty, panes, pickBar, pickClear, pickCount, pickGroup, sessionList, settingsButton } from "./ui/dom.js";
 import { duration, escapeHtml, shorten, tokens } from "./ui/format.js";
 import { ICON, hostOf } from "./ui/icons.js";
 import { attachPicture, dropImage, imagesStamp, picturesOn, sendMessage } from "./ui/images.js";
+import { wireDrop } from "./ui/dropped.js";
 import { closeSessionMenu, menuIsOpen, openMenu, sessionMenu } from "./ui/menu.js";
 import { announce, paintFavicon } from "./ui/notify.js";
 import { conceal, reveal } from "./ui/overlay.js";
@@ -26,6 +27,7 @@ import { IDENTIFY_NOTE, commentIsOpen, markCommented, paintTrace, questionCard, 
 import { closeDiff, fetchGit, gitPanel, gitStamp, historyPanel, wireGit } from "./views/git.js";
 import { askPicksFor, compactPct, composer, detailHeader, ownedFor, pickMode, runsHere, sendAskAnswer } from "./views/owned.js";
 import { fetchPlan, openPlan, planScrim } from "./views/plan.js";
+import { fetchUpdate, openUpdate, updateScrim } from "./views/update.js";
 import { aboutPanel, usagePanel } from "./views/usage.js";
 import "./ui/markdown.js";
 import { serveRefresh } from "./refresh.js";
@@ -405,17 +407,32 @@ async function fetchUsage(force) {
    sentence with a preamble on it just gets ellipsised. The preamble was the
    part carrying no information anyway — the pill only appears when every
    session is busy. */
+/* Each line carries its own mark. One icon for ten different messages read as
+   decoration; the drop only means anything on the line about the water. The
+   strokes match the rest of the panel's icons: 24-box, round caps, no fill. */
+const nudgeIcon = (paths) =>
+  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
 const NUDGES = [
-  "Go drink some water",
-  "Stand up and stretch",
-  "Rest your eyes on the far wall",
-  "Refill your glass",
-  "Take a lap around the room",
-  "Unclench your jaw",
-  "Go get a snack",
-  "Roll your shoulders back",
-  "Look out of a window",
-  "Sit up straight",
+  { text: "Go drink some water", icon: nudgeIcon('<path d="M12 3s5.5 6 5.5 10a5.5 5.5 0 0 1-11 0C6.5 9 12 3 12 3z"/>') },
+  // A line stretched from both ends.
+  { text: "Stand up and stretch", icon: nudgeIcon('<path d="M12 3.5v17"/><path d="M8.5 7 12 3.5 15.5 7"/><path d="M8.5 17 12 20.5 15.5 17"/>') },
+  { text: "Rest your eyes on the far wall", icon: nudgeIcon('<path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12 18 17.5 12 17.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.4"/>') },
+  // A tumbler with a waterline, next to the drop that means drinking.
+  { text: "Refill your glass", icon: nudgeIcon('<path d="M6.5 4h11l-1.1 15.2a2 2 0 0 1-2 1.8h-4.8a2 2 0 0 1-2-1.8z"/><path d="M7.1 11.5h9.8"/>') },
+  // Once round the room: the loop, with the arrowhead saying it is a walk.
+  { text: "Take a lap around the room", icon: nudgeIcon('<path d="M20.5 12a8.5 8.5 0 1 1-3.4-6.8"/><path d="M20.5 4v5h-5"/>') },
+  { text: "Unclench your jaw", icon: nudgeIcon('<circle cx="12" cy="12" r="9"/><path d="M8.5 14.2s1.2 1.8 3.5 1.8 3.5-1.8 3.5-1.8"/><path d="M9 9.5h.01M15 9.5h.01"/>') },
+  { text: "Go get a snack", icon: nudgeIcon('<path d="M12 8.5c-2.9 0-5 2.2-5 5.5s2.4 7 5 7 5-3.7 5-7-2.1-5.5-5-5.5z"/><path d="M12 8.5c0-2 1.5-3.6 3.5-3.8"/>') },
+  // Head and shoulders, since the shoulders are the point.
+  { text: "Roll your shoulders back", icon: nudgeIcon('<circle cx="12" cy="7" r="3.2"/><path d="M4.5 20c1.3-3.7 4.1-5.8 7.5-5.8s6.2 2.1 7.5 5.8"/>') },
+  { text: "Look out of a window", icon: nudgeIcon('<rect x="4" y="4" width="16" height="16" rx="1.5"/><path d="M12 4v16M4 12h16"/>') },
+  // Straight up off a floor, rather than the stretch's pull in both directions.
+  { text: "Sit up straight", icon: nudgeIcon('<path d="M5 20.5h14"/><path d="M12 17.5V5"/><path d="M8.5 8.5 12 5l3.5 3.5"/>') },
+  // The one line that is not a nudge away from the screen, so it is the only one
+  // that goes anywhere: a phone on its side playing something, and a click opens
+  // the reels. New tab — the panel is a live view, and navigating away from it
+  // would drop the stream.
+  { text: "Watch some reels", icon: nudgeIcon('<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M10.8 9.6v4.8l4-2.4z"/>'), href: "https://www.instagram.com/reels/" },
 ];
 // How long one message stays up before the next one takes over.
 const NUDGE_ROTATE_MS = 90_000;
@@ -436,14 +453,30 @@ function renderNudge(counts) {
   const now = Date.now();
   // A fresh message each time the bar falls quiet, then a new one every so
   // often while it stays quiet — the same line for an hour stops being read.
+  // Stepping through the list in order made the sequence learnable, and a
+  // learnt sequence is read as wallpaper; the next one is drawn at random from
+  // the others instead, so it is never the line already on screen.
   if (!nudgeShownAt || now - nudgeShownAt >= NUDGE_ROTATE_MS) {
-    if (nudgeShownAt) nudgeIndex = (nudgeIndex + 1) % NUDGES.length;
+    if (nudgeShownAt) nudgeIndex = (nudgeIndex + 1 + Math.floor(Math.random() * (NUDGES.length - 1))) % NUDGES.length;
     nudgeShownAt = now;
   }
-  const text = NUDGES[nudgeIndex];
+  const { text, icon, href } = NUDGES[nudgeIndex];
   if (barNudgeText.textContent !== text) barNudgeText.textContent = text;
+  if (barNudgeIcon.innerHTML !== icon) barNudgeIcon.innerHTML = icon;
+  // The href is what makes the line clickable at all — the styling, the focus
+  // ring and the pointer all hang off `a[href]` — so it is removed again for the
+  // messages that lead nowhere rather than left over from the last one.
+  if (href) {
+    barNudgeLink.href = href;
+    barNudgeLink.target = "_blank";
+    barNudgeLink.rel = "noopener noreferrer";
+  } else {
+    barNudgeLink.removeAttribute("href");
+    barNudgeLink.removeAttribute("target");
+    barNudgeLink.removeAttribute("rel");
+  }
   barNudge.hidden = false;
-  barNudge.title = text;
+  barNudge.title = href ? `${text} — opens Instagram` : text;
 }
 
 /* --------------------------------------------------------------- rendering */
@@ -1192,7 +1225,10 @@ function renderDetail(force) {
   // when the pointer comes up — the signature stays stale until then.
   // The same goes for a name being typed: rebuilding would throw the field and
   // the half-typed name away.
-  if ((ui.resizingComposer || sidebar.renamingId === session.sessionId || commentIsOpen()) && !force) {
+  // A file held over the message box is the same case: rebuilding the pane under
+  // the drag would take away the box it is about to land in.
+  if ((ui.resizingComposer || ui.droppingOnComposer
+       || sidebar.renamingId === session.sessionId || commentIsOpen()) && !force) {
     const standing = detailPane.querySelector(".detail-header");
     if (standing) paintTrace(standing, session);
     return;
@@ -1364,6 +1400,10 @@ function renderDetail(force) {
       event.preventDefault();
       for (const picture of pictures) attachPicture(session, picture);
     });
+    // And a file dragged in from a file manager, which types its path. The rest
+    // of it is in ui/dropped.ts, including why a drop can name a file where a
+    // paste has to save one first.
+    wireDrop(field, session);
     field.addEventListener("keydown", (event) => {
       // The /-picker owns its keys while it stands, including Enter — which
       // takes the highlighted name rather than sending a half-typed one.
@@ -2130,6 +2170,7 @@ document.addEventListener("keydown", (event) => {
   else if (adoptScrim.dataset.open === "true") closeAdoptDialog();
   else if (endScrim.dataset.open === "true") closeEndDialog();
   else if (planScrim.dataset.open === "true") openPlan(false);
+  else if (updateScrim.dataset.open === "true") openUpdate(false);
   else if (app.showingSettings) openSettings(false);
   // A comparison standing in front of the conversation is the nearest thing to
   // modal in the pane, and Escape is how you come back out of it.
@@ -2167,6 +2208,10 @@ poll();
 setInterval(poll, 1000);
 fetchPlan(true);
 setInterval(() => fetchPlan(false), 30_000);
+// The panel's own version, on its own much longer clock: the server holds the
+// answer for hours, and a release does not land while you are looking at the bar.
+fetchUpdate(true);
+setInterval(() => fetchUpdate(false), 60_000);
 setInterval(() => {
   const now = Date.now() / 1000 + app.skew;
   for (const node of document.querySelectorAll("[data-since]")) {

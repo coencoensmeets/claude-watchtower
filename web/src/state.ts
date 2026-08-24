@@ -139,6 +139,9 @@ export const ui = {
   menuReturn: null,
   composerHeight: Number(localStorage.getItem("cbu-composer-height")) || null,
   resizingComposer: false,
+  // A file is being held over the message box. Same purpose as the flag above:
+  // the pane must not be rebuilt out from under a drag that has not landed yet.
+  droppingOnComposer: false,
 };
 
 export const selected = () => app.feed.sessions.find((s) => s.sessionId === app.selectedId) || null;

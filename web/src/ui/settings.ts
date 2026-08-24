@@ -3,6 +3,7 @@
 import { Hct, TonalPalette, argbFromHex, hexFromArgb } from "/vendor/material-color-utilities.js";
 import { applyScheme, openSettings, persist } from "../main.js";
 import { app } from "../state.js";
+import { paintUpdateSetting } from "../views/update.js";
 import { detailPane } from "./dom.js";
 import { escapeHtml } from "./format.js";
 import { ICON } from "./icons.js";
@@ -195,6 +196,12 @@ function settingsPage() {
             folder, opening it in your editor</span></span>
         </label>
       </section>
+      <!-- Which release the panel is on, and a button to go and ask. Empty
+           here on purpose: the app bar's chip only appears when there is
+           something to press, so this is the only place that says "up to date"
+           or names the reason a checkout is being left alone — and it is
+           filled by views/update.ts, which is what knows. -->
+      <section class="section" id="updateSection" hidden></section>
       <section class="section">
         <button class="button button--text md-state" id="resetTheme">Reset colours</button>
       </section>
@@ -212,6 +219,7 @@ export function paintSettings() {
   renderSwatches();
   renderContrast();
   renderNotify();
+  paintUpdateSetting();
   detailPane.querySelector("#themeToggle").addEventListener("change", (event) => {
     app.settings.dark = event.target.checked;
     persist();

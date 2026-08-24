@@ -64,6 +64,7 @@ python3 server.py
 | [Layout](#layout-an-index-and-a-detail-pane) | The index, groups, the detail pane and its five tabs |
 | [Sending a message](#sending-a-message) | The composer, the unix socket behind it, and its three honest limits |
 | [Pasting a picture](#pasting-a-picture) | A screenshot pasted into the box, saved into the session's folder and sent as a path |
+| [Dropping a file](#dropping-a-file) | A file dragged onto the box types its path — or is saved and named, when the drag has no path to give |
 | [The question it is asking](#the-question-it-is-asking) | The multiple-choice question a blocked session is standing at, read from the panel |
 | [Opening a session](#opening-a-session) | The native folder picker, and placing the folder it returns |
 | [Changes to files](#changes-to-files-in-the-conversation) | The patch a message carries, folded to a few lines, and the whole of it on a click |
@@ -72,6 +73,7 @@ python3 server.py
 | [Git and History](#git-and-history) | Staging, committing and pushing in the editor's own Source Control layout, and a commit graph drawn from real ancestry |
 | [Usage and cost](#usage-and-cost) | What a session has spent in tokens, and what that comes to at list price |
 | [How much of your plan has gone](#how-much-of-your-plan-has-gone) | The subscription's session and weekly limits, in the app bar |
+| [Updating the panel](#updating-the-panel) | The release tags on its own repository, the one button that moves to the newest, and what it warns you it will stop |
 | [Naming a session](#naming-a-session) | Call a session what you are using it for |
 | [Focusing a window](#focusing-a-window) | Matching by pid, identifying over the pty, pairing by hand |
 | [Ending a session](#ending-a-session) | SIGTERM, force quit, and the stale-pid check |
@@ -205,11 +207,29 @@ what is wrong with this dialog?
 
 The file lands in the session's **own folder**, under `.claude/watchtower-images/`. Not `/tmp`, which is swept out from under a conversation you come back to tomorrow, and not the panel's config directory, which a session may have no permission to read: it goes somewhere the session already reads from. Pictures older than a fortnight are swept by the next paste, so the folder does not grow for the life of the machine.
 
+That folder is inside your repository, so **it is worth ignoring**: a screenshot pasted to ask a question about it is scratch for one message and has no business in a commit. This repository ignores `.claude/watchtower-images/` and `.claude/watchtower-files/` — the same two lines are worth adding to any repository you use the panel in. The panel does not add them for you: writing to a `.gitignore` it was never asked to touch is not something a panel should do behind your back.
+
 The upload starts on the paste rather than on Send, so the round trip happens while you are still writing the sentence about it. What is drawn above the box is the file as it stands — a thumbnail, and either the name it was saved as, `Saving…`, or why not — with **Remove** on each to leave one out. Sending waits for anything still saving rather than sending a path to a file that is not there yet, and a picture with nothing typed beside it is a message in its own right.
 
 Only what a browser puts on the clipboard as a picture is taken over: PNG, JPEG, GIF, WebP and BMP, up to 12 MB. A pasted picture the panel does not recognise is refused before it is uploaded, and the extension is decided by its type rather than by any name in the request. Pasting text is left entirely to the browser.
 
 > **Same gate as sending**, and for the same reason turned up a notch: this writes a file into a checkout. Loopback only, and off entirely under `--no-send`.
+
+### Dropping a file
+
+**Drag a file onto the composer and its path is typed in at the caret.** Nothing is uploaded and nothing is copied: the session is already sitting in a folder with that file in it, so the shortest true thing to say is where it is, and it reads it with the tool it reads any file with. The path lands where you were typing, spaced off the words either side, and you write the sentence around it — drop several and they go in as a list, and a path with a space in it is quoted the way a terminal would take it.
+
+Which is why this is not the paste route. A screenshot on the clipboard has no path — it exists nowhere until the panel writes it — so pasting has to save it first. A dropped file has a path already, and copying it into `.claude/` to get one would leave a second copy of something that was never in doubt.
+
+The path comes off the drag, not off the file: a browser hands over a dropped file's name and bytes and never its path, but a drag out of a file manager usually carries the `file://` URI beside it, and that is what is read. When it is there, the real file is named and nothing is copied. A file on another host (`file://nas/share/x`) is not turned into a local path, and a drag of plain text is left entirely to the browser, which puts it in better than this would.
+
+**And plenty of drags have no path to give** — enough of them that this is the half that had better work. A file dragged out of Chrome's downloads is the ordinary case — the drag carries the bytes, and its `text/uri-list` is the address the file was fetched from rather than where it landed — and the same goes for a mail attachment or an image dragged off a page. There is nothing to name, so those take the route a pasted screenshot takes: the file is written into the session's folder, under `.claude/watchtower-files/`, and the message names the copy. It waits above the box while it saves, beside any pasted pictures, with **Remove** to leave it out.
+
+It keeps the name it was dropped under, because `read quarterly.pdf` tells the session something that `read drop-a1b2c3.bin` does not — but only the name: the directory part of it goes, anything outside `A–Z a–z 0–9 . _ -` becomes a dash, a leading dot cannot make the copy invisible in its own folder, and a long name is shortened here rather than erroring at the disk. A second drop of the same name is a second file and never an overwrite, since something already in the conversation may be pointing at the first. Unlike a paste, the kind is not checked — a paste is held to five picture types because that is all a clipboard should be offering, where a dropped file is whatever you meant the session to read — and it is bounded at 32 MB, which is a download rather than a screenshot.
+
+The one drop that fails is the drag that offers files and then has none, which the panel says rather than inventing a path for.
+
+> **The path is the path on the machine running the browser.** Watch a session on another host and a dropped path means nothing to it — the panel has no way to tell, so it types what you dropped and leaves the reading of it to you.
 
 ## The question it is asking
 
@@ -445,6 +465,32 @@ Being a headless errand, it stays out of the list, the same way the commit-messa
 Like sending a message and writing to a repository, this runs a command on this machine, so it sits behind the same gate: **loopback only**. A panel served to the network, or started with `--no-send`, answers 403 and shows no chip at all rather than one that refuses.
 
 **The output is a report for a person, not an interface, so nothing here insists on it.** Every line that reads as a limit becomes a bar; anything else is kept as prose in the order it arrived; and a release that changes the wording shows you the text it could not parse rather than an empty dialog. An API-key user, who has no plan to have anything left of, sees whatever `/usage` says about that.
+
+## Updating the panel
+
+The panel is a git checkout, and its releases are tags on that checkout. So "is there a newer version" needs no update server, no version endpoint and no second copy of the code to trust: it fetches the tags from the remote it was cloned from and compares the newest one against the commit `HEAD` is sitting on. Whoever can push a tag decides what a release is, and nothing else does.
+
+When there is a newer release *and* this checkout can take it, a chip appears in the app bar beside the plan chip, reading the version it found — **v1.4.0**, with an arrow that falls into a tray once every few seconds. Press it and the dialog says where you are, where the release is, how far apart they are, and what changed: the tag messages of every release between the two, in order, newest first. **Update and restart** takes it.
+
+**The chip is only ever there when there is something to press.** Not when you are up to date, and not when a release is out that this checkout is being left alone for — a chip in the app bar is an interruption, and none of those are worth one. All of it lives on the settings page instead, under **Panel version**: which release you are on, that it is the newest one and when that one was cut, or the reason a checkout is not going to be moved. Beside it is **Check for updates**, because "have I got the latest" is a question people ask on their own schedule rather than waiting for the clock to come round; it goes straight past the six-hour hold, says what it found in a snackbar, and turns into **See what changed** when the answer is yes.
+
+**And nothing appears at all when there is nothing to say.** Not a git checkout — a tarball, a copied directory — no chip and no section, and the panel stops asking. A panel that is not bound to loopback answers 403 and shows neither either: updating runs git and restarts a process, so it sits behind the same gate as sending a message.
+
+**A release only ever goes forwards.** A pre-release or build suffix on a tag is deliberately not a release — `v1.4.0` is, `v1.4.0-rc1` is not — so a tag you push to try something out does not restart everybody's panel. And a `HEAD` with commits the newest tag does not have is *ahead* of the releases rather than behind them, which the dialog says rather than offering to move you backwards.
+
+**It will not move over your work, or off your branch.** A checkout with uncommitted changes is left exactly where it is; so is one on a branch that is neither the default one nor a release tag. In both cases no chip appears, and **Panel version** on the settings page names which of the two it is. Somebody developing the panel should not have the panel offering to move their `HEAD` — nor nagging them about it from the app bar.
+
+**It says what the restart will cost before you press.** Coming back on the new code means letting go of every session the panel is *running itself*, so the dialog counts them and names them: three sessions, one of them mid-turn with a turn about to be cut off, two typed-ahead messages that would be dropped. The count is read live rather than out of the cached check — a turn starts and ends well inside six hours — and it keeps up while the dialog stands open, because a turn can begin between reading the warning and pressing the button. It is tinted only when something is actually in flight; a couple of idle sessions being restarted is a fact, not a warning.
+
+Sessions running in a **terminal** are deliberately not counted. One of those is its own process with its own pid and lives straight through a panel restart without noticing, and a warning that includes them is one people learn to press past. Either way no conversation is at stake — the transcripts are Claude Code's own files, exactly where they were, and `claude --resume` in the folder still finds them. The warning says that too, or it reads as though updating throws the work away.
+
+**The tag is checked out detached**, exactly as it was published. Fast-forwarding the default branch instead would land on the tip of `main`, which is not a release and not what the button said; `git switch main` puts you back on the branch whenever you want it. The dialog says this before you press, not afterwards in a snackbar.
+
+**The browser cannot name a version.** The request carries back the tag the page was shown, and the server checks it against what it reads for itself — so a page left open for a week cannot update to something it never offered, and a tag in a request is never the thing that gets checked out.
+
+Then the panel comes back on the new code. The frontend is TypeScript, so it is rebuilt first — here rather than on the way up, so a release whose frontend does not build is something you are told about now instead of silently serving the previous one. Under the bundled systemd unit the restart is systemd's job, queued with `--no-block` so the request is accepted before the process goes; started by hand, the panel replaces itself with `os.execv` — same interpreter, same arguments, code freshly read off disk. Either way the sessions it was running here are let go of first, because `execv` runs no `atexit` handler and a held `claude` with nobody to reap it is the two-processes-one-conversation hazard arriving by the back door. Their conversations stay on disk, where they always were. The page waits for the panel to answer again and reloads itself onto the new frontend — the code that pressed the button is the old version's, and it has just been superseded.
+
+**The check is on a long clock.** A fetch reaches the network and a release lands every few days at best, so the server holds its answer for six hours and the page asks every half hour; opening the dialog, or pressing **Check again**, asks for a fresh one. Two checks never run at once — the second is told one is on its way and shown what there is.
 
 ## Naming a session
 
@@ -741,7 +787,7 @@ systemctl --user enable --now claude-watchtower
 | Path | What's inside |
 |---|---|
 | `server.py` | The way in: arguments, the frontend build, the polling thread, serve |
-| `watchtower/` | The panel itself — `config`, `proc`, `sessions`, `rows`, `store`, `transcript`, `usage`, `catalog`, `windows`, `control`, `input`, `owned`, `paste`, `plan`, `git/`, `http` |
+| `watchtower/` | The panel itself — `config`, `proc`, `sessions`, `rows`, `store`, `transcript`, `usage`, `catalog`, `windows`, `control`, `input`, `owned`, `paste`, `plan`, `update`, `git/`, `http` |
 | `watchtower/build.py` | Finds Node and runs the frontend build when `web/` has changed |
 | `tools/build.mjs` | The build: strips types, concatenates stylesheets, copies assets |
 | `web/index.html` | The page shell — markup only |
@@ -751,12 +797,15 @@ systemctl --user enable --now claude-watchtower
 | `web/assets/vendor/` | `material-color-utilities`, for dynamic colour |
 | `dist/` | The built frontend, which is what the panel serves. Generated; not in git |
 | `tests/python/` | Unit tests over the readers, and over the package's own wiring |
+| `tests/python/test_update_repo.py` | The updater against a real history: which releases a checkout is actually missing |
+| `tests/update-check.mjs` | The two sentences the update dialog is judged by, drawn without a browser |
 | `tests/fixtures.py` | Stands up a session in every state |
 | `tests/ui-check.mjs` | UI checks over CDP (tokens, contrast, settings) |
 | `tests/paste-check.py` | The write behind a pasted picture, and the endpoint that does it |
 | `tests/turn-check.py` | The queue behind a panel-run turn, and stopping one |
 | `tests/chat-check.mjs` | The change a message carries, drawn without a browser |
 | `tests/composer-check.mjs` | The composer's own template, drawn without a browser |
+| `tests/drop-check.mjs` | A file dropped on the box, in a real browser: the path typed in, and the copy saved when there is no path |
 | `claude-watchtower.service` | Optional systemd user unit |
 | `docs/cleanup-plan.md` | The staged refactor this layout is partway through |
 
@@ -807,9 +856,9 @@ google-chrome --headless=new --remote-debugging-port=9333 \
 node tests/ui-check.mjs
 ```
 
-`tests/composer-check.mjs` needs neither a browser nor a running panel: it lifts the composer's template out of the page, hands it a session in each state and asserts what it draws — that a live session still shows the mode bar, disabled and saying what would free it, that a kept one's chips can be picked, that a standing prompt takes the box's room, and that a blocked session leads with its reason. `node tests/composer-check.mjs`, any Node, no setup. It exists because a duplicate `const` in that function turned the whole inline script into a syntax error, and nothing else in the suite runs without a Chrome.
+`tests/composer-check.mjs` needs neither a browser nor a running panel: it lifts the composer's template out of the page, hands it a session in each state and asserts what it draws — that a live session still shows the mode bar, disabled and saying what would free it, that a kept one's chips can be picked, that a standing prompt takes the box's room, and that a blocked session leads with its reason. It also drives the drop side of the box away from a browser: that a dragged `file://` URI becomes the path it stands for, escapes and all, that several files come in as a list, that a file on another host or a dragged link is refused rather than invented, and that the path lands at the caret spaced off the words either side. `node tests/composer-check.mjs`, any Node, no setup. It exists because a duplicate `const` in that function turned the whole inline script into a syntax error, and nothing else in the suite runs without a Chrome.
 
-`tests/paste-check.py` needs neither a browser nor a panel of your own: it drives the write behind a pasted picture, then the endpoint over a real socket with a fake session standing in for a running one. That the file lands under `.claude/watchtower-images/` in the session's own folder and carries the bytes off the clipboard, that two pastes in the same second do not collide, that anything which is not a picture — HTML, a shell script — is refused rather than written with an extension of its choosing, that a body far too big for any screenshot is turned away without being held in memory, that the fortnight sweep clears what an earlier paste left while leaving the fresh ones, and that with sending off nothing is written at all. `python3 tests/paste-check.py`.
+`tests/paste-check.py` needs neither a browser nor a panel of your own: it drives the write behind a pasted picture, then the endpoint over a real socket with a fake session standing in for a running one. That the file lands under `.claude/watchtower-images/` in the session's own folder and carries the bytes off the clipboard, that two pastes in the same second do not collide, that anything which is not a picture — HTML, a shell script — is refused rather than written with an extension of its choosing, that a body far too big for any screenshot is turned away without being held in memory, that the fortnight sweep clears what an earlier paste left while leaving the fresh ones, and that with sending off nothing is written at all. The drop side of it too — the copy a pathless drag has to be saved as: that it lands in `.claude/watchtower-files/` under the name it was dropped as, that a name which tried to be a path is only ever a name, that a hidden name cannot hide the copy, that a second drop of the same name is a second file, and that its kind is not judged the way a paste's is. `python3 tests/paste-check.py`.
 
 `tests/chat-check.mjs` lifts the functions that draw a file change in the conversation and asserts what they draw. Folded: that a tool which changed nothing carries nothing, that the patch is coloured line by line and folded until it is asked to open, that the bar counts what it did and says how much more there is, that the folded patch is a click target of its own, that opening keeps the preview on screen until the whole change lands, and that what a patch contains is escaped rather than run. Opened: that the hunk header is a row across both sides, that an unchanged line is the same row on both, that a removal and the line that replaced it share a row while a removal with nothing to answer it leaves the other side empty, that the numbering carries on correctly past a change of unequal length, and that both panes are drawn and named. `node tests/chat-check.mjs`, any Node, no setup.
 
@@ -822,6 +871,8 @@ node tests/ui-check.mjs
 The Git checks want a session whose folder is in a repository: they find one from `/api/state`, then assert that both tabs appear, that Git reads the branch and marks every file with its status letter and a way to open it while carrying no graph, that the files land in the editor's three groups, that the commit box and its split button are there when writing is on — and that a read-only panel says so and offers nothing — that a row opens exactly one diff and closes it again, that History draws one node per commit and keeps no file list, that each rail is the same height as its row — a mismatch there is what leaves the lanes broken at every join — that both clear 4.5:1, and that all five tabs stay reachable at 48dp. With no such fixture they say so and skip rather than failing for a reason that has nothing to do with the panel.
 
 **No check stages or commits anything.** The suite runs against whatever real sessions are on the machine, and a test that commits in somebody's checkout to prove a button works has done more than it was asked. It asserts that the controls are there and wired; the one action it actually performs is opening a diff, which only reads.
+
+`tests/drop-check.mjs` is the one check that has to be a browser, because what it is checking is what a browser puts on a drag. It wants the same panel and the same headless Chrome as the UI checks, then drops a `text/uri-list` on the box and asserts the path is typed in at the caret and quoted for the space in it; drops a `File` with no path on it — which is exactly the shape of a drag out of Chrome's downloads — and asserts the copy is saved into the session's folder under the name it was dropped as, that the strip says plainly that it is a copy, that the box itself stays empty, and that the file really is on disk with the bytes off the drag; and asserts that a drag of plain text is left to the browser. `node tests/drop-check.mjs`.
 
 The commenting checks want a session with a readable transcript, which fixtures do not have: they find one, prefer a quiet session over a working one — a busy session rewrites its transcript underneath the run — and sweep the transcript's scroll positions looking for a run of text genuinely on screen, since a viewport holding only a table or a tool row has nothing to select however long you wait. They then assert that selecting a passage raises a bar offering Copy and Comment, that Copy puts the passage on the clipboard, that Comment opens a card carrying that passage with the caret in it and level with the mark in the transcript, that the rail is a margin when there is room and a popover clamped on screen when there is not, that nothing is sendable until a remark is written, that a card being typed in survives several polls, that a second passage opens a second card without the two overlapping, that a selection across bubbles becomes one card each, that a passage out of a code block goes back fenced rather than flattened, that a tool row can be commented on, that Alt+C opens a card from the keyboard, that sent comments leave the rail while their marks stay, and that Escape puts the bar away. The highlight is measured on **both** kinds of bubble against the ground each actually sits on.
 
@@ -843,6 +894,8 @@ PANEL_URL=http://127.0.0.1:8787 node tests/ui-check.mjs
 | `GET /api/usage` | `?sessionId=…` — that session's token totals per model, the cost they come to, and the size of its last context |
 | `GET /api/commands` | `?sessionId=…` — the skills and slash commands that session could be asked for, read from the project's folders, yours, and any enabled plugin's. A session that has gone is answered with what is true of every session rather than a 404 |
 | `GET /api/plan` | The subscription's limits, read by running `claude --print /usage`; `?force=1` skips the five-minute cache; loopback only |
+| `GET /api/update` | Whether a newer release is tagged on this checkout's own remote: the release HEAD is on, the newest one, the notes in between, and whether it can be applied; `?force=1` skips the six-hour cache; loopback only |
+| `POST /api/update` | `{"tag": "v1.4.0"}` — check that release out, rebuild the frontend and restart the panel on it. The tag is checked against what the server reads for itself rather than trusted; loopback only |
 | `GET /api/git` | `?sessionId=…` — that session's repository: branch, upstream drift, changed files, recent commits with their parents, and the branches it could switch to |
 | `GET /api/git/diff` | `?sessionId=…&path=…&staged=1` — one changed file's unified diff, one side at a time |
 | `POST /api/git` | `{"sessionId": "...", "action": "...", …}` — one source-control action: `stage`, `unstage`, `discard` (each with `paths`), `stageAll`, `unstageAll`, `discardAll`, `commit` (`message`, `amend`, `stageAll`), `push` (`force` uses a lease), `pull`, `fetch`, `sync`, `stash`, `stashPop`, `switch` (`branch`, `create`, `from`), `suggestMessage` (answers with `text`, the message it wrote); loopback only |
@@ -868,6 +921,7 @@ PANEL_URL=http://127.0.0.1:8787 node tests/ui-check.mjs
 | `POST /api/owned/unqueue` | `{"sessionId": "...", "index": 0}` — take back something typed ahead, before the session reaches it. Omit `index` to drop everything still waiting. Answers with what is left; loopback only |
 | `POST /api/say` | `{"sessionId": "...", "text": "..."}` — send a message into that session; loopback only |
 | `POST /api/paste-image` | `{"sessionId": "...", "mime": "image/png", "data": "<base64>"}` — write a pasted picture into that session's folder under `.claude/watchtower-images/` and answer with its `path`, for the message to name. The folder is the session's own and never comes from the request; the extension comes from `mime`, which must be one of PNG, JPEG, GIF, WebP or BMP, and the picture from 12 MB down; loopback only |
+| `POST /api/drop-file` | `{"sessionId": "...", "name": "report.pdf", "data": "<base64>"}` — write a dropped file that came with no path of its own into that session's folder under `.claude/watchtower-files/` and answer with its `path`. The folder is the session's own and never comes from the request; the name is reduced to a name and can only land inside that folder; 32 MB down; loopback only |
 
 A dead process is never reported: each session file records the pid's start time, and the panel re-checks it against `/proc` so a recycled pid cannot masquerade as a live session.
 

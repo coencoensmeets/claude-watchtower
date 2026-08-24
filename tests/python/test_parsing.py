@@ -17,13 +17,18 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from watchtower import config, input, plan, store, transcript  # noqa: E402
+from watchtower import config, input, owned, plan, store, transcript, update  # noqa: E402
 from watchtower.git import message, read, write  # noqa: E402
 
 
 def porcelain(*records: str) -> str:
     """Join records the way `status --porcelain=v2 -z` does — NUL after each."""
     return "".join(record + "\0" for record in records)
+
+
+def record(tag: str, at: str, sha: str, subject: str, body: str) -> str:
+    """One `for-each-ref` record, the way update.read_tags asks for it."""
+    return update.FIELD.join([tag, at, sha, subject, body]) + update.RECORD
 
 
 class StatusFreshness(unittest.TestCase):
@@ -361,6 +366,177 @@ class SmallHelpers(unittest.TestCase):
     def test_anything_reachable_from_elsewhere_is_not_loopback(self):
         for host in ("0.0.0.0", "192.168.1.10", "example.com", "::"):
             self.assertFalse(input.is_loopback(host), host)
+
+
+class ReleaseTags(unittest.TestCase):
+    """update.release_of / update.parse_tags — which tags are releases, in order."""
+
+    def test_a_plain_three_part_version_is_a_release_with_or_without_the_v(self):
+        self.assertEqual(update.release_of("v1.4.0"), (1, 4, 0))
+        self.assertEqual(update.release_of("1.4.0"), (1, 4, 0))
+        self.assertEqual(update.release_of(" v0.0.1 "), (0, 0, 1))
+
+    def test_anything_else_is_not_a_release(self):
+        for tag in ("v1.4", "v1.4.0-rc1", "v1.4.0+build", "nightly", "release-1.4.0", ""):
+            self.assertIsNone(update.release_of(tag), tag)
+
+    def test_tags_come_back_newest_first_by_version_not_by_string(self):
+        text = record("v1.9.0", "10", "aaa", "nine", "") + record("v1.10.0", "20", "bbb", "ten", "")
+        self.assertEqual([t["tag"] for t in update.parse_tags(text)], ["v1.10.0", "v1.9.0"])
+
+    def test_a_multiline_release_body_survives_the_next_tag(self):
+        text = (record("v2.0.0", "20", "bbb", "the big one", "First line.\nSecond line.")
+                + record("v1.0.0", "10", "aaa", "the first", ""))
+        tags = update.parse_tags(text)
+        self.assertEqual(tags[0]["body"], "First line.\nSecond line.")
+        self.assertEqual(tags[1]["tag"], "v1.0.0")
+
+    def test_a_tag_that_is_not_a_release_is_left_out_rather_than_carried(self):
+        text = record("v1.0.0", "10", "aaa", "one", "") + record("some-branch-point", "20", "bbb", "x", "")
+        self.assertEqual([t["tag"] for t in update.parse_tags(text)], ["v1.0.0"])
+
+    def test_an_unreadable_date_does_not_lose_the_tag(self):
+        self.assertEqual(update.parse_tags(record("v1.0.0", "not-a-date", "aaa", "one", "")),
+                         [{"tag": "v1.0.0", "version": [1, 0, 0], "at": 0.0, "sha": "aaa",
+                           "subject": "one", "body": ""}])
+
+
+class WhyNot(unittest.TestCase):
+    """update.why_not — the reasons a checkout is left where it is."""
+
+    CLEAN = {"dirty": False, "branch": "main", "detached": False}
+
+    def test_a_clean_checkout_on_the_default_branch_can_move(self):
+        self.assertEqual(update.why_not(self.CLEAN, "main", 0), "")
+
+    def test_a_detached_checkout_can_move_because_a_release_tag_is_detached(self):
+        self.assertEqual(update.why_not({**self.CLEAN, "branch": "", "detached": True}, "main", 0), "")
+
+    def test_uncommitted_work_is_the_first_thing_said(self):
+        why = update.why_not({**self.CLEAN, "dirty": True, "branch": "wip"}, "main", 3)
+        self.assertIn("uncommitted work", why)
+
+    def test_somebody_elses_branch_is_left_alone(self):
+        why = update.why_not({**self.CLEAN, "branch": "feature/x"}, "main", 0)
+        self.assertIn("feature/x", why)
+        self.assertIn("leaves it alone", why)
+
+    def test_being_ahead_of_the_newest_release_is_not_being_behind_it(self):
+        self.assertIn("ahead", update.why_not(self.CLEAN, "main", 1))
+        self.assertIn("1 commit ", update.why_not(self.CLEAN, "main", 1))
+        self.assertIn("2 commits ", update.why_not(self.CLEAN, "main", 2))
+
+
+class RunningHere(unittest.TestCase):
+    """update.running_here — what a restart would actually cost.
+
+    Only the sessions the panel runs itself. One in a terminal is its own process
+    with its own pid and lives straight through a panel restart, so counting it
+    would be warning about nothing — and a warning that cries wolf is one people
+    learn to press past.
+    """
+
+    class Alive:
+        """Stands in for a held Popen. `poll()` is the whole of the interface."""
+        def __init__(self, gone=False):
+            self.gone = gone
+
+        def poll(self):
+            return 1 if self.gone else None
+
+    def hold(self, **procs):
+        """Put fake held sessions in place for the length of one test."""
+        for store in (owned.OWNED_PROCS, owned.OWNED_BUSY, owned.OWNED_QUEUE, owned.OWNED_COMPACT):
+            kept = dict(store)
+            store.clear()
+            self.addCleanup(lambda s=store, k=kept: (s.clear(), s.update(k)))
+        owned.OWNED_PROCS.update({sid: {"proc": proc} for sid, proc in procs.items()})
+
+    def test_nothing_held_is_nothing_to_warn_about(self):
+        self.hold()
+        self.assertEqual(update.running_here(),
+                         {"here": 0, "busy": 0, "compacting": 0, "queued": 0, "names": []})
+
+    def test_a_held_session_is_counted(self):
+        self.hold(one=self.Alive())
+        self.assertEqual(update.running_here()["here"], 1)
+
+    def test_a_process_that_has_already_gone_is_not(self):
+        self.hold(one=self.Alive(), two=self.Alive(gone=True))
+        self.assertEqual(update.running_here()["here"], 1)
+
+    def test_a_turn_in_flight_is_counted_apart(self):
+        self.hold(one=self.Alive(), two=self.Alive())
+        owned.OWNED_BUSY["one"] = 1.0
+        found = update.running_here()
+        self.assertEqual((found["here"], found["busy"]), (2, 1))
+
+    def test_a_turn_in_flight_on_a_session_that_is_gone_is_not_counted(self):
+        # The bookkeeping outlives the process by a moment either way round, and
+        # a warning about a session that is not there is worse than none.
+        self.hold(one=self.Alive(gone=True))
+        owned.OWNED_BUSY["one"] = 1.0
+        self.assertEqual(update.running_here()["busy"], 0)
+
+    def test_typed_ahead_messages_are_totalled_across_sessions(self):
+        self.hold(one=self.Alive(), two=self.Alive())
+        owned.OWNED_QUEUE["one"] = ["a", "b"]
+        owned.OWNED_QUEUE["two"] = ["c"]
+        self.assertEqual(update.running_here()["queued"], 3)
+
+    def test_a_queue_on_a_session_that_is_gone_is_not_totalled(self):
+        self.hold(one=self.Alive(gone=True))
+        owned.OWNED_QUEUE["one"] = ["a", "b"]
+        self.assertEqual(update.running_here()["queued"], 0)
+
+    def test_only_a_compaction_that_is_actually_running_counts(self):
+        self.hold(one=self.Alive(), two=self.Alive())
+        owned.OWNED_COMPACT["one"] = {"running": True}
+        owned.OWNED_COMPACT["two"] = {"running": False}
+        self.assertEqual(update.running_here()["compacting"], 1)
+
+    def test_the_names_put_the_mid_turn_ones_first(self):
+        # They are the ones worth reading before pressing, so they are the ones
+        # that survive the cut when there are more sessions than room for names.
+        self.hold(**{f"s{n}": self.Alive() for n in range(6)})
+        owned.OWNED_BUSY["s5"] = 1.0
+        names = update.running_here()["names"]
+        self.assertEqual(len(names), update.RUNNING_NAMES_MAX)
+
+    def test_a_session_with_no_row_still_gets_a_word_for_a_name(self):
+        self.hold(**{"no-such-session-at-all": self.Alive()})
+        self.assertEqual(update.running_here()["names"], ["a session"])
+
+
+class UnitFromCgroup(unittest.TestCase):
+    """update.unit_from_cgroup — which unit, if any, gets restarted.
+
+    The one function here where a wrong answer is destructive: `user@1000.service`
+    is the user's whole session manager, and every process in a desktop sits
+    somewhere underneath it.
+    """
+
+    def test_a_service_is_named_by_the_leaf_of_its_cgroup(self):
+        self.assertEqual(update.unit_from_cgroup(
+            "0::/user.slice/user-1000.slice/user@1000.service/app.slice/"
+            "claude-watchtower.service\n"), "claude-watchtower.service")
+
+    def test_a_scope_inside_the_session_manager_is_not_a_unit_to_restart(self):
+        self.assertEqual(update.unit_from_cgroup(
+            "0::/user.slice/user-1000.slice/user@1000.service/app.slice/"
+            "app-code-7989.scope\n"), "")
+
+    def test_the_session_manager_itself_is_never_the_answer(self):
+        self.assertEqual(update.unit_from_cgroup(
+            "0::/user.slice/user-1000.slice/user@1000.service\n"), "")
+
+    def test_a_cgroup_v1_machine_gets_no_answer_rather_than_a_guess(self):
+        self.assertEqual(update.unit_from_cgroup(
+            "12:pids:/user.slice\n11:cpu:/user.slice/thing.service\n"), "")
+
+    def test_nothing_readable_is_no_unit(self):
+        for text in ("", "\n", "0::/", "0::/init.scope"):
+            self.assertEqual(update.unit_from_cgroup(text), "", repr(text))
 
 
 if __name__ == "__main__":

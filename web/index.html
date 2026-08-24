@@ -18,12 +18,30 @@
       <span class="app-bar__supporting md-label-medium" id="barSupporting"></span>
     </div>
     <div class="app-bar__nudge md-label-large" id="barNudge" hidden aria-live="polite">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M12 3s5.5 6 5.5 10a5.5 5.5 0 0 1-11 0C6.5 9 12 3 12 3z"/>
-      </svg>
-      <span id="barNudgeText"></span>
+      <!-- An anchor whether or not the message goes anywhere: without an href it
+           is not focusable and takes no clicks, so the plain nudges behave as
+           the text they were, and the one that does lead somewhere gets a real
+           link rather than a div listening for clicks. -->
+      <a class="app-bar__nudge-line" id="barNudgeLink">
+        <!-- Filled in with the icon belonging to the message on screen: a drop
+             for water, an eye for looking away, a window for the window. -->
+        <span class="app-bar__nudge-icon" id="barNudgeIcon" aria-hidden="true"></span>
+        <span id="barNudgeText"></span>
+      </a>
     </div>
     <div class="app-bar__actions">
+      <!-- Only ever on screen when there is actually a newer release: the panel
+           reads its own repository's tags, so an update is a fact rather than a
+           standing invitation. -->
+      <button class="update-chip md-state md-label-large" id="updateButton" hidden
+              aria-haspopup="dialog" title="A newer release is out">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path class="update-arrow" d="M12 3v10"/>
+          <path class="update-arrow" d="M8 9.5l4 4 4-4"/>
+          <path class="update-tray" d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>
+        </svg>
+        <span id="updateChipText">Update</span>
+      </button>
       <button class="plan-chip md-state md-label-large" id="planButton" hidden
               aria-haspopup="dialog" title="How much of your plan has gone">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -62,6 +80,20 @@
       <p class="list-empty md-body-medium" id="listEmpty" hidden></p>
     </nav>
     <section class="detail-pane" id="detailPane" aria-live="polite"></section>
+  </div>
+</div>
+
+<div class="scrim" id="updateScrim" data-open="false">
+  <div class="dialog dialog--wide" role="dialog" aria-modal="true" aria-labelledby="updateHeadline">
+    <h2 class="dialog__headline md-headline-small" id="updateHeadline">A newer release is out</h2>
+    <p class="dialog__supporting md-body-medium" id="updateHead"></p>
+    <div id="updateBody"></div>
+    <div class="dialog__actions">
+      <span class="update-age md-label-small dialog__actions-start" id="updateAge"></span>
+      <button class="button button--text md-state" id="updateCheck">Check again</button>
+      <button class="button button--text md-state" id="closeUpdate">Not now</button>
+      <button class="button button--filled md-state" id="updateGo">Update and restart</button>
+    </div>
   </div>
 </div>
 

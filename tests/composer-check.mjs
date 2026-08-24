@@ -76,7 +76,8 @@ const escapeHtml = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp
 const OWNED_MODE_LABEL = { default: "Manual", auto: "Auto", plan: "Plan", acceptEdits: "Accept edits" };
 let FEED = {};
 const ownedFor = (s) => FEED[s.sessionId] || {};
-const ICON = { check: "<svg/>", ask: "<svg/>", play: "<svg/>", stop: "<svg/>", compact: "<svg/>" };
+const ICON = { check: "<svg/>", ask: "<svg/>", play: "<svg/>", stop: "<svg/>", compact: "<svg/>",
+               file: "<svg/>" };
 const ownedAskCard = () => "<ASKCARD>";
 let IMAGES = {};
 const imagesFor = (id) => IMAGES[id] || [];
@@ -88,7 +89,8 @@ const catalog = { get entries() { return CATALOG.entries; },
 
 const { composer, modeBar, setFeed, setImages, sendBlockedReason, runsHere, queuedStrip,
         stopButton, attachedStrip, contextBar, terminalOnly, sentAs, knownCommand,
-        compactPct, drawnStateOf, STATE, STATE_ORDER, setCatalog } = new Function(
+        compactPct, drawnStateOf, STATE, STATE_ORDER, setCatalog,
+        pathOfUri, pathsOn, dragCarriesFiles, quotePath, insertAtCaret, withImages } = new Function(
   `const app = { feed: { canSend: true }, skew: 0 };
    const chat = { transcript: null, changeShown: null };
    const ui = { composerHeight: null };
@@ -122,7 +124,14 @@ const { composer, modeBar, setFeed, setImages, sendBlockedReason, runsHere, queu
    ${liftConst("cmdEntry")}
    ${lift("sentAs")}
    ${lift("composer")}
-   return { composer, modeBar, runsHere, queuedStrip, stopButton, attachedStrip, contextBar,
+   ${lift("pathOfUri")}
+   ${lift("pathsOn")}
+   ${liftConst("dragCarriesFiles")}
+   ${lift("quotePath")}
+   ${lift("insertAtCaret")}
+   ${lift("withImages")}
+   return { pathOfUri, pathsOn, dragCarriesFiles, quotePath, insertAtCaret, withImages,
+            composer, modeBar, runsHere, queuedStrip, stopButton, attachedStrip, contextBar,
             compactPct, drawnStateOf, STATE, STATE_ORDER,
             sendBlockedReason: LIFTED_BLOCKED, setFeed: (f) => { FEED = f; app.feed.owned = f; },
             setImages: (i) => { IMAGES = i; },
@@ -143,6 +152,8 @@ const CALLED = [
   "dropImage", "withImages", "imagesStamp", "clearImages", "setSayImages", "readAsBase64",
   "contextBar", "compactSession", "compactPct", "tokens", "terminalOnly", "knownCommand", "cmdMatches",
   "headerActions", "menuItemsFor", "openMenu",
+  "wireDrop", "pathsOn", "pathOfUri", "dragCarriesFiles", "quotePath", "insertAtCaret",
+  "attachFile", "isPicture", "attachment",
 ];
 
 function check(what, ok, note = "") {
@@ -306,6 +317,8 @@ check("each has a way to leave it out",
   /data-act="unattach" data-id="shot1"/.test(withPictures) &&
   /data-act="unattach" data-id="shot2"/.test(withPictures));
 check("and the box says they go by path", /by path/.test(withPictures));
+check("and calls them pictures while that is all they are",
+  /2 pictures go with this message/.test(withPictures));
 setImages({ kept: [{ id: "shot1", url: "blob:one", path: "", failed: true, why: "Could not write it" }] });
 check("one that did not save says why rather than pretending",
   /attached__item--failed/.test(composer({ sessionId: "kept", status: "idle" })) &&
@@ -313,6 +326,50 @@ check("one that did not save says why rather than pretending",
 setImages({ kept: [{ id: "shot1", url: 'blob:"><b>x</b>', path: "<b>p</b>", name: "<b>p</b>" }] });
 check("what came off the clipboard is escaped where it is drawn",
   !attachedStrip({ sessionId: "kept" }).includes("<b>"));
+/* A drop that carried no path — out of Chrome's downloads, say — is saved the
+   way a paste is and waits in the same strip. It has no picture to show for
+   itself and it knows its name from the start, which is the whole of the
+   difference. */
+setImages({ kept: [
+  { id: "shot1", kind: "file", url: "", path: "/w/.claude/watchtower-files/report.pdf", name: "report.pdf" },
+  { id: "shot2", kind: "file", url: "", path: "", name: "big.zip", failed: false },
+] });
+const withFiles = composer({ sessionId: "kept", status: "idle" });
+check("a dropped file waits in the strip like a picture",
+  (withFiles.match(/attached__item/g) || []).length === 2);
+check("with a glyph rather than a thumbnail it has not got",
+  /attached__thumb--file/.test(withFiles) && !/<img/.test(withFiles));
+check("it is named while it saves, because it came with a name",
+  /big\.zip — saving…/.test(withFiles));
+check("and the strip calls them files, not pictures", /2 files go with this message/.test(withFiles));
+setImages({ kept: [
+  { id: "shot1", kind: "image", url: "blob:one", path: "/w/p.png", name: "p.png" },
+  { id: "shot2", kind: "file", url: "", path: "/w/r.pdf", name: "r.pdf" },
+] });
+const mixed = composer({ sessionId: "kept", status: "idle" });
+check("a picture and a file together draw one of each",
+  /<img class="attached__thumb"/.test(mixed) && /attached__thumb--file/.test(mixed));
+check("and the strip takes the wider word for the pair",
+  /2 files go with this message/.test(mixed));
+
+/* What the message actually carries. Every transport takes a string, so each of
+   these is a line at the end of it — named for how it got here, because a saved
+   copy of a dropped file came from somewhere you had a moment ago where a pasted
+   screenshot existed nowhere at all. */
+check("a pasted picture goes out as a path, after the sentence",
+  withImages("what is wrong here?", [{ kind: "image", path: "/w/p.png" }])
+    === "what is wrong here?\n\n[Pasted image: /w/p.png]",
+  withImages("what is wrong here?", [{ kind: "image", path: "/w/p.png" }]));
+check("a dropped file says it was dropped",
+  withImages("read this", [{ kind: "file", path: "/w/r.pdf" }])
+    === "read this\n\n[Dropped file: /w/r.pdf]",
+  withImages("read this", [{ kind: "file", path: "/w/r.pdf" }]));
+check("both at once, a line each",
+  withImages("", [{ kind: "image", path: "/w/p.png" }, { kind: "file", path: "/w/r.pdf" }])
+    === "[Pasted image: /w/p.png]\n[Dropped file: /w/r.pdf]");
+check("and with nothing attached the message is what you typed",
+  withImages("just words", []) === "just words");
+
 /* A prompt takes the box's room, and a picture pasted before it went up still
    belongs to the message waiting behind it. */
 setImages({ kept: [{ id: "shot1", url: "blob:one", path: "/w/p.png", name: "p.png" }] });
@@ -520,6 +577,72 @@ check("one it does not list is not",
   knownCommand("nonesuch", ofOurs) === false);
 check("and before it has said anything, nothing is ruled out",
   knownCommand("nonesuch", { sessionId: "quiet", status: "stopped", alive: false }) === true);
+
+/* A file dragged onto the box types its path. The browser never hands the path
+   over on the `File` itself, so it is read off the drag's `text/uri-list` — which
+   means every check here is about turning a URI back into a path faithfully, or
+   refusing to. */
+const dragOf = (data, types) => ({
+  types: types || Object.keys(data),
+  getData: (type) => data[type] || "",
+});
+check("a dragged file is offered as its path",
+  pathsOn(dragOf({ "text/uri-list": "file:///home/me/notes.md" }))[0] === "/home/me/notes.md");
+check("percent-escapes come back as the characters they stand for",
+  pathsOn(dragOf({ "text/uri-list": "file:///home/me/two%20words.md" }))[0] === "/home/me/two words.md");
+check("several files dropped at once are all named",
+  pathsOn(dragOf({ "text/uri-list": "file:///a/one.md\r\nfile:///a/two.md" })).join(",")
+    === "/a/one.md,/a/two.md");
+check("the comment lines uri-list allows are not paths",
+  pathsOn(dragOf({ "text/uri-list": "# a comment\r\nfile:///a/one.md" })).join(",") === "/a/one.md");
+check("a source that only sends text/plain is still read",
+  pathsOn(dragOf({ "text/plain": "file:///a/one.md" }))[0] === "/a/one.md");
+check("and the same drag said twice is one file, not two",
+  pathsOn(dragOf({ "text/uri-list": "file:///a/one.md", "text/plain": "file:///a/one.md" })).length === 1);
+/* The refusals. A file on another machine is not a file at that path here, and a
+   dragged URL is not a file at all — reporting either as a path would be the
+   panel making something up. */
+check("a file on another host is not turned into a local path",
+  pathsOn(dragOf({ "text/uri-list": "file://nas/share/one.md" })).length === 0);
+check("but localhost is this machine, and is honoured",
+  pathsOn(dragOf({ "text/uri-list": "file://localhost/a/one.md" }))[0] === "/a/one.md");
+check("a dragged link is not a file",
+  pathsOn(dragOf({ "text/uri-list": "https://example.com/one.md" })).length === 0);
+check("nor is a half-written escape",
+  pathsOn(dragOf({ "text/uri-list": "file:///a/%zz.md" })).length === 0);
+/* Text dragged out of the conversation above belongs to the textarea's own drop:
+   the box only takes over a drag that is carrying files. */
+check("a drag of files is taken over", dragCarriesFiles(dragOf({}, ["Files"])) === true);
+check("so is one carrying paths", dragCarriesFiles(dragOf({}, ["text/uri-list"])) === true);
+check("a drag of plain text is left to the browser",
+  dragCarriesFiles(dragOf({}, ["text/plain"])) === false);
+
+/* A path with a space in it reads as two files to anybody downstream, so it is
+   quoted where it needs to be and left bare where it does not. */
+check("an ordinary path goes in bare", quotePath("/home/me/notes.md") === "/home/me/notes.md");
+check("one with a space is quoted", quotePath("/home/me/two words.md") === '"/home/me/two words.md"');
+check("and a quote inside it is escaped",
+  quotePath('/home/me/it"s.md') === '"/home/me/it\\"s.md"');
+
+/* Where it lands: at the caret, spaced off what is already there, replacing
+   whatever was selected. */
+const fieldOf = (value, start, end = start) => ({
+  value, selectionStart: start, selectionEnd: end,
+  setSelectionRange(a, b) { this.selectionStart = a; this.selectionEnd = b; },
+});
+const atEnd = fieldOf("look at", 7);
+insertAtCaret(atEnd, "/a/one.md");
+check("the path is typed in at the caret, spaced", atEnd.value === "look at /a/one.md ",
+  JSON.stringify(atEnd.value));
+check("and the caret is left after it", atEnd.selectionStart === atEnd.value.length);
+const between = fieldOf("read  and say", 5);
+insertAtCaret(between, "/a/one.md");
+check("dropped mid-sentence it does not run into the words either side",
+  between.value === "read /a/one.md and say", JSON.stringify(between.value));
+const over = fieldOf("read /a/old.md now", 5, 14);
+insertAtCaret(over, "/a/new.md");
+check("dropping onto a selection replaces it, as typing would",
+  over.value === "read /a/new.md now", JSON.stringify(over.value));
 
 for (const name of CALLED) {
   const declared = new RegExp(

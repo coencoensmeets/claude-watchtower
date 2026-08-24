@@ -85,6 +85,52 @@ check("a picture older than the keep window is swept by the next paste", not sta
 check("and the fresh ones are left alone", Path(path).exists())
 
 
+# ------------------------------------------------- a drop with no path in it
+
+# A file dragged out of a file manager is never written: it has a path already
+# and the message names it where it lies. A file dragged out of Chrome's
+# downloads has no path on the drag at all, so the panel writes a copy the
+# session can read — and everything worth checking about that write is the name,
+# which is the one part of it that came off a request.
+ok, dropped, message = S.save_dropped_file(work, "notes.txt", base64.b64encode(b"hello").decode())
+check("a dropped file with no path is written", ok, message)
+check("into the session's folder, apart from the pictures",
+      dropped.startswith(str(Path(work) / ".claude" / "watchtower-files")), dropped)
+check("with the bytes that came off the drag", ok and Path(dropped).read_bytes() == b"hello")
+check("under the name it was dropped as, which is what the message will read",
+      Path(dropped).name == "notes.txt", dropped)
+
+ok2, again, _ = S.save_dropped_file(work, "notes.txt", base64.b64encode(b"second").decode())
+check("a second drop of the same name is a second file, not an overwrite",
+      ok2 and again != dropped and Path(dropped).read_bytes() == b"hello", again)
+check("and it keeps the extension while it is at it", again.endswith(".txt"), again)
+
+_, escaped, _ = S.save_dropped_file(work, "../../etc/pass wd.txt", base64.b64encode(b"x").decode())
+check("a name that tried to be a path is only ever a name",
+      Path(escaped).parent == Path(work) / ".claude" / "watchtower-files", escaped)
+check("and what is left of it cannot be a separator", "/" not in Path(escaped).name, escaped)
+_, hidden, _ = S.save_dropped_file(work, ".bashrc", base64.b64encode(b"x").decode())
+check("a name cannot make the copy invisible in its own folder",
+      not Path(hidden).name.startswith("."), hidden)
+_, unnamed, _ = S.save_dropped_file(work, "???", base64.b64encode(b"x").decode())
+check("a name with nothing usable left in it still lands as something",
+      Path(unnamed).name == "dropped-file", unnamed)
+_, longname, _ = S.save_dropped_file(work, "a" * 400 + ".log", base64.b64encode(b"x").decode())
+check("a very long name is shortened here rather than erroring at the disk",
+      len(Path(longname).name) <= S.DROP_NAME_MAX and longname.endswith(".log"),
+      Path(longname).name)
+
+bad, _, why = S.save_dropped_file(work, "big.bin", "A" * ((S.DROP_MAX_BYTES + 1024) * 4 // 3))
+check("one larger than the drop ceiling is refused rather than written", not bad, why)
+bad, _, why = S.save_dropped_file(work, "empty.bin", "")
+check("an empty drop is refused", not bad, why)
+# A pasted picture is held to a list of kinds because a screenshot is the only
+# thing a clipboard should be offering. A dropped file is not: what was dropped
+# is what the session is being asked to read.
+ok3, script, _ = S.save_dropped_file(work, "install.sh", base64.b64encode(b"#!/bin/sh\n").decode())
+check("a dropped file is not judged by its kind, unlike a paste",
+      ok3 and script.endswith(".sh"), script)
+
 # ------------------------------------------------------------ the endpoint
 
 # One fake session, in the folder made above. Nothing is running; the endpoint
@@ -99,8 +145,8 @@ threading.Thread(target=httpd.serve_forever, daemon=True).start()
 base = f"http://127.0.0.1:{httpd.server_address[1]}"
 
 
-def post(body: dict) -> tuple[int, dict]:
-    request = urllib.request.Request(f"{base}/api/paste-image", method="POST",
+def post(body: dict, where: str = "/api/paste-image") -> tuple[int, dict]:
+    request = urllib.request.Request(f"{base}{where}", method="POST",
                                      data=json.dumps(body).encode(),
                                      headers={"Content-Type": "application/json"})
     try:
@@ -128,11 +174,31 @@ check("the endpoint refuses what is not a picture", code == 400, str(data))
 code, data = post({"sessionId": "s1", "mime": "image/png", "data": "A" * (S.POST_MAX_BYTES + 1024)})
 check("a body too big for any screenshot is turned away", code == 413, str(data))
 
+# The other endpoint: the drop that had no path, which is the same write with a
+# name on it instead of a kind.
+code, data = post({"sessionId": "s1", "name": "report.pdf",
+                   "data": base64.b64encode(b"%PDF-1.4").decode()}, "/api/drop-file")
+check("the drop endpoint saves and answers with the path",
+      code == 200 and bool(data.get("path")), str(data))
+check("and what it answers with is a file that is there, named as dropped",
+      bool(data.get("path")) and Path(data["path"]).exists()
+      and Path(data["path"]).name == "report.pdf", str(data.get("path")))
+code, data = post({"sessionId": "nobody", "name": "report.pdf",
+                   "data": base64.b64encode(b"x").decode()}, "/api/drop-file")
+check("a session the panel does not know has nowhere to put a drop either",
+      code == 404, str(data))
+code, data = post({"sessionId": "s1", "name": "big.bin",
+                   "data": "A" * (S.POST_MAX_BYTES + 1024)}, "/api/drop-file")
+check("a body past the one ceiling every POST has is turned away", code == 413, str(data))
+
 # The gate is the same as sending's, because saving a picture is part of sending.
 config.SAY_ENABLED = False
 code, data = post({"sessionId": "s1", "mime": "image/png",
                    "data": base64.b64encode(PIXEL).decode()})
 check("with sending off, nothing is written either", code == 403, str(data))
+code, data = post({"sessionId": "s1", "name": "notes.txt",
+                   "data": base64.b64encode(b"x").decode()}, "/api/drop-file")
+check("and a drop is refused on the same terms", code == 403, str(data))
 
 httpd.shutdown()
 print("\nall ok" if not FAILED else f"\n{FAILED} failed")

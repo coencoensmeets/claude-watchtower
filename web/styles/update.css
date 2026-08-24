@@ -1,0 +1,109 @@
+  /* ============================== the update =============================== */
+  /* A newer release, in the app bar. It shares the plan chip's shape on purpose —
+     they are the same kind of thing, a standing fact with a press behind it — but
+     it is filled rather than outlined when there is something to take: the plan
+     chip reports, this one asks. */
+  .update-chip {
+    display: inline-flex; align-items: center; gap: 6px; flex: none;
+    height: 32px; padding: 0 var(--md-sys-spacing-3);
+    border: 1px solid transparent; border-radius: var(--md-sys-shape-corner-full);
+    cursor: pointer; font: inherit; letter-spacing: inherit; position: relative;
+    background: var(--md-sys-color-primary-container);
+    color: var(--md-sys-color-on-primary-container);
+  }
+  /* `display` beats the `hidden` attribute, so the attribute needs saying again
+     here or the chip sits in the bar reading "Update" with nothing behind it —
+     which is exactly the interruption it is not supposed to be. Same reason
+     .app-bar__nudge[hidden] exists in base.css. */
+  .update-chip[hidden] { display: none; }
+  .update-chip svg { width: 16px; height: 16px; }
+  #updateChipText { font-variant-numeric: tabular-nums; }
+  /* The arrow falls into the tray, once per cycle, while there is something to
+     take. Slow on purpose: this sits in the bar for as long as it takes somebody
+     to notice it, and anything quicker becomes a thing to look away from. */
+  .update-chip[data-state="ready"] .update-arrow {
+    animation: update-drop 3.2s var(--md-sys-motion-easing-standard, cubic-bezier(0.2, 0, 0, 1)) infinite;
+  }
+  @keyframes update-drop {
+    0%, 55%, 100% { transform: translateY(0); opacity: 1; }
+    25% { transform: translateY(2.5px); opacity: 1; }
+    40% { transform: translateY(0); opacity: 0.55; }
+  }
+  .update-chip[data-state="installing"] { background: var(--md-sys-color-secondary-container);
+    color: var(--md-sys-color-on-secondary-container); }
+  .update-chip[data-state="installing"] svg { animation: update-spin 1.4s linear infinite; }
+  @keyframes update-spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .update-chip svg, .update-chip .update-arrow { animation: none !important; }
+  }
+
+  /* The dialog: where you are, where the release is, and what changed. */
+  .update-facts {
+    display: grid; grid-template-columns: auto 1fr;
+    gap: var(--md-sys-spacing-2) var(--md-sys-spacing-4);
+    margin: 0 0 var(--md-sys-spacing-5);
+  }
+  .update-facts dt { color: var(--md-sys-color-on-surface-variant); }
+  .update-facts dd { margin: 0; overflow-wrap: anywhere; }
+  .update-notes__title { color: var(--md-sys-color-on-surface-variant); }
+  .update-note { margin-top: var(--md-sys-spacing-4); }
+  .update-note__head { display: flex; align-items: baseline; gap: var(--md-sys-spacing-3); }
+  .update-note__age { color: var(--md-sys-color-on-surface-variant); }
+  .update-note__subject { margin: 2px 0 0; }
+  /* A release body is prose somebody wrote with their own line breaks in it. */
+  .update-note__body {
+    margin: var(--md-sys-spacing-2) 0 0; white-space: pre-wrap; overflow-wrap: anywhere;
+    color: var(--md-sys-color-on-surface-variant);
+  }
+  /* What the press costs in running sessions. Above the note about the checkout
+     because it is the part that is about your work rather than about git, and
+     tinted only when there is something in flight to lose — a couple of idle
+     sessions being restarted is a fact, not a warning. */
+  .update-running {
+    margin: var(--md-sys-spacing-5) 0 0; padding: var(--md-sys-spacing-3);
+    border-radius: var(--md-sys-shape-corner-small, 8px);
+    border-left: 3px solid var(--md-sys-color-outline-variant);
+    background: var(--md-sys-color-surface-container-high);
+    color: var(--md-sys-color-on-surface-variant);
+  }
+  .update-running strong { color: var(--md-sys-color-on-surface); }
+  .update-running[data-sharp="1"] {
+    border-left-color: var(--md-sys-color-error);
+    background: var(--md-sys-color-error-container);
+    color: var(--md-sys-color-on-error-container);
+  }
+  .update-running[data-sharp="1"] strong { color: var(--md-sys-color-on-error-container); }
+
+  /* What the press actually does to the checkout. Said before it happens, not
+     afterwards in a snackbar. */
+  .update-warning {
+    margin: var(--md-sys-spacing-3) 0 0; padding: var(--md-sys-spacing-3);
+    border-radius: var(--md-sys-shape-corner-small, 8px);
+    background: var(--md-sys-color-surface-container-high);
+    color: var(--md-sys-color-on-surface-variant);
+  }
+  .update-waiting { color: var(--md-sys-color-on-surface-variant); }
+
+  /* Panel version, on the settings page: the answers the chip does not stay in
+     the bar to give. The button sits at the end of the row and drops under the
+     text when the pane is too narrow to hold both. */
+  .update-setting {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: var(--md-sys-spacing-4); flex-wrap: wrap;
+  }
+  .update-setting__text { min-width: 12rem; flex: 1 1 16rem; }
+  .update-setting__now { margin: 0; }
+  .update-setting__says { display: block; margin-top: 2px; color: var(--md-sys-color-on-surface-variant); }
+  /* A release waiting to be taken is the one state on this page worth a colour —
+     it is the same fact the chip in the bar is carrying. */
+  #updateSection[data-state="ready"] .update-setting__says { color: var(--md-sys-color-primary); }
+  .update-age { align-self: center; }
+
+  /* Two chips and the settings button on a phone bar is one thing too many, and
+     the version is the part that already fits in the tooltip and the dialog. The
+     icon on its own still says "there is an update" — which is the whole job of
+     the chip in the bar. */
+  @media (max-width: 599px) {
+    #updateChipText { display: none; }
+    .update-chip { padding-inline: var(--md-sys-spacing-2); }
+  }
