@@ -13,7 +13,7 @@ export function askText({ headline, body, placeholder = "", value = "", confirmL
   // that closing is what puts the field away — reveal it before, and it is
   // hidden again by the time anyone could type in it.
   const answer = askConfirm({ headline, body, confirmLabel, danger: false });
-  const field = document.getElementById("askField");
+  const field = document.getElementById("askField") as HTMLInputElement;
   field.hidden = false;
   field.placeholder = placeholder;
   field.value = value;

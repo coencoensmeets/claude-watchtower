@@ -1,0 +1,43 @@
+{
+  // Type checking only — `tsc --noEmit`. Nothing here builds the panel.
+  //
+  // The build is `node tools/build.mjs`, which uses Node's own type stripping
+  // and never reads this file. So a fresh clone still needs no packages: this
+  // is for editors, and for `tsc --noEmit` if you have a tsc to hand. It is
+  // deliberately not wired to a package.json — see docs/cleanup-plan.md.
+  //
+  // Currently clean at these settings. `noImplicitAny` and `strictNullChecks`
+  // are the next two flags to earn, in that order, and each is a few hundred
+  // annotations' work — turn one on to see the list.
+  "compilerOptions": {
+    "target": "es2022",
+    "lib": ["es2022", "dom", "dom.iterable"],
+
+    // The sources import each other as "./thing.js" while being thing.ts,
+    // which is what the browser needs. `preserve` keeps them as written and treats
+    // every file as ESM without a package.json asking it to.
+    "module": "preserve",
+    "moduleResolution": "bundler",
+
+    // The vendored library is served from an absolute URL, so no resolver can
+    // follow the specifier to a file. This is where it points.
+    "paths": { "/vendor/*": ["./web/typings/vendor/*"] },
+
+    // The one flag that is not about strictness but about correctness of the
+    // build: Node strips types without understanding them, so it cannot tell a
+    // type-only import from a real one and will leave `import { Session }` in
+    // the output — pointing at a module that exports nothing at runtime. This
+    // forces `import type` where a type is what is meant, and so keeps
+    // types.ts from becoming a runtime import.
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+
+    "noEmit": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+
+    "strict": false,
+    "noImplicitAny": false
+  },
+  "include": ["web/src/**/*.ts", "web/typings/**/*.d.ts"]
+}

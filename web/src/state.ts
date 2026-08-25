@@ -9,6 +9,7 @@
    writes it. State one part of the panel owns stays with that part. */
 
 import { allNotifying, DEFAULT_SEED } from "./ui/theme.js";
+import type { Change, Feed, Git, Plan, Transcript, Usage } from "./types.js";
 
 /* localStorage is not ours alone, and a half-written value or one left by an
    older version of the panel should not take the page down on the way up: every
@@ -74,7 +75,7 @@ export const app = {
     // a button should not be the reason a button was never seen.
     showEditor: true,
   },
-  feed: { sessions: [], now: Date.now() / 1000, historySeconds: 1800, canFocus: true, canSend: false },
+  feed: { sessions: [], now: Date.now() / 1000, historySeconds: 1800, canFocus: true, canSend: false } as Feed,
   skew: 0,
   lastGood: 0,
   filter: "all",

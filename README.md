@@ -52,16 +52,19 @@ cd claude-watchtower
 python3 server.py
 ```
 
-3. Open <http://127.0.0.1:8787>. Every Claude Code session on this machine is already in the list — there is nothing to configure and nothing to install.
+3. Open the address it prints. The panel picks a port for this install on its first run and stays on it from then on, so the address is worth a bookmark — see [Its own port](#its-own-port). Every Claude Code session on this machine is already in the list: there is nothing to configure and nothing to install.
 
-4. Optional: `sudo apt install xdotool` to enable **Focus window** under X11, and see [Keeping it running](#keeping-it-running) for the bundled systemd user unit.
+4. To read it on your phone, start it with `--lan` and open the second address it prints. See [From your phone](#from-your-phone).
+
+5. Optional: `sudo apt install xdotool` to enable **Focus window** under X11, and see [Keeping it running](#keeping-it-running) for the bundled systemd user unit.
 
 ## Documentation
 
 | Section | What's inside |
 |---|---|
 | [What it shows](#what-it-shows) | The four states, and why the one you care about is inferred rather than read |
-| [Layout](#layout-an-index-and-a-detail-pane) | The index, groups, the detail pane and its five tabs |
+| [Layout](#layout-an-index-and-a-detail-pane) | The index, groups, dragging the rows into order, the detail pane and its five tabs |
+| [From your phone](#from-your-phone) | Serving the local network, the key that guards it, and the port it keeps |
 | [Sending a message](#sending-a-message) | The composer, the unix socket behind it, and its three honest limits |
 | [Pasting a picture](#pasting-a-picture) | A screenshot pasted into the box, saved into the session's folder and sent as a path |
 | [Dropping a file](#dropping-a-file) | A file dragged onto the box types its path — or is saved and named, when the drag has no path to give |
@@ -130,7 +133,7 @@ The window is split the way Material 3's list-detail layout prescribes.
 
 ### Left: the index
 
-Every session, one row each, sorted so anything waiting on you is at the top. State decides the band a row sits in and nothing else does: inside a band the order is when the session started, then its id, so a row moves only when its state visibly changes and comes back to the same slot afterwards. A session that blinks busy for a second does not shuffle the list under your pointer, and two sessions never swap places on the strength of the order they happened to be found in. A folder or a group of your own sits where its most pressing member would have been, while the rows inside it keep that same fixed order. Each row carries a round avatar whose *fill* is the session's state colour and whose *icon* is where the session lives — `</>` for VS Code, a terminal glyph for GNOME Terminal, Konsole, kitty, Alacritty, WezTerm, Ghostty or xterm, split panes for tmux or screen, a globe for a session over SSH. A lamp on the corner of the avatar repeats the state and animates: a slow pulse while working, a blink while waiting. Under the name you get what the session is working on, then the state and the folder, and on the right how long it has been in that state.
+Every session, one row each, sorted so anything waiting on you is at the top. State decides the band a row sits in and nothing else does: inside a band the order is when the session started, then its id, so a row moves only when its state visibly changes and comes back to the same slot afterwards. A session that blinks busy for a second does not shuffle the list under your pointer, and two sessions never swap places on the strength of the order they happened to be found in. A folder or a group of your own sits where its most pressing member would have been, while the rows inside it keep that same fixed order. That is the order until you say otherwise, and [dragging a row](#putting-the-rows-in-order) is how you say it. Each row carries a round avatar whose *fill* is the session's state colour and whose *icon* is where the session lives — `</>` for VS Code, a terminal glyph for GNOME Terminal, Konsole, kitty, Alacritty, WezTerm, Ghostty or xterm, split panes for tmux or screen, a globe for a session over SSH. A lamp on the corner of the avatar repeats the state and animates: a slow pulse while working, a blink while waiting. Under the name you get what the session is working on, then the state and the folder, and on the right how long it has been in that state.
 
 The middle line is Claude's own one-line description of the conversation, which it writes a few turns in and rewrites as the subject moves. It is what tells four Claudes in one repository apart — the name says what a session is called, the description says what it is doing — and the detail pane shows the same line under the name. A session too young to have been described yet keeps a two-line row.
 
@@ -156,6 +159,20 @@ You can also group by hand:
 A bar above the list says how many are picked. A group you made is named after its folder when the rows share one, and wins over the folder grouping for the rows in it, so it can gather sessions from different repositories. **Do not group this folder** leaves that folder as plain rows until you choose **Group every folder again**.
 
 Grouping is a view of the list rather than something the sessions carry, so it is kept in the browser — in `localStorage`, like muting — not on the server.
+
+### Putting the rows in order
+
+The state sort is a guess about what you want to look at, and a good one, but it is still a guess: the session you are shepherding today is not always the one shouting loudest. So **drag a row where you want it**. From the first drag the order is yours, and a session going busy and idle again no longer moves it. Every row carries a grip on its right, faint until the pointer is on it, and **alt with the up or down arrow** does the same move from the keyboard.
+
+| Gesture | Does |
+|---|---|
+| **Drag** a row | Put it where you dropped it |
+| **Alt** with **up** or **down** on a focused row | The same move, one step at a time |
+| **Sort by state again**, on any row's menu | Hands the order back to the panel |
+
+A row only ever lands in the list it came out of. Dropping one into a group would have to mean joining that group, which is its own item in the menu, and a drag is too easy to do by accident to be the way you discover it — so at the top level a group counts as one block and a row dragged past it goes past the whole thing. Inside a group the members reorder among themselves.
+
+A session started since you last dragged anything sits above the arrangement rather than at the bottom of it: it is the new thing on the list, and the point of the state sort was that new work is what you look at first. It takes its place the next time you drag. **Sort by state again**, on any row's right-click menu, forgets the arrangement and hands the order back to the panel. Like the grouping, it is a view of the list and lives in `localStorage`.
 
 ### Right: the detail
 
@@ -191,7 +208,7 @@ A message sent to a session that is mid-turn is queued at its prompt, exactly as
 
 **It then appears in the conversation above, marked with where it came from** — `you · from here` for something typed into this composer, and the sending session's name for a message from another Claude. That takes some digging out: Claude Code never writes such a message down as a turn of its own. It records the envelope it wraps it in (`<cross-session-message …>`) on the queue and hands the body to the model as an attachment, so read at face value the transcript shows Claude answering something nobody said. The panel therefore reads the queue entries too and unwraps them, and skips the duplicate the queue leaves behind when the message comes back off it.
 
-> **Sending is loopback-only, regardless of `--host`.** A prompt is an instruction to an agent holding tools and a checkout, so a panel exposed to the network keeps the transcript and loses the composer. `--no-send` switches it off on loopback too.
+> **Off this machine, sending needs the key.** A prompt is an instruction to an agent holding tools and a checkout, so the composer used to disappear on any non-loopback bind. It no longer has to: a panel on the network answers nobody who cannot show the key it printed, which is a tighter gate than the bind ever was — see [From your phone](#from-your-phone). `--no-send` switches sending off everywhere, and `--no-key` trades the key for a read-only panel.
 
 ### Pasting a picture
 
@@ -744,14 +761,55 @@ Components used: top app bar, navigation-drawer style list items, filter chips, 
 ## Options
 
 ```bash
-python3 server.py --port 8787 --host 127.0.0.1 [--no-send] [--build] [--no-build]
+python3 server.py [--lan] [--port N] [--host H] [--no-key] [--new-key] [--no-send] [--build] [--no-build]
 ```
+
+| Flag | Does |
+|---|---|
+| `--lan` | Serve to the local network as well, so a phone can open it. The same as `--host 0.0.0.0`, and the thing you actually type |
+| `--port N` | Serve on this port **for this run only**. What is remembered is left alone, so the bookmark still works tomorrow |
+| `--no-key` | Answer anyone who can reach the port, with no key — and read-only, since nothing then stands between the network and the composer |
+| `--new-key` | Throw the remembered key away and make another. Every phone has to be given the new one |
+| `--no-send` | Read-only, wherever it is bound |
 
 `--build` builds the frontend and exits; `--no-build` serves whatever is already
 built, however stale. Neither is needed day to day — starting the panel builds
 what has changed and nothing else.
 
-> **`--host 0.0.0.0` exposes the panel to your network.** There is no authentication and the focus endpoint moves windows on this machine, so only do that on a network you trust. Sending input switches itself off on any non-loopback bind; `--no-send` switches it off on loopback as well.
+### Its own port
+
+The panel picks its port on the first run and writes it down in `~/.config/claude-watchtower/listen.json`. Every run after that is on the same port, which is the point: an address you can bookmark, and type on a phone from memory.
+
+It is picked rather than fixed because two people on one network both running a panel is the ordinary case. The number comes from who and where — your username, this machine's name, and the path this clone sits at — hashed into the 8800–8899 band, and then stepped forward if something already holds it. Two clones in two folders get two ports; the same clone gets the same port even if the file is deleted.
+
+`--port` overrides it for one run without touching what is written down. `CLAUDE_WATCHTOWER_PORT` does the same from the environment, which is the one to use in a service unit.
+
+### From your phone
+
+```bash
+python3 server.py --lan
+```
+
+It prints two addresses: the loopback one, and the one your phone can reach, with the key on the end.
+
+```
+claude-watchtower → http://127.0.0.1:8867
+on this network  → http://192.168.1.24:8867/?k=r4pm7dwq
+                  type that on the phone once — it is remembered after that
+```
+
+**The key is the whole gate, and it is a real one.** Anything arriving from off this machine — a page, a stylesheet, an API call, a POST — is answered only if it carries the key, in the URL or in the cookie the first answer set. Everything else gets a 403 that says nothing about the machine behind it. A request from this machine is never asked: the only thing that can reach loopback is already at the keyboard.
+
+The key lives in the same `listen.json` and does not rotate, so a phone that has been given it stays given it. `--new-key` replaces it when you want that.
+
+**What the phone gets is the whole panel**, composer included: sending, running a turn here, pasting a picture, git writes. That is the trade the key buys, and it is why `--no-key` — which takes the key away — takes sending with it.
+
+Two things a phone cannot have over plain http, because browsers reserve them for secure contexts:
+
+- **Notifications** are unavailable, so a session finishing will not raise one. The panel checks and simply does not offer them.
+- **The clipboard API** is absent, so *Copy* falls back to the older `execCommand` path. It works; it is just not the modern one.
+
+> **Only do this on a network you trust.** The key stops a stranger on the same wifi reading your conversations, and it is eight characters over plain http on a local network — not a password protecting a public service. The panel is not built to be on the internet, and putting it there is not a thing a flag here will do for you.
 
 The URL can pin appearance for one load, which is handy for a second monitor or a wall display:
 
@@ -781,6 +839,8 @@ systemctl --user enable --now claude-watchtower
 ```
 
 `systemctl --user status claude-watchtower` to check it, `journalctl --user -u claude-watchtower` for logs.
+
+The unit names no port, so the service is on this install's remembered one — the same address as when you start the panel by hand. To serve the network from the service, add `--lan` to its `ExecStart`; to pin a port there, set `Environment=CLAUDE_WATCHTOWER_PORT=8787` rather than passing `--port`, which would leave the remembered one to drift out of step with what the unit uses.
 
 ## Repository layout
 
@@ -813,6 +873,20 @@ systemctl --user enable --now claude-watchtower
 
 There are two suites: unit tests over the readers, which need nothing, and the
 UI checks, which drive a real browser against a running panel.
+
+Before either, if you have a `tsc` to hand, there is a type check:
+
+```bash
+tsc --noEmit
+```
+
+`tsconfig.json` is checked in and configured for this and nothing else — the
+build does not read it, so this stays optional and the project still installs
+nothing. `web/src/types.ts` is where the shapes the server sends are written
+down, hand-written from the Python that emits each one, so a payload that has
+changed shows up here before it shows up on screen. It is clean at the settings
+in that file; `noImplicitAny` and `strictNullChecks` are not on yet, and
+`docs/cleanup-plan.md` says what turning each on would cost.
 
 ```bash
 python3 -m unittest discover -s tests/python
@@ -866,7 +940,7 @@ node tests/ui-check.mjs
 
 `tests/turn-check.py` needs neither, and no panel either: it drives what the server does with a turn it is running — against a fake pipe, so nothing is started and nothing is sent, and every assertion is on what the panel writes down that pipe and when. The queue: a message typed mid-turn is held rather than refused, order and cap hold, a `result` frame is what drains it, a message sent in the gap between a turn ending and the queue draining does not overtake one already waiting, dropping takes back only what has not gone in yet, and anything still waiting when the process dies goes to the deliverer while letting go of a session deliberately clears it. And stopping: one `interrupt` on the control channel, the queue dropped with it, and the interrupted turn's own `error_during_execution` result read as *you stopped it* rather than as a turn that went wrong — while a turn nobody stopped still reads as one that did. `python3 tests/turn-check.py`.
 
-`tests/ui-check.mjs` drives a throwaway headless Chrome over the DevTools protocol and asserts the things a screenshot cannot: that every MD3 token resolves, that the four state containers are distinct and stay distinct after the base colour changes, that every piece of text on screen clears 4.5:1, that the index lists each session with a host icon and a state lamp, that clicking a row opens its detail and every tab renders, that the filter chips filter, that sessions sharing a folder group themselves and picked rows can be grouped, folded and ungrouped by hand, that the plan chip shows how much has gone, colours each figure for its band and opens a dialog with a bar per limit — skipped, with a reason, on a read-only panel or where `/usage` does not answer — that the settings page changes the scheme and persists it, that Usage either shows a cost and a row per model or says plainly that there is nothing to total yet, and that interactive targets reach 48dp. Node 24+, no dependencies. Override `PANEL_URL` / `CDP_URL` to point elsewhere.
+`tests/ui-check.mjs` drives a throwaway headless Chrome over the DevTools protocol and asserts the things a screenshot cannot: that every MD3 token resolves, that the four state containers are distinct and stay distinct after the base colour changes, that every piece of text on screen clears 4.5:1, that the index lists each session with a host icon and a state lamp, that clicking a row opens its detail and every tab renders, that the filter chips filter, that sessions sharing a folder group themselves and picked rows can be grouped, folded and ungrouped by hand, that a row dragged to the top of its list goes there and stays there through a poll while the rows around it keep their order, that alt with an arrow is the same move and that the state sort can be had back from the menu, that the plan chip shows how much has gone, colours each figure for its band and opens a dialog with a bar per limit — skipped, with a reason, on a read-only panel or where `/usage` does not answer — that the settings page changes the scheme and persists it, that Usage either shows a cost and a row per model or says plainly that there is nothing to total yet, and that interactive targets reach 48dp. Node 24+, no dependencies. Override `PANEL_URL` / `CDP_URL` to point elsewhere.
 
 The Git checks want a session whose folder is in a repository: they find one from `/api/state`, then assert that both tabs appear, that Git reads the branch and marks every file with its status letter and a way to open it while carrying no graph, that the files land in the editor's three groups, that the commit box and its split button are there when writing is on — and that a read-only panel says so and offers nothing — that a row opens exactly one diff and closes it again, that History draws one node per commit and keeps no file list, that each rail is the same height as its row — a mismatch there is what leaves the lanes broken at every join — that both clear 4.5:1, and that all five tabs stay reachable at 48dp. With no such fixture they say so and skip rather than failing for a reason that has nothing to do with the panel.
 

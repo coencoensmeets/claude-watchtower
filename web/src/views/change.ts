@@ -129,6 +129,24 @@ export function hideChange() {
   return true;
 }
 
+/* Every turn carries the same button, and the menu behind it is the one a
+   right-click opens — see views/save.js.
+
+   It exists because right-clicking is not a gesture a phone has, and the two
+   substitutes are both worse: a long press on a bubble is how you select text
+   on a touch screen, which is what raises the Comment chip, and a hidden
+   gesture nobody is told about is not an affordance. So the actions get a
+   button. It fades in under the pointer on a mouse, like the row actions in the
+   Git tab, and stays put wherever there is no hover to fade it in with.
+
+   Which message it belongs to is not written on it: it is inside the row, and
+   the row already carries its own key. */
+function moreButton() {
+  return `<button class="msg__more md-state" type="button" data-act="msg-menu"
+      aria-haspopup="menu" aria-label="Actions for this message"
+      title="Actions for this message">${ICON.more}</button>`;
+}
+
 export function chatPanel(session) {
   // A change being read whole stands in front of the conversation rather than
   // inside it. Before the "is the transcript here yet" test, because the change
@@ -169,6 +187,7 @@ export function chatPanel(session) {
           data-key="${escapeHtml(messageKey(message))}">
           <span class="activity-row__time md-label-small md-mono">${escapeHtml(clockOf(message.at))}</span>
           <span class="activity-row__tools">${toolLines(message.tools)}</span>
+          ${moreButton()}
         </div>`);
       continue;
     }
@@ -189,7 +208,7 @@ export function chatPanel(session) {
     rows.push(`<div class="msg msg--${message.role === "user" ? "user" : "assistant"}"
         data-who="${escapeHtml(whoPlain)}" data-at="${escapeHtml(clockOf(message.at))}"
         data-key="${escapeHtml(messageKey(message))}">
-        <div class="msg__who"><span class="md-label-small">${who}</span><span class="md-label-small md-mono">${escapeHtml(clockOf(message.at))}</span></div>
+        <div class="msg__who"><span class="md-label-small">${who}</span><span class="md-label-small md-mono">${escapeHtml(clockOf(message.at))}</span>${moreButton()}</div>
         <div class="msg__text md-body-medium">${renderMarkdown(message.text)}</div>
         ${tools ? `<div class="msg__tools">${tools}</div>` : ""}
       </div>`);

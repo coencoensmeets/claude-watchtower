@@ -207,7 +207,7 @@ function withImages(body, shots) {
 }
 
 export async function sendMessage(session, button, own = false) {
-  const field = detailPane.querySelector("#sayField");
+  const field = detailPane.querySelector<HTMLTextAreaElement>("#sayField");
   if (!field || !button) return;
   const text = field.value.trim();
   const shots = imagesFor(session.sessionId);
@@ -249,7 +249,7 @@ export async function sendMessage(session, button, own = false) {
     // the text goes back into the map either way, but only into a box that is
     // still this session's.
     if (detailPane.dataset.sessionId !== session.sessionId) return;
-    const live = detailPane.querySelector("#sayField");
+    const live = detailPane.querySelector<HTMLTextAreaElement>("#sayField");
     if (live && !live.value) { live.value = text; growField(live); }
   };
   if (app.inFlight) { restore(); return; }

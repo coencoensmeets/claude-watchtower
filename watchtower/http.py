@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import time
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
@@ -23,7 +24,9 @@ from watchtower.control import new_session, open_editor, pick_folder, start_sess
 from watchtower.git.actions import git_action
 from watchtower.git.message import suggest_message
 from watchtower.git.read import read_diff, read_git
-from watchtower.input import deliver_later, end_process, say_to_session, session_listening
+from watchtower.input import (
+    deliver_later, end_process, is_loopback, say_to_session, session_listening,
+)
 from watchtower.owned import (
     OWNED_BUSY, OWNED_COMPACT, OWNED_MODES, OWNED_QUEUE, _OWNED_LOCK, answer_from_panel,
     load_owned, owned_hold, owned_interrupt, owned_new, owned_queued, owned_release,
@@ -68,12 +71,89 @@ def route(method: str, path: str):
 OFF_HERE = ("Running turns here is off because the panel is not bound to loopback")
 
 
+# The cookie the key is remembered in, so it is typed on a phone once rather
+# than once per page. HttpOnly: no script has any business reading it, and the
+# panel's own scripts never need to — the browser sends it with every request
+# they make, including the fetches for the modules themselves.
+KEY_COOKIE = "wt-key"
+KEY_PARAM = "k"
+# A year. The key does not expire on its own — it is the same key until it is
+# replaced with --new-key — so a shorter life would only mean typing it again
+# for no gain.
+KEY_MAX_AGE = 365 * 24 * 3600
+
+
+# What a request without the key gets. Deliberately says nothing about the
+# machine, the sessions on it, or whether the key it showed was close: only that
+# there is a key and where the panel prints it.
+NO_KEY_PAGE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>claude-watchtower</title>
+<style>
+  html { color-scheme: light dark }
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; display: grid; place-items: center;
+         min-height: 100dvh; padding: 24px; text-align: center }
+  code { padding: 2px 6px; border-radius: 4px; background: color-mix(in srgb, currentColor 12%, transparent) }
+  p { max-width: 34em }
+</style></head>
+<body><div>
+  <h1>This panel needs its key</h1>
+  <p>Open it with the key on the end: <code>?k=&hellip;</code></p>
+  <p>The panel prints the whole address, key and all, in the terminal it is
+     running in. Typing it once is enough — this browser remembers it.</p>
+</div></body></html>
+""".encode()
+
+
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "claude-watchtower"
 
+    # Set on the one response that answers a request carrying the key in its
+    # query, so the browser has it for every request after. An attribute on the
+    # class, not the instance: a handler is made per request, and this is how
+    # _send knows without every caller having to pass it along.
+    _keep_key = False
+
     def log_message(self, *args) -> None:  # keep the console quiet
         pass
+
+    # --- who may ask
+    #
+    # Nothing below this line runs for a request that cannot show the key, and
+    # the key only exists when the panel is reachable from off this machine. On
+    # loopback there is no key and no check: the only thing that can open the
+    # socket is already sitting at the keyboard.
+
+    def _key_shown(self) -> bool:
+        want = config.ACCESS_KEY
+        if not want:
+            return True
+        # This machine, whatever the panel is bound to. A phone is not this
+        # machine; a browser on the desktop running it is, and asking it for a
+        # key would be asking it to prove it is where it plainly is.
+        if is_loopback(self.client_address[0]):
+            return True
+        query = parse_qs(urlparse(self.path).query)
+        given = (query.get(KEY_PARAM) or [""])[0]
+        if given and secrets.compare_digest(given, want):
+            self._keep_key = True
+            return True
+        for crumb in (self.headers.get("Cookie") or "").split(";"):
+            name, _, value = crumb.strip().partition("=")
+            if name == KEY_COOKIE and secrets.compare_digest(value, want):
+                return True
+        return False
+
+    def _no_key(self) -> None:
+        """Turned away. The API says so in its own language, so a poll from a
+        page whose cookie has been cleared reports it rather than parsing HTML
+        as if it were state."""
+        if self.path.startswith("/api/"):
+            self._json({"ok": False, "message": "This panel needs its key"}, 403)
+        else:
+            self._send(403, NO_KEY_PAGE, "text/html; charset=utf-8")
 
     # --- helpers
 
@@ -82,6 +162,15 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        if self._keep_key and config.ACCESS_KEY:
+            # Lax rather than Strict: a phone opening the panel from a QR code,
+            # a chat message or a note to itself arrives as a cross-site
+            # navigation, and Strict would drop the cookie on exactly that
+            # first visit. HttpOnly for the reason above; no Secure, because
+            # the panel is http on a local address and marking it Secure would
+            # mean the browser never sent it at all.
+            self.send_header("Set-Cookie", f"{KEY_COOKIE}={config.ACCESS_KEY}; Path=/; "
+                                           f"Max-Age={KEY_MAX_AGE}; HttpOnly; SameSite=Lax")
         self.end_headers()
         try:
             self.wfile.write(body)
@@ -163,6 +252,9 @@ class Handler(BaseHTTPRequestHandler):
     # unknown /api/ path is a 404 rather than a file read.
 
     def do_GET(self) -> None:
+        if not self._key_shown():
+            self._no_key()
+            return
         path = self.path.split("?", 1)[0]
         handler = ROUTES.get(("GET", path))
         if handler:
@@ -171,6 +263,11 @@ class Handler(BaseHTTPRequestHandler):
         self._serve_page(path)
 
     def do_POST(self) -> None:
+        if not self._key_shown():
+            # The body goes unread, which is the point: nothing about a request
+            # from a stranger is looked at, let alone acted on.
+            self._no_key()
+            return
         path = self.path.split("?", 1)[0]
         handler = ROUTES.get(("POST", path))
         if not handler:

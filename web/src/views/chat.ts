@@ -2,10 +2,11 @@ import { refresh, refreshDetail, reloadState } from "../refresh.js";
 import { isAmbiguous, isRemembered, windowSays } from "../sessions/facts.js";
 import { STATE, stateKeyOf } from "../sessions/state.js";
 import { app, selected, sidebar } from "../state.js";
-import { detailPane } from "../ui/dom.js";
+import { detailPane, hitClosest } from "../ui/dom.js";
 import { duration, escapeHtml } from "../ui/format.js";
 import { ICON } from "../ui/icons.js";
 import { conceal, reveal } from "../ui/overlay.js";
+import { copyText } from "../ui/clipboard.js";
 import { showSnackbar } from "../ui/snackbar.js";
 import { runsHere } from "./owned.js";
 
@@ -64,7 +65,7 @@ function quotableSelection() {
     if (clipped.compareBoundaryPoints(Range.END_TO_END, whole) > 0) clipped.setEnd(body, body.childNodes.length);
     const text = clipped.toString().replace(/\s+$/, "").replace(/^\n+/, "");
     if (!text.trim()) continue;
-    const owner = body.closest(".msg, .activity-row");
+    const owner = body.closest<HTMLElement>(".msg, .activity-row");
     // Which turn this came from, and which occurrence within it — the same
     // sentence can appear in two turns, and twice in one.
     const first = text.split("\n").map((l) => l.trim()).find((l) => l.length >= 12) || text.trim();
@@ -223,7 +224,7 @@ function commentOnSelection() {
 /* One card gets the caret when it opens; the rest are there to be filled in
    after. */
 function focusComment(id) {
-  const field = detailPane.querySelector(`.ccard[data-id="${CSS.escape(id)}"] .ccard__field`);
+  const field = detailPane.querySelector<HTMLTextAreaElement>(`.ccard[data-id="${CSS.escape(id)}"] .ccard__field`);
   if (field) { field.focus(); field.selectionStart = field.selectionEnd = field.value.length; }
 }
 
@@ -368,7 +369,7 @@ export function markCommented() {
    the passages they belong to, and the whole rail is shifted by the scroller's
    offset, so scrolling costs a transform rather than a relayout. */
 export function renderRail() {
-  const rail = detailPane.querySelector("#commentRail");
+  const rail = detailPane.querySelector<HTMLElement>("#commentRail");
   const inner = detailPane.querySelector("#commentRailInner");
   const wrap = detailPane.querySelector(".panel-wrap");
   if (!rail || !inner || !wrap) return;
@@ -403,11 +404,11 @@ export function renderRail() {
      about. The transcript's own layout then places it — there is no column to
      anchor against and nothing to keep in sync while it scrolls. */
   if (scroller) {
-    for (const card of [...inner.querySelectorAll(".ccard")]) {
+    for (const card of [...inner.querySelectorAll<HTMLElement>(".ccard")]) {
       const entry = list.find((c) => c.id === card.dataset.id);
       const anchor = findAnchor(scroller, entry);
       const node = anchor && (anchor.nodeType === 1 ? anchor : anchor.commonAncestorContainer);
-      const owner = node && (node.nodeType === 1 ? node : node.parentElement)?.closest(".msg, .activity-row");
+      const owner = node && (node.nodeType === 1 ? node : node.parentElement)?.closest(".msg, .activity-row") as HTMLElement;
       // No owner means the passage has scrolled out of the page of transcript
       // being shown; the card waits at the end rather than vanishing with it.
       card.classList.toggle("ccard--user", !!owner?.classList.contains("msg--user"));
@@ -416,7 +417,7 @@ export function renderRail() {
   }
 
   // The send button lives outside the scrolled inner so it stays put.
-  let send = rail.querySelector(".rail__send");
+  let send = rail.querySelector<HTMLButtonElement>(".rail__send");
   if (!send) {
     send = document.createElement("button");
     send.className = "button button--filled md-state rail__send";
@@ -429,11 +430,11 @@ export function renderRail() {
 
   // Wherever the cards ended up, not where they were built: they have already
   // been moved into the transcript by this point, so inner no longer holds them.
-  for (const card of detailPane.querySelectorAll(".ccard")) {
+  for (const card of detailPane.querySelectorAll<HTMLElement>(".ccard")) {
     const id = card.dataset.id;
     const entry = list.find((c) => c.id === id);
     card.addEventListener("mousedown", () => { activeComment = id; });
-    const field = card.querySelector(".ccard__field");
+    const field = card.querySelector<HTMLTextAreaElement>(".ccard__field");
     if (field) {
       field.addEventListener("input", () => { entry.remark = field.value; refreshSendLabel(); });
       field.addEventListener("keydown", (event) => {
@@ -454,7 +455,7 @@ function scheduleRail() {
 }
 
 function refreshSendLabel() {
-  const send = detailPane.querySelector(".rail__send");
+  const send = detailPane.querySelector<HTMLButtonElement>(".rail__send");
   if (!send) return;
   const n = commentsFor(app.selectedId).filter((c) => c.remark.trim()).length;
   send.textContent = n ? `Send ${n} comment${n === 1 ? "" : "s"}` : "Write a comment to send";
@@ -484,12 +485,12 @@ function positionRail() {
   for (const lit of scroller.querySelectorAll(".msg--linked, .activity-row--linked")) {
     lit.classList.remove("msg--linked", "activity-row--linked");
   }
-  const card = scroller.querySelector('.ccard[data-active="true"]');
+  const card = scroller.querySelector<HTMLElement>('.ccard[data-active="true"]');
   if (!card) return;
   const entry = commentsFor(app.selectedId).find((c) => c.id === card.dataset.id);
   const anchor = findAnchor(scroller, entry);
   const node = anchor && (anchor.nodeType === 1 ? anchor : anchor.commonAncestorContainer);
-  const owner = node && (node.nodeType === 1 ? node : node.parentElement)?.closest(".msg, .activity-row");
+  const owner = node && (node.nodeType === 1 ? node : node.parentElement)?.closest(".msg, .activity-row") as HTMLElement;
   if (owner) owner.classList.add(owner.classList.contains("msg") ? "msg--linked" : "activity-row--linked");
 }
 
@@ -610,7 +611,7 @@ async function sendComments(session, button) {
    Sending then fired all of them, and comments landed on sessions that were not
    even on screen. The session is read at click time now, not captured. */
 detailPane.addEventListener("click", (event) => {
-  const act = event.target.closest("[data-cc]");
+  const act = hitClosest(event, "[data-cc]");
   if (act) {
     const id = act.dataset.id;
     if (act.dataset.cc === "drop") {
@@ -626,7 +627,7 @@ detailPane.addEventListener("click", (event) => {
     }
     return;
   }
-  const sendButton = event.target.closest(".rail__send");
+  const sendButton = hitClosest(event, ".rail__send");
   if (!sendButton) return;
   const live = selected();
   if (live) sendComments(live, sendButton);
@@ -647,7 +648,7 @@ window.addEventListener("resize", syncQuoteChip);
 // selection collapses it, and the passage goes with it.
 quoteChip.addEventListener("mousedown", (event) => event.preventDefault());
 quoteChip.addEventListener("click", (event) => {
-  const act = event.target.closest("[data-sel]")?.dataset.sel;
+  const act = hitClosest(event, "[data-sel]")?.dataset.sel;
   if (act === "copy") copySelection();
   else if (act === "comment") commentOnSelection();
 });
@@ -659,12 +660,9 @@ async function copySelection() {
   const text = quote ? quote.parts.map((p) => p.text).join("\n\n") : "";
   hideQuoteChip();
   if (!text) return;
-  try {
-    await navigator.clipboard.writeText(text);
-    showSnackbar("Copied");
-  } catch {
-    showSnackbar("Could not reach the clipboard");
-  }
+  // Through the shared path, which has the fallback for a panel served over
+  // plain http — where there is no clipboard object at all.
+  await copyText(text, "Copied");
 }
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !quoteChip.hidden) { hideQuoteChip(); event.stopPropagation(); }
@@ -702,9 +700,9 @@ document.addEventListener("keydown", (event) => {
   if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
   if (event.key !== "c" && event.key !== "C") return;
   if (String(window.getSelection?.() ?? "")) return;
-  const inField = event.target?.closest?.("textarea, input");
+  const inField = hitClosest<HTMLTextAreaElement | HTMLInputElement>(event, "textarea, input");
   if (inField && inField.selectionStart !== inField.selectionEnd) return;
-  const stop = detailPane.querySelector("[data-act='stop']");
+  const stop = detailPane.querySelector<HTMLButtonElement>("[data-act='stop']");
   if (!stop) return;
   event.preventDefault();
   if (stop.disabled) { showSnackbar(stop.getAttribute("title") || "It cannot be stopped from here"); return; }
@@ -897,7 +895,7 @@ export function wireTrace(root) {
   };
 
   const showAt = (clientX, clientY) => {
-    const seg = document.elementFromPoint(clientX, clientY)?.closest(".trace__span");
+    const seg = document.elementFromPoint(clientX, clientY)?.closest<HTMLElement>(".trace__span");
     if (!seg || !bar.contains(seg)) return hide();
     if (seg !== hot) {
       hot?.classList.remove("trace__span--hot");

@@ -26,8 +26,8 @@ import { showSnackbar } from "../ui/snackbar.js";
 export const updateScrim = document.getElementById("updateScrim");
 const updateButton = document.getElementById("updateButton");
 const updateChipText = document.getElementById("updateChipText");
-const updateGo = document.getElementById("updateGo");
-const updateCheck = document.getElementById("updateCheck");
+const updateGo = document.getElementById("updateGo") as HTMLButtonElement;
+const updateCheck = document.getElementById("updateCheck") as HTMLButtonElement;
 
 /* A check reaches the network. The server holds its answer for hours and this
    only asks every half hour, so between them the remote is contacted about as
@@ -187,7 +187,7 @@ function paintUpdateDialog() {
    same shape every other renderer on that page has.
    ========================================================================== */
 export function paintUpdateSetting() {
-  const box = detailPane.querySelector("#updateSection");
+  const box = detailPane.querySelector<HTMLElement>("#updateSection");
   if (!box) return;
   // A tarball has no releases and a read-only panel cannot apply one. Neither
   // wants a section with a button in it that does nothing.

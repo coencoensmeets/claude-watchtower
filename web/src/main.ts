@@ -9,17 +9,21 @@ import { Hct, SchemeVibrant, TonalPalette, argbFromHex, hexFromArgb } from "/ven
 import { run } from "./net.js";
 import { isAmbiguous, windowSays } from "./sessions/facts.js";
 import { ASK_ICON, ASK_WORD, STATE, STATE_ORDER, displaySince, drawnStateOf, standingAsk, stateKeyOf } from "./sessions/state.js";
+import type { StateKey } from "./sessions/state.js";
 import { CHAT_LIMIT_MAX, CHAT_PAGE, app, chat, loadKeySet, mutedSessions, quietWhenDone, readJson, repo, sayDrafts, selected, sessionById, sidebar, spend, ui } from "./state.js";
 import { askConfirm, askScrim, closeAsk } from "./ui/ask.js";
-import { backButton, barNudge, barNudgeIcon, barNudgeLink, barNudgeText, barSupporting, chipSet, detailPane, endScrim, listEmpty, panes, pickBar, pickClear, pickCount, pickGroup, sessionList, settingsButton } from "./ui/dom.js";
+import { backButton, barNudge, barNudgeIcon, barNudgeLink, barNudgeText, barSupporting, chipSet, control, detailPane, endScrim, hitClosest, hitElement, listEmpty, panes, pickBar, pickClear, pickCount, pickGroup, sessionList, settingsButton } from "./ui/dom.js";
 import { duration, escapeHtml, shorten, tokens } from "./ui/format.js";
 import { ICON, hostOf } from "./ui/icons.js";
 import { attachPicture, dropImage, imagesStamp, picturesOn, sendMessage } from "./ui/images.js";
 import { wireDrop } from "./ui/dropped.js";
 import { closeSessionMenu, menuIsOpen, openMenu, sessionMenu } from "./ui/menu.js";
+import { onLongPress } from "./ui/press.js";
+import type { MenuItem } from "./ui/menu.js";
 import { announce, paintFavicon } from "./ui/notify.js";
 import { conceal, reveal } from "./ui/overlay.js";
 import { paintSettings, syncTheme } from "./ui/settings.js";
+import { copyText } from "./ui/clipboard.js";
 import { showSnackbar } from "./ui/snackbar.js";
 import { CONTRAST_LEVELS, MAX_CUSTOM_CHROMA, NOTIFY_KINDS, STATE_BASE_HUES, SYS_ROLES, customRoles, firstFreeHue, kebab } from "./ui/theme.js";
 import { changeBusy, chatPanel, hideChange, showChange } from "./views/change.js";
@@ -30,6 +34,9 @@ import { fetchPlan, openPlan, planScrim } from "./views/plan.js";
 import { fetchUpdate, openUpdate, updateScrim } from "./views/update.js";
 import { aboutPanel, usagePanel } from "./views/usage.js";
 import "./ui/markdown.js";
+/* Loaded for its own sake: it wires the message context menu — download or copy
+   a message as markdown — onto the detail pane and exports nothing. */
+import "./views/save.js";
 import { serveRefresh } from "./refresh.js";
 
 function loadSettings() {
@@ -144,6 +151,103 @@ const folderKeyOf = (session) => session.cwd || session.folder || "";
 const bySessionIdentity = (a, b) =>
   (a.startedAt || 0) - (b.startedAt || 0) || (a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0);
 
+/* ==========================================================================
+   The order you put the rows in.
+
+   The server sorts by state — anything waiting on you first, then what is
+   working — and that is the right answer until you disagree with it. Dragging a
+   row says you do: from the first drag on, the order on screen is yours, and a
+   session going busy and idle again no longer moves it.
+
+   Held as a list of ids rather than a number on each row, because the thing
+   being remembered is a sequence and a sequence stays consistent when it is
+   stored as one. Like the grouping, it is a view of the list rather than
+   something the sessions carry, so it lives in this browser.
+
+   A session the arrangement has never seen — one started since you last dragged
+   anything — is drawn above it rather than at the bottom: it is the new thing on
+   the list, and the point of the state sort was that new work is what you look
+   at first. It takes its place in the arrangement the next time you drag.
+   ========================================================================== */
+let manualOrder = (() => {
+  const raw = readJson("cbu-order", []);
+  return Array.isArray(raw) ? raw.filter((id) => typeof id === "string") : [];
+})();
+/* The same list as a lookup, because every comparison in a sort asks it. */
+const orderRank = new Map();
+const indexOrder = () => {
+  orderRank.clear();
+  manualOrder.forEach((id, at) => orderRank.set(id, at));
+};
+indexOrder();
+const saveOrder = () => {
+  indexOrder();
+  localStorage.setItem("cbu-order", JSON.stringify(manualOrder));
+};
+
+/* The sessions in the order the list should draw them: the server's, until you
+   have arranged them. Stable — two rows the arrangement says nothing about keep
+   the order the server sent them in. */
+function arrange(sessions) {
+  if (!manualOrder.length) return sessions;
+  return sessions
+    .map((session, at) => ({ session, at }))
+    .sort((a, b) => {
+      const ra = orderRank.has(a.session.sessionId) ? orderRank.get(a.session.sessionId) : -1;
+      const rb = orderRank.has(b.session.sessionId) ? orderRank.get(b.session.sessionId) : -1;
+      // -1 for a row the arrangement has not placed, which is what puts it on top.
+      return ra === rb ? a.at - b.at : ra - rb;
+    })
+    .map((entry) => entry.session);
+}
+
+/* Inside a group: your order when you have given one, and otherwise the fixed
+   order of identity — which is there so a member going busy does not shuffle the
+   group under the pointer, and is exactly what an arrangement replaces. */
+const byArrangement = (a, b) => {
+  const ra = orderRank.get(a.sessionId);
+  const rb = orderRank.get(b.sessionId);
+  if (ra !== undefined && rb !== undefined) return ra - rb;
+  if (ra !== undefined) return 1;
+  if (rb !== undefined) return -1;
+  return bySessionIdentity(a, b);
+};
+
+/* Every session in the order the list would draw it in, groups and all — which
+   is what a drag is measured against. Filtered rows included: they are on the
+   list you arranged even while you cannot see them. */
+const onScreenOrder = () => listBlocks(arrange(app.feed.sessions))
+  .flatMap((block) => block.kind === "group"
+    ? block.sessions.map((s) => s.sessionId)
+    : [block.session.sessionId]);
+
+/* Put a row next to another one. The first drag has nothing to move within, so
+   the order on screen becomes the arrangement and the move is applied to that.
+   The order on screen is the one the blocks are drawn in and not the flat sort
+   behind them — a group gathers rows from all over the list, and seeding from
+   the sort would rearrange every group on the first drag. Over every session
+   rather than the ones a filter is showing, too, or filtering the list would
+   forget where the hidden rows sat. */
+function moveRow(id, anchorId, after) {
+  if (!anchorId || anchorId === id) return;
+  const order = onScreenOrder().filter((sid) => sid !== id);
+  const at = order.indexOf(anchorId);
+  if (at === -1) return;
+  order.splice(after ? at + 1 : at, 0, id);
+  manualOrder = order;
+  saveOrder();
+  render();
+}
+
+/* Hand the order back to the panel. */
+function clearArrangement() {
+  if (!manualOrder.length) return;
+  manualOrder = [];
+  saveOrder();
+  showSnackbar("Sorted by state again");
+  render();
+}
+
 /* What the index draws, top to bottom: bare rows and groups, each group where
    its first member would have been. */
 function listBlocks(visible) {
@@ -181,11 +285,12 @@ function listBlocks(visible) {
     block.sessions.push(session);
   }
   // A group sits where its most pressing member would have been — that is the
-  // one the sorted list reached first — but inside it the rows are held in a
-  // fixed order of their own, so a member going busy and idle again does not
-  // shuffle the group under the pointer.
+  // one the sorted list reached first — but inside it the rows are held in an
+  // order of their own: yours if you have dragged them, and otherwise a fixed
+  // one, so a member going busy and idle again does not shuffle the group under
+  // the pointer.
   for (const block of blocks) {
-    if (block.kind === "group") block.sessions.sort(bySessionIdentity);
+    if (block.kind === "group") block.sessions.sort(byArrangement);
   }
   return blocks;
 }
@@ -367,7 +472,7 @@ function showMoreChat(event) {
    pointer, so the panel only redraws when the repository actually moved. */
 /* Both git tabs are drawn from the same reading, so they fetch and fall back
    together. */
-const isGitTab = (name) => name === "git" || name === "history";
+const isGitTab = (name: string) => name === "git" || name === "history";
 
 /* Tokens and cost. Cheaper to read than the repository — the server scans the
    transcript once and picks up where it stopped — but there is no point reading
@@ -378,7 +483,7 @@ function usageStamp(u) {
           (u?.models ?? []).length, (u?.agentModels ?? []).length].join("|");
 }
 
-async function fetchUsage(force) {
+async function fetchUsage(force = false) {
   const id = app.selectedId;
   if (!id || spend.usageBusy) return;
   if (!force && document.hidden) return;
@@ -440,7 +545,7 @@ let nudgeIndex = Math.floor(Math.random() * NUDGES.length);
 let nudgeShownAt = 0;
 
 /* `counts` is the same tally the chips are drawn from. */
-function renderNudge(counts) {
+function renderNudge(counts: Record<string, number>) {
   const busy = counts.busy || 0;
   // Anything that is neither working nor put away is something you could be
   // attending to, so the nudge would be a lie.
@@ -481,7 +586,7 @@ function renderNudge(counts) {
 
 /* --------------------------------------------------------------- rendering */
 function render() {
-  const counts = {};
+  const counts: Record<string, number> = {};
   for (const session of app.feed.sessions) {
     const key = stateKeyOf(session.status);
     counts[key] = (counts[key] || 0) + 1;
@@ -502,7 +607,8 @@ function render() {
   document.title = waiting ? `(${waiting}) Claude sessions` : "Claude sessions";
 
   // Keep a valid selection: fall back to the top of the list.
-  const visible = app.filter === "all" ? app.feed.sessions : app.feed.sessions.filter((s) => stateKeyOf(s.status) === app.filter);
+  const ordered = arrange(app.feed.sessions);
+  const visible = app.filter === "all" ? ordered : ordered.filter((s) => stateKeyOf(s.status) === app.filter);
   if (!visible.some((s) => s.sessionId === app.selectedId)) {
     app.selectedId = visible.length ? visible[0].sessionId : null;
     if (app.selectedId) localStorage.setItem("cbu-selected", app.selectedId);
@@ -537,6 +643,10 @@ function renderChips(counts) {
 }
 
 function renderList(visible) {
+  // A drag holds the list still. Rebuilding a row takes it out from under the
+  // pointer, which cancels the drag; the poll that wanted the rebuild is a
+  // second old, and dropping redraws everything anyway.
+  if (dragging) return;
   listEmpty.hidden = visible.length > 0;
   // A menu whose row is leaving the list — ended, or filtered out — has nothing
   // left to act on.
@@ -602,8 +712,10 @@ function renderList(visible) {
     }
     // The rebuild threw away the mark on the row the open menu points at.
     const marked = ui.menuFor
-      ? sessionList.querySelector(`li[data-id="${CSS.escape(ui.menuFor)}"]`)
-      : ui.menuGroup ? sessionList.querySelector(`li[data-group="${CSS.escape(ui.menuGroup)}"]`) : null;
+      ? sessionList.querySelector<HTMLElement>(`li[data-id="${CSS.escape(ui.menuFor)}"]`)
+      : ui.menuGroup
+        ? sessionList.querySelector<HTMLElement>(`li[data-group="${CSS.escape(ui.menuGroup)}"]`)
+        : null;
     if (marked) marked.dataset.menu = "open";
   }
 
@@ -615,7 +727,7 @@ function renderList(visible) {
   // than leaving the count in the bar looking wrong.
   for (const block of blocks) {
     if (block.kind !== "group") continue;
-    const item = sessionList.querySelector(`li[data-group="${CSS.escape(block.key)}"]`);
+    const item = sessionList.querySelector<HTMLElement>(`li[data-group="${CSS.escape(block.key)}"]`);
     if (!item) continue;
     const inside = block.sessions.filter((s) => picked.has(s.sessionId)).length;
     if (inside) item.dataset.picked = String(inside);
@@ -633,7 +745,7 @@ function groupHeader(block) {
   button.className = "group__header md-state";
   button.type = "button";
   button.setAttribute("aria-expanded", String(!block.collapsed));
-  const states = [...new Set(block.sessions.map((s) => stateKeyOf(s.status)))]
+  const states: StateKey[] = [...new Set<StateKey>(block.sessions.map((s) => stateKeyOf(s.status)))]
     .sort((a, b) => STATE_ORDER.indexOf(a) - STATE_ORDER.indexOf(b));
   button.innerHTML = `
     <span class="group__chevron">${ICON.chevron}</span>
@@ -704,8 +816,16 @@ function paintListItem(item, session) {
           <span class="session-item__supporting md-body-small">${supporting}</span>
         </span>
         <span class="session-item__trailing md-label-small md-mono" data-since="${displaySince(session)}"></span>
+        <span class="session-item__grip" aria-hidden="true"
+              title="Drag the row to move it, or hold alt and press up or down">${ICON.drag}</span>
       </button>`;
     const button = item.firstElementChild;
+    // Carrying the row is the whole button rather than the grip alone: the grip
+    // says the row can be moved, and having to hit a 14px target to move it
+    // would be a worse answer than the one the cue is advertising. A drag needs
+    // the pointer to travel first, so the click this button is mostly for is
+    // untouched.
+    button.draggable = true;
     button.style.setProperty("--state-colour", state.colour);
     button.style.setProperty("--state-container", state.container);
     button.style.setProperty("--state-on-container", state.onContainer);
@@ -764,25 +884,6 @@ function setMuted(id, muted) {
   renderDetail();
 }
 
-async function copyText(text, done) {
-  try {
-    await navigator.clipboard.writeText(text);
-    showSnackbar(done);
-  } catch (error) {
-    // Clipboard permission can be refused even on loopback. Fall back rather
-    // than leaving a menu item that silently does nothing.
-    const box = document.createElement("textarea");
-    box.value = text;
-    box.setAttribute("readonly", "");
-    box.style.cssText = "position:fixed;top:-1000px;left:0;opacity:0";
-    document.body.appendChild(box);
-    box.select();
-    let ok = false;
-    try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
-    box.remove();
-    showSnackbar(ok ? done : "Could not reach the clipboard");
-  }
-}
 
 /* What this session can actually have done to it, in the order you reach for it.
    Anything that cannot apply right now is left out rather than shown dead —
@@ -793,7 +894,7 @@ async function copyText(text, done) {
 function menuItemsFor(session) {
   const win = session.window;
   const muted = mutedSessions.has(session.sessionId);
-  const items = [];
+  const items: MenuItem[] = [];
   // Window actions mean nothing for a session with no window: one with no
   // process at all, or one the panel is running, whose process is a pipe.
   if (runsHere(session)) {
@@ -838,6 +939,12 @@ function menuItemsFor(session) {
   items.push({ key: "mute", icon: muted ? ICON.bell : ICON.bellOff,
     label: muted ? "Unmute notifications" : "Mute notifications",
     run: () => { setMuted(session.sessionId, !muted); showSnackbar(muted ? "Notifications on" : "Notifications muted"); } });
+  // Handing the order back, offered only once there is an order of yours to
+  // hand back — and on any row, because it is the whole list it undoes.
+  if (manualOrder.length) {
+    items.push({ key: "sort", icon: ICON.sort, label: "Sort by state again",
+      hint: "forgets the order you dragged", run: () => clearArrangement() });
+  }
   // Grouping acts on the rows you picked, so it is offered where the picking is.
   const group = groupOf(session.sessionId);
   if (picked.size > 1 && picked.has(session.sessionId)) {
@@ -908,7 +1015,7 @@ function openNewMenu(button) {
   // runs it, so its mode is yours and its prompts come here from the first word.
   // The terminal route is still there, at the bottom, for when you want a
   // terminal — but it is the exception now rather than the only door.
-  const items = folders.map((session) => ({
+  const items: MenuItem[] = folders.map((session) => ({
     key: `new:${session.sessionId}`,
     icon: ICON.folder,
     label: session.folder || shorten(session.cwd, 1),
@@ -952,7 +1059,7 @@ function openNewMenu(button) {
    its mode picked here and cannot have its prompts answered here, which is the
    whole of why it is no longer the first thing offered. */
 function openNewMenuTerminal(button) {
-  const items = newSessionFolders().map((session) => ({
+  const items: MenuItem[] = newSessionFolders().map((session) => ({
     key: `term:${session.sessionId}`,
     icon: ICON.folder,
     label: session.folder || shorten(session.cwd, 1),
@@ -1001,7 +1108,7 @@ newButton.addEventListener("click", () => {
    group has no stored name to change — its name is the folder — so taking it
    apart is the only thing it offers besides folding. */
 function openGroupMenu(block, x, y) {
-  const items = [
+  const items: MenuItem[] = [
     { key: "fold", icon: ICON.chevron, label: block.collapsed ? "Expand" : "Fold away",
       hint: `${block.sessions.length} sessions`, run: () => toggleGroup(block) },
     { divider: true },
@@ -1091,10 +1198,10 @@ function startGroupRename(block) {
 
 /* Arrow keys walk the enabled items and wrap; Escape gives focus back to the row. */
 sessionMenu.addEventListener("keydown", (event) => {
-  const enabled = [...sessionMenu.querySelectorAll(".menu__item:not([disabled])")];
+  const enabled = [...sessionMenu.querySelectorAll<HTMLButtonElement>(".menu__item:not([disabled])")];
   if (!enabled.length) return;
-  const at = enabled.indexOf(document.activeElement);
-  const go = (i) => { enabled[(i + enabled.length) % enabled.length].focus(); event.preventDefault(); };
+  const at = enabled.indexOf(document.activeElement as HTMLButtonElement);
+  const go = (i: number) => { enabled[(i + enabled.length) % enabled.length].focus(); event.preventDefault(); };
   if (event.key === "ArrowDown") go(at + 1);
   else if (event.key === "ArrowUp") go(at - 1);
   else if (event.key === "Home") go(0);
@@ -1104,7 +1211,7 @@ sessionMenu.addEventListener("keydown", (event) => {
 });
 
 sessionList.addEventListener("contextmenu", (event) => {
-  const row = event.target.closest("li[data-id]");
+  const row = hitClosest(event, "li[data-id]");
   const session = row && sessionById(row.dataset.id);
   if (!session) return;
   event.preventDefault();
@@ -1116,19 +1223,132 @@ sessionList.addEventListener("contextmenu", (event) => {
    grouping would be a pointer-only feature. Enter still opens the session. */
 sessionList.addEventListener("keydown", (event) => {
   if (event.key !== " ") return;
-  const row = event.target.closest("li[data-id]");
-  if (!row || !event.target.closest(".session-item")) return;
+  const row = hitClosest(event, "li[data-id]");
+  if (!row || !hitClosest(event, ".session-item")) return;
   event.preventDefault();     // or the button below takes it as a click
   togglePick(row.dataset.id);
   pickAnchor = row.dataset.id;
   // The repaint keeps the row, so put the focus back where the reader left it.
-  sessionList.querySelector(`li[data-id="${CSS.escape(row.dataset.id)}"] .session-item`)?.focus();
+  sessionList.querySelector<HTMLElement>(`li[data-id="${CSS.escape(row.dataset.id)}"] .session-item`)?.focus();
+});
+
+/* ==========================================================================
+   Dragging a row into place.
+
+   The browser's own drag rather than a pointer-move harness: it gives the
+   carried image, the cursor and the escape key for nothing, and the list is
+   already a tree of ordinary elements to hit-test against.
+
+   A row only ever lands in the list it came out of. Dropping one into a group
+   would have to mean joining that group, which is a different act with its own
+   item in the menu, and a drag is too easy to do by accident to be the way you
+   discover it. At the top level a group counts as one block, so a row dragged
+   past it goes past the whole thing.
+   ========================================================================== */
+/* The row being carried, and the edge it is hovering over. Kept out of the
+   list's own state because a poll must not disturb either. */
+let dragging = null;    // { id, from } — the row's id and the ul it belongs to
+let dropMark = null;    // the li the landing line is drawn on
+
+function clearDropMark() {
+  if (dropMark) delete dropMark.dataset.drop;
+  dropMark = null;
+}
+
+function endDrag() {
+  const row = dragging && sessionList.querySelector<HTMLElement>(`li[data-id="${CSS.escape(dragging.id)}"]`);
+  if (row) delete row.dataset.dragging;
+  clearDropMark();
+  dragging = null;
+  delete sessionList.dataset.dragging;
+  // Whatever the polls wanted to change while the list was held still.
+  render();
+}
+
+/* Which row the pointer is over, and which side of it — within the list the
+   carried row came from, so anything else is not a place it can land. */
+function dropTargetFor(event) {
+  if (!dragging?.from) return null;
+  let node = hitClosest(event, "li");
+  while (node && node.parentElement !== dragging.from) node = node.parentElement?.closest("li") ?? null;
+  if (!node) return null;
+  const box = node.getBoundingClientRect();
+  return { node, after: event.clientY > box.top + box.height / 2 };
+}
+
+/* The session a landing place is measured from. A session row is its own
+   answer; a group is the member at the end the row is landing on, which is what
+   puts the row outside the group rather than into it. */
+function anchorIdOf(node, after) {
+  if (node.dataset.id) return node.dataset.id;
+  const rows = [...node.querySelectorAll("li[data-id]")];
+  return (after ? rows[rows.length - 1] : rows[0])?.dataset.id ?? null;
+}
+
+sessionList.addEventListener("dragstart", (event) => {
+  const row = hitClosest(event, "li[data-id]");
+  if (!row || !hitClosest(event, ".session-item")) return;
+  dragging = { id: row.dataset.id, from: row.parentElement };
+  row.dataset.dragging = "true";
+  sessionList.dataset.dragging = "true";
+  // A menu still open would point at a row that is about to be somewhere else.
+  if (menuIsOpen()) closeSessionMenu({ restoreFocus: false });
+  event.dataTransfer.effectAllowed = "move";
+  // Firefox starts no drag at all without data on it, and the id is the one
+  // thing worth putting there. Nothing reads it back: the drag never leaves the
+  // list, and `dragging` says more than a string can.
+  event.dataTransfer.setData("text/plain", row.dataset.id);
+});
+
+sessionList.addEventListener("dragover", (event) => {
+  if (!dragging) return;
+  const target = dropTargetFor(event);
+  if (!target) { clearDropMark(); return; }
+  // Only a place it can land takes the drop, so the cursor says so too.
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "move";
+  if (dropMark !== target.node) clearDropMark();
+  dropMark = target.node;
+  target.node.dataset.drop = target.after ? "after" : "before";
+});
+
+sessionList.addEventListener("drop", (event) => {
+  if (!dragging) return;
+  event.preventDefault();
+  const target = dropTargetFor(event);
+  const id = dragging.id;
+  const anchorId = target && anchorIdOf(target.node, target.after);
+  const after = !!target?.after;
+  // Before the move, because moving redraws the list this was holding still.
+  endDrag();
+  if (anchorId) moveRow(id, anchorId, after);
+});
+
+// Dropped outside the list, or given up on with Escape. Either way the list has
+// been standing still and has a poll's worth of news to catch up on.
+sessionList.addEventListener("dragend", () => { if (dragging) endDrag(); });
+
+/* The keyboard route to the same move: alt with an arrow, on the row itself.
+   One step is one block, so a row steps over a whole group rather than into it —
+   the same rule the drag follows. */
+sessionList.addEventListener("keydown", (event) => {
+  if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
+  const row = hitClosest(event, "li[data-id]");
+  if (!row || !hitClosest(event, ".session-item")) return;
+  event.preventDefault();
+  const down = event.key === "ArrowDown";
+  const siblings = [...row.parentElement.children];
+  const next = siblings[siblings.indexOf(row) + (down ? 1 : -1)];
+  const id = row.dataset.id;
+  if (next) moveRow(id, anchorIdOf(next, down), down);
+  // The move rebuilt the list around the row; the reader is still on it.
+  sessionList.querySelector<HTMLElement>(`li[data-id="${CSS.escape(id)}"] .session-item`)?.focus();
 });
 
 // The keyboard route to the same menu: Shift-F10, or the dedicated menu key.
 sessionList.addEventListener("keydown", (event) => {
   if (!(event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey))) return;
-  const row = event.target.closest("li[data-id]");
+  const row = hitClosest(event, "li[data-id]");
   const session = row && sessionById(row.dataset.id);
   if (session) {
     event.preventDefault();
@@ -1138,7 +1358,7 @@ sessionList.addEventListener("keydown", (event) => {
     return;
   }
   // The same key on a group header opens the group's menu.
-  const header = event.target.closest("li.group")?.querySelector(":scope > .group__header");
+  const header = hitClosest(event, "li.group")?.querySelector(":scope > .group__header");
   const block = header && lastBlocks.find((b) => b.kind === "group" && b.key === header.parentElement.dataset.group);
   if (!block) return;
   event.preventDefault();
@@ -1146,12 +1366,34 @@ sessionList.addEventListener("keydown", (event) => {
   openGroupMenu(block, rect.left + 16, rect.bottom - 8);
 });
 
+/* And the touch route to both of them: press and hold a row, the way every
+   phone opens the actions on a list item. A phone has no right-click, and the
+   `contextmenu` event a long press produces is Android's alone — so the gesture
+   is recognised here rather than waited for. See ui/press.js.
+
+   The list is where this belongs and the conversation is where it does not: a
+   long press on a bubble is how a phone starts a text selection, which is what
+   raises the Comment chip. Rows have no text to select — the stylesheet says so
+   — so there is nothing for the press to take away. */
+onLongPress(sessionList, ({ x, y, target }) => {
+  const row = target.closest?.("li[data-id]");
+  const session = row && sessionById(row.dataset.id);
+  if (session) {
+    ui.menuReturn = session.sessionId;
+    openSessionMenu(session, x, y);
+    return;
+  }
+  const header = target.closest?.("li.group > .group__header");
+  const block = header && lastBlocks.find((b) => b.kind === "group" && b.key === header.parentElement.dataset.group);
+  if (block) openGroupMenu(block, x, y);
+});
+
 // Anything that moves the menu away from what it points at closes it.
 document.addEventListener("pointerdown", (event) => {
   // Except the button the menu hangs off: closing here would let its own click
   // reopen the menu it was meant to shut.
-  if (event.target?.closest?.("#newButton")) return;
-  if (menuIsOpen() && !sessionMenu.contains(event.target)) closeSessionMenu({ restoreFocus: false });
+  if (hitClosest(event, "#newButton")) return;
+  if (menuIsOpen() && !sessionMenu.contains(hitElement(event))) closeSessionMenu({ restoreFocus: false });
 }, true);
 window.addEventListener("blur", () => closeSessionMenu({ restoreFocus: false }));
 window.addEventListener("resize", () => closeSessionMenu({ restoreFocus: false }));
@@ -1159,10 +1401,10 @@ window.addEventListener("resize", () => closeSessionMenu({ restoreFocus: false }
 // or the list itself depending on the breakpoint. Scrolling within the menu is
 // the reader working through a long one, not moving away from it.
 document.addEventListener("scroll", (event) => {
-  if (menuIsOpen() && !sessionMenu.contains(event.target)) closeSessionMenu({ restoreFocus: false });
+  if (menuIsOpen() && !sessionMenu.contains(hitElement(event))) closeSessionMenu({ restoreFocus: false });
 }, true);
 
-function renderDetail(force) {
+function renderDetail(force = false) {
   if (app.showingSettings) { paintSettings(); return; }
   const session = selected();
   if (!session) {
@@ -1211,8 +1453,8 @@ function renderDetail(force) {
               (o.queued || []).join("\u0000").slice(0, 200)].join("/"); })(),
   ].join(" ");
   if (!force && detailPane.dataset.signature === signature) {
-    const clock = detailPane.querySelector("[data-since]");
-    if (clock) clock.dataset.since = displaySince(session);
+    const clock = detailPane.querySelector<HTMLElement>("[data-since]");
+    if (clock) clock.dataset.since = String(displaySince(session));
     // The trace moves on every poll even when nothing else does. Repaint it in
     // place rather than rebuilding the pane around it.
     const standing = detailPane.querySelector(".detail-header");
@@ -1254,7 +1496,7 @@ function renderDetail(force) {
   // The text itself lives in sayDrafts under the session it was written for; only
   // the caret is carried through here, and only when the pane is not changing
   // session, because a caret from another session's box means nothing in this one.
-  const fieldBefore = detailPane.querySelector("#sayField");
+  const fieldBefore = detailPane.querySelector<HTMLTextAreaElement>("#sayField");
   const sameSession = detailPane.dataset.sessionId === session.sessionId;
   if (fieldBefore && detailPane.dataset.sessionId) {
     setSayDraft(detailPane.dataset.sessionId, fieldBefore.value);
@@ -1266,7 +1508,7 @@ function renderDetail(force) {
   } : null;
   // Same for a commit message: its text lives in commitDrafts, but where the
   // caret was does not, and a poll landing mid-word would otherwise move it.
-  const commitBefore = detailPane.querySelector("#commitField");
+  const commitBefore = detailPane.querySelector<HTMLTextAreaElement>("#commitField");
   repo.commitCaret = commitBefore ? {
     start: commitBefore.selectionStart,
     end: commitBefore.selectionEnd,
@@ -1315,7 +1557,7 @@ function renderDetail(force) {
     ${app.tab === "chat" ? questionCard(session) : ""}
     ${app.tab === "chat" ? composer(session) : ""}`;
 
-  const header = detailPane.querySelector(".detail-header");
+  const header = detailPane.querySelector<HTMLElement>(".detail-header");
   header.style.setProperty("--state-colour", state.colour);
   header.style.setProperty("--state-container", state.container);
   header.style.setProperty("--state-on-container", state.onContainer);
@@ -1327,38 +1569,39 @@ function renderDetail(force) {
   // included.
   if (app.tab === "chat") { markCommented(); renderRail(); }
 
-  for (const button of detailPane.querySelectorAll("[data-tab]")) {
+  for (const button of detailPane.querySelectorAll<HTMLElement>("[data-tab]")) {
     button.addEventListener("click", () => setTab(button.dataset.tab));
   }
   detailPane.querySelector("[data-act='rename']")?.addEventListener("click", (e) => startRename(session, e.currentTarget));
   // Two of these when a question is up: the header's button and the card's.
   for (const button of detailPane.querySelectorAll("[data-act='focus']")) {
-    button.addEventListener("click", (e) => run("/api/focus", session, e.currentTarget));
+    button.addEventListener("click", (e) => run("/api/focus", session, control(e)));
   }
   detailPane.querySelector("[data-act='pair']")?.addEventListener("click", (e) =>
-    run("/api/pair", session, e.currentTarget, "Click the window that belongs to this session"));
+    run("/api/pair", session, control(e), "Click the window that belongs to this session"));
   detailPane.querySelector("[data-act='identify']")?.addEventListener("click", (e) =>
-    run("/api/identify", session, e.currentTarget, IDENTIFY_NOTE));
-  detailPane.querySelector("[data-act='unpair']")?.addEventListener("click", (e) => run("/api/unpair", session, e.currentTarget));
-  detailPane.querySelector("[data-act='editor']")?.addEventListener("click", (e) => run("/api/editor", session, e.currentTarget));
+    run("/api/identify", session, control(e), IDENTIFY_NOTE));
+  detailPane.querySelector("[data-act='unpair']")?.addEventListener("click", (e) => run("/api/unpair", session, control(e)));
+  detailPane.querySelector("[data-act='editor']")?.addEventListener("click", (e) => run("/api/editor", session, control(e)));
   detailPane.querySelector("#stickyToggle")?.addEventListener("change", (event) =>
-    run("/api/sticky", session, event.target, null, { pinned: event.target.checked }));
+    run("/api/sticky", session, control(event), null,
+        { pinned: control<HTMLInputElement>(event).checked }));
   detailPane.querySelector("[data-act='forget']")?.addEventListener("click", () => openForgetDialog(session));
   detailPane.querySelector("#muteToggle")?.addEventListener("change", (event) => {
-    if (event.target.checked) mutedSessions.delete(session.sessionId);
+    if (control<HTMLInputElement>(event).checked) mutedSessions.delete(session.sessionId);
     else mutedSessions.add(session.sessionId);
     localStorage.setItem("cbu-muted", JSON.stringify([...mutedSessions]));
     // The switch below follows it rather than waiting for the next poll to
     // rebuild the pane, which would take the focus off the one just pressed.
-    const done = detailPane.querySelector("#doneToggle");
-    if (done) done.disabled = !event.target.checked;
+    const done = detailPane.querySelector<HTMLInputElement>("#doneToggle");
+    if (done) done.disabled = !control<HTMLInputElement>(event).checked;
   });
   detailPane.querySelector("#doneToggle")?.addEventListener("change", (event) => {
-    if (event.target.checked) quietWhenDone.delete(session.sessionId);
+    if (control<HTMLInputElement>(event).checked) quietWhenDone.delete(session.sessionId);
     else quietWhenDone.add(session.sessionId);
     localStorage.setItem("cbu-quiet-done", JSON.stringify([...quietWhenDone]));
   });
-  for (const button of detailPane.querySelectorAll(".fact-copy")) {
+  for (const button of detailPane.querySelectorAll<HTMLElement>(".fact-copy")) {
     button.addEventListener("click", () => button.dataset.copy === "cwd"
       ? copyText(session.cwd, "Folder path copied")
       : copyText(session.sessionId, "Session id copied"));
@@ -1366,7 +1609,7 @@ function renderDetail(force) {
   detailPane.querySelector("[data-act='end']")?.addEventListener("click", () => openEndDialog(session));
   detailPane.querySelector("#openAppearance")?.addEventListener("click", () => openSettings(true));
 
-  const field = detailPane.querySelector("#sayField");
+  const field = detailPane.querySelector<HTMLTextAreaElement>("#sayField");
   if (field) {
     const kept = sayDrafts.get(session.sessionId) || "";
     if (kept) field.value = kept;
@@ -1425,34 +1668,34 @@ function renderDetail(force) {
   detailPane.querySelector("[data-act='own']")?.addEventListener("click", (e) => sendMessage(session, e.currentTarget, true));
   detailPane.querySelector("[data-act='adopt']")?.addEventListener("click", () => openAdoptDialog(session));
   detailPane.querySelector("[data-act='stop']")?.addEventListener("click", (e) =>
-    run("/api/owned/interrupt", session, e.currentTarget));
+    run("/api/owned/interrupt", session, control(e)));
   detailPane.querySelector("[data-act='compact']")?.addEventListener("click", (e) =>
     compactSession(session, e.currentTarget));
   // Leaving out a picture that was pasted by mistake. The file it saved stays
   // where it is — the sweep on the next paste is what clears it — and all this
   // drops is the panel's intention to name it.
-  for (const drop of detailPane.querySelectorAll("[data-act='unattach']")) {
+  for (const drop of detailPane.querySelectorAll<HTMLElement>("[data-act='unattach']")) {
     drop.addEventListener("click", () => dropImage(session.sessionId, drop.dataset.id));
   }
   // Taking back something typed ahead. By index rather than by text, because two
   // identical messages in the queue are two messages, and dropping "the one that
   // says this" would drop the wrong one.
-  for (const drop of detailPane.querySelectorAll("[data-act='unqueue']")) {
-    drop.addEventListener("click", (e) => run("/api/owned/unqueue", session, e.currentTarget,
+  for (const drop of detailPane.querySelectorAll<HTMLElement>("[data-act='unqueue']")) {
+    drop.addEventListener("click", (e) => run("/api/owned/unqueue", session, control(e),
       null, { index: Number(drop.dataset.index) }));
   }
   // Answering the prompt a panel turn is standing on.
   const standing = ownedFor(session).ask;
   if (standing) {
     const picks = askPicksFor(standing);
-    for (const pick of detailPane.querySelectorAll(".ask--live [data-answer]")) {
+    for (const pick of detailPane.querySelectorAll<HTMLElement>(".ask--live [data-answer]")) {
       pick.addEventListener("click", () => {
         // `.ask-q`, which is what the markup says. It said `.ask__q` for one
         // release and the whole thing came apart quietly: the row was never
         // found, so the pick was filed under "" and matched nothing, and the
         // repaint at the end of this handler was the card appearing to respawn
         // with nothing chosen.
-        const holder = pick.closest(".ask-q");
+        const holder = pick.closest<HTMLElement>(".ask-q");
         if (!holder) return;
         const question = holder.dataset.question || "";
         const many = !!standing.input?.questions?.[Number(holder.dataset.q)]?.multiSelect;
@@ -1465,12 +1708,12 @@ function renderDetail(force) {
         // Marked where it stands rather than by rebuilding the sheet: rebuilding
         // replayed its entrance animation on every click, which is what made
         // picking an option look like losing the card.
-        for (const row of holder.querySelectorAll("[data-answer]")) {
+        for (const row of holder.querySelectorAll<HTMLElement>("[data-answer]")) {
           const on = picks[question].includes(row.dataset.label);
           row.setAttribute("aria-pressed", String(on));
           row.setAttribute("aria-checked", String(on));
         }
-        const answer = detailPane.querySelector("[data-act='ask-allow']");
+        const answer = detailPane.querySelector<HTMLButtonElement>("[data-act='ask-allow']");
         if (answer) {
           answer.disabled = !(standing.input?.questions || [])
             .every((q) => (picks[q.question] || []).length);
@@ -1496,7 +1739,7 @@ function renderDetail(force) {
   // the target, because "click it to see all of it" is what a folded thing says.
   // A selection wins, though: dragging across the visible lines to quote them
   // must not fold the thing you were reading out from under you.
-  for (const opener of detailPane.querySelectorAll("[data-act='change']")) {
+  for (const opener of detailPane.querySelectorAll<HTMLElement>("[data-act='change']")) {
     opener.addEventListener("click", (event) => {
       if (String(window.getSelection?.() ?? "")) return;
       event.preventDefault();
@@ -1525,7 +1768,7 @@ function renderDetail(force) {
   if (cameFrom !== `${session.sessionId}/${app.tab}`) panelChangedAt = Date.now();
   const since = Date.now() - panelChangedAt;
   if (since < PANEL_FADE_MS) {
-    const wrap = detailPane.querySelector(".panel-wrap");
+    const wrap = detailPane.querySelector<HTMLElement>(".panel-wrap");
     if (wrap) {
       wrap.classList.add("panel-wrap--entering");
       // A tab that has to fetch its contents renders twice — once empty, once
@@ -1566,7 +1809,7 @@ const PANEL_FADE_MS = 300; /* --md-sys-motion-duration-medium2 */
 const AT_BOTTOM = 120;
 
 function wireJumpDock(scroller) {
-  const last = detailPane.querySelector("#jumpLast");
+  const last = detailPane.querySelector<HTMLButtonElement>("#jumpLast");
   const bottom = detailPane.querySelector("#jumpBottom");
   if (!last || !bottom) return;
   const target = () => [...scroller.querySelectorAll(".msg--user")].pop() || null;
@@ -1631,7 +1874,7 @@ export function growField(field) {
 
 function setComposerHeight(px, field) {
   ui.composerHeight = Math.round(Math.min(Math.max(px, COMPOSER_MIN), composerMax()));
-  localStorage.setItem("cbu-composer-height", ui.composerHeight);
+  localStorage.setItem("cbu-composer-height", String(ui.composerHeight));
   growField(field);
   syncGrip(field);
 }
@@ -1646,9 +1889,9 @@ function resetComposerHeight(field) {
 function syncGrip(field) {
   const grip = detailPane.querySelector("#composerGrip");
   if (!grip) return;
-  grip.setAttribute("aria-valuenow", Math.round(ui.composerHeight || field.clientHeight));
-  grip.setAttribute("aria-valuemin", COMPOSER_MIN);
-  grip.setAttribute("aria-valuemax", Math.round(composerMax()));
+  grip.setAttribute("aria-valuenow", String(Math.round(ui.composerHeight || field.clientHeight)));
+  grip.setAttribute("aria-valuemin", String(COMPOSER_MIN));
+  grip.setAttribute("aria-valuemax", String(Math.round(composerMax())));
 }
 
 function wireComposerGrip(grip, field) {
@@ -1862,8 +2105,8 @@ function cmdNote(asked, session) {
 }
 
 export function syncCmdBar(session) {
-  const bar = detailPane.querySelector("#cmdBar");
-  const field = detailPane.querySelector("#sayField");
+  const bar = detailPane.querySelector<HTMLElement>("#cmdBar");
+  const field = detailPane.querySelector<HTMLTextAreaElement>("#sayField");
   if (!bar || !field) return;
   const asked = slashOf(field.value);
   if (!asked) {
@@ -1895,7 +2138,7 @@ export function syncCmdBar(session) {
       : "")
     + (note ? `<p class="cmdbar__as md-label-medium">${note}</p>` : "");
 
-  for (const button of bar.querySelectorAll(".cmdbar__item")) {
+  for (const button of bar.querySelectorAll<HTMLElement>(".cmdbar__item")) {
     // Taking one with the pointer must not take the caret out of the box.
     button.addEventListener("mousedown", (event) => event.preventDefault());
     button.addEventListener("click", () => takeCmd(session, cmdRows[Number(button.dataset.index)]));
@@ -1904,7 +2147,7 @@ export function syncCmdBar(session) {
 }
 
 function takeCmd(session, entry) {
-  const field = detailPane.querySelector("#sayField");
+  const field = detailPane.querySelector<HTMLTextAreaElement>("#sayField");
   if (!field || !entry) return;
   // A trailing space is the point: it settles the name and moves the bar on to
   // saying what will be sent, with the caret where the arguments go.
@@ -1920,7 +2163,7 @@ function takeCmd(session, entry) {
 /* The picker gets first refusal on the keys it owns, and only while it is
    standing — Enter is the send key every other moment. */
 function cmdKey(event, session) {
-  if (event.key === "Escape" && !detailPane.querySelector("#cmdBar")?.hidden) {
+  if (event.key === "Escape" && !detailPane.querySelector<HTMLElement>("#cmdBar")?.hidden) {
     cmdOff = true;
     syncCmdBar(session);
     return true;
@@ -1974,7 +2217,7 @@ function openEndDialog(session) {
 function closeEndDialog() {
   endScrim.dataset.open = "false";
   endTarget = null;
-  detailPane.querySelector("[data-act='end']")?.focus();
+  detailPane.querySelector<HTMLElement>("[data-act='end']")?.focus();
 }
 /* Starting a session the panel runs. There is nothing to ask first: the panel
    names the session itself — `--session-id` takes a uuid of our choosing — so
@@ -1995,7 +2238,7 @@ async function startOwnedSession(where, item) {
       localStorage.setItem("cbu-selected", data.sessionId);
       setTab("chat");
       await poll();
-      detailPane.querySelector("#sayField")?.focus();
+      detailPane.querySelector<HTMLTextAreaElement>("#sayField")?.focus();
     }
   } catch (error) {
     showSnackbar("Could not reach the server");
@@ -2056,7 +2299,7 @@ async function adopt(button, force) {
       app.selectedId = id;
       localStorage.setItem("cbu-selected", id);
       await poll();
-      detailPane.querySelector("#sayField")?.focus();
+      detailPane.querySelector<HTMLTextAreaElement>("#sayField")?.focus();
     } else if (data.needsForce) {
       document.getElementById("adoptForce").hidden = false;
     }
@@ -2137,11 +2380,11 @@ document.getElementById("adoptForce").addEventListener("click", (e) => adopt(e.c
 
 document.getElementById("endCancel").addEventListener("click", closeEndDialog);
 endScrim.addEventListener("click", (event) => { if (event.target === endScrim) closeEndDialog(); });
-for (const [id, force] of [["endConfirm", false], ["endForce", true]]) {
+for (const [id, force] of [["endConfirm", false], ["endForce", true]] as [string, boolean][]) {
   document.getElementById(id).addEventListener("click", async (event) => {
     const session = endTarget;
     if (!session) return;
-    const data = await run("/api/end", session, event.currentTarget, null, { force });
+    const data = await run("/api/end", session, control(event), null, { force });
     if (data?.removed && app.selectedId === session.sessionId) {
       app.selectedId = null;
       localStorage.removeItem("cbu-selected");
@@ -2160,7 +2403,7 @@ export function openSettings(open) {
   // still on the pane — clear it or the rebuild is skipped as a repeat.
   detailPane.dataset.signature = "";
   render();
-  if (open) detailPane.querySelector("#closeSettings")?.focus();
+  if (open) detailPane.querySelector<HTMLElement>("#closeSettings")?.focus();
   else settingsButton.focus();
 }
 settingsButton.addEventListener("click", () => openSettings(!app.showingSettings));
@@ -2184,7 +2427,7 @@ pickClear.addEventListener("click", () => clearPicked());
 
 /* ----------------------------------------------------------- interactions */
 document.addEventListener("pointerdown", (event) => {
-  const target = event.target.closest(".md-state");
+  const target = hitClosest<HTMLButtonElement>(event, ".md-state");
   if (!target || target.disabled) return;
   if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   const box = target.getBoundingClientRect();
@@ -2214,16 +2457,16 @@ fetchUpdate(true);
 setInterval(() => fetchUpdate(false), 60_000);
 setInterval(() => {
   const now = Date.now() / 1000 + app.skew;
-  for (const node of document.querySelectorAll("[data-since]")) {
+  for (const node of document.querySelectorAll<HTMLElement>("[data-since]")) {
     node.textContent = duration(now - Number(node.dataset.since));
   }
   // The compaction bar moves on the clock, not on the wire — nothing arrives
   // between `compacting` and the result — so it is walked forward here for the
   // same reason the durations are, rather than by repainting the pane at 1Hz
   // for a number the signature cannot see change.
-  for (const bar of document.querySelectorAll("[data-compact-since]")) {
+  for (const bar of document.querySelectorAll<HTMLElement>("[data-compact-since]")) {
     const going = compactPct(now - Number(bar.dataset.compactSince));
-    const fill = bar.querySelector(".ctx__fill");
+    const fill = bar.querySelector<HTMLElement>(".ctx__fill");
     if (fill) fill.style.width = `${Math.max(2, going)}%`;
     bar.setAttribute("aria-label", `Compacting, about ${going}% of the way`);
     const said = bar.parentElement?.querySelector(".ctx__said");

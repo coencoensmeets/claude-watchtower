@@ -16,11 +16,43 @@ export const sessionMenu = document.getElementById("sessionMenu");   // or the k
    those two left it with nothing to dismiss it. The DOM is the honest answer. */
 export const menuIsOpen = () => sessionMenu.dataset.open === "true";
 
+/* One line of a menu: either a rule, or something to pick.
+
+   The two are one type rather than a union because the menu is built by
+   pushing onto one array — a rule between two groups of branches, a disabled
+   line where a group turned out to be empty — and a union would make every
+   `push` a discrimination. So `divider` is what marks a rule and everything
+   else is what an item needs.
+
+   `run` is handed the button it was picked on, which is what the caller passes
+   to `run()` in net.js so the button can disable itself while it works. */
+export interface MenuItem {
+  divider?: boolean;
+  key?: string;
+  icon?: string;
+  label?: string;
+  /** A tooltip, not a line of its own. See the note above openMenu. */
+  hint?: string;
+  disabled?: boolean;
+  danger?: boolean;
+  run?: (el: HTMLButtonElement) => unknown;
+}
+
+export interface MenuSpec {
+  title: string;
+  label: string;
+  items: MenuItem[];
+  forId?: string | null;
+  forGroup?: string | null;
+}
+
 /* One menu, opened over a row or over a group header. `forId` / `forGroup` say
    which, so the thing it acts on is marked while it stands open. An item's hint
    — which window matched, why it is disabled — is a tooltip rather than a line
    of its own: a menu you have to read is a menu nobody reads. */
-export function openMenu({ title, label, items, forId = null, forGroup = null }, x, y) {
+export function openMenu(
+  { title, label, items, forId = null, forGroup = null }: MenuSpec, x: number, y: number,
+) {
   closeSessionMenu();
   sessionMenu.setAttribute("aria-label", label);
   sessionMenu.innerHTML =
@@ -34,7 +66,7 @@ export function openMenu({ title, label, items, forId = null, forGroup = null },
           <span class="menu__label md-label-large">${escapeHtml(item.label)}</span>
         </button>`).join("");
 
-  for (const button of sessionMenu.querySelectorAll(".menu__item")) {
+  for (const button of sessionMenu.querySelectorAll<HTMLButtonElement>(".menu__item")) {
     const item = items.find((i) => i.key === button.dataset.key);
     if (!item?.run) continue;
     button.addEventListener("click", () => {
@@ -61,21 +93,21 @@ export function openMenu({ title, label, items, forId = null, forGroup = null },
   reveal(sessionMenu);
 
   const mark = forId
-    ? sessionList.querySelector(`li[data-id="${CSS.escape(forId)}"]`)
-    : forGroup ? sessionList.querySelector(`li[data-group="${CSS.escape(forGroup)}"]`) : null;
+    ? sessionList.querySelector<HTMLElement>(`li[data-id="${CSS.escape(forId)}"]`)
+    : forGroup ? sessionList.querySelector<HTMLElement>(`li[data-group="${CSS.escape(forGroup)}"]`) : null;
   if (mark) mark.dataset.menu = "open";
-  sessionMenu.querySelector(".menu__item:not([disabled])")?.focus();
+  sessionMenu.querySelector<HTMLElement>(".menu__item:not([disabled])")?.focus();
 }
 
 export function closeSessionMenu({ restoreFocus = true } = {}) {
   if (!menuIsOpen()) return;
-  for (const row of sessionList.querySelectorAll('[data-menu="open"]')) delete row.dataset.menu;
+  for (const row of sessionList.querySelectorAll<HTMLElement>('[data-menu="open"]')) delete row.dataset.menu;
   conceal(sessionMenu);
   ui.menuFor = null;
   ui.menuGroup = null;
   const back = ui.menuReturn;
   ui.menuReturn = null;
   if (restoreFocus && back) {
-    sessionList.querySelector(`[data-id="${CSS.escape(back)}"] .session-item`)?.focus();
+    sessionList.querySelector<HTMLElement>(`[data-id="${CSS.escape(back)}"] .session-item`)?.focus();
   }
 }

@@ -24,6 +24,42 @@
   .activity-row__time { flex: none; opacity: 0.7; }
   .activity-row__tools { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
   .msg__who { display: flex; align-items: baseline; gap: var(--md-sys-spacing-2); margin-bottom: var(--md-sys-spacing-1); opacity: 0.8; }
+
+  /* ------------------------- the actions on one turn ----------------------- */
+  /* The same button on a bubble and on an activity row: the menu that a
+     right-click opens, for the screens and the hands that have no right-click.
+     Faint until the turn is under the pointer, and never faint where there is
+     no pointer to bring it out — the Git tab's row actions in the same shape,
+     for the same reason.
+
+     Focus counts as well as hover, so tabbing to it makes it visible: it is the
+     keyboard's only route to these actions, the transcript having no Shift-F10
+     the way the session list does. */
+  .msg__more {
+    flex: none; position: relative; margin-inline-start: auto;
+    width: 24px; height: 24px; display: grid; place-items: center;
+    border: 0; border-radius: var(--md-sys-shape-corner-full);
+    background: none; color: inherit; cursor: pointer; padding: 0;
+    opacity: 0; transition: opacity 90ms linear;
+  }
+  .msg__more svg { width: 18px; height: 18px; }
+  /* Drawn small and touched large: the target reaches 44px into the padding
+     around it, which is empty in both kinds of row. */
+  .msg__more::after { content: ""; position: absolute; inset: -10px; }
+  .msg:hover .msg__more, .activity-row:hover .msg__more,
+  .msg__more:focus-visible, .msg[data-menu="open"] .msg__more,
+  .activity-row[data-menu="open"] .msg__more { opacity: 0.75; }
+  .msg__more:hover { opacity: 1; }
+  /* A touch screen has no hover to reveal it with, so it is simply there. */
+  @media (hover: none) {
+    .msg__more { opacity: 0.6; }
+  }
+  /* While its own menu stands open, the turn it belongs to is marked — the same
+     cue the session list gets under a menu. */
+  .msg[data-menu="open"], .activity-row[data-menu="open"] {
+    outline: 2px solid var(--md-sys-color-primary); outline-offset: 2px;
+    border-radius: var(--md-sys-shape-corner-large);
+  }
   /* Rendered Markdown. The bubble sets the rhythm: first and last child sit
      flush with the padding, everything between gets one gap of air. */
   .msg__text { overflow-wrap: anywhere; }
@@ -99,6 +135,16 @@
     border-radius: var(--md-sys-shape-corner-extra-small);
     background: color-mix(in srgb, currentColor 8%, transparent);
   }
-  .tool-line__name { flex: none; font-weight: 700; }
+  /* The name gets the room it needs before the detail does — but it may not
+     take more than there is. An MCP tool name runs to forty characters, and as
+     `flex: none` one of those pushed the row, the bubble and the whole pane off
+     the side of a phone, leaving a horizontal scrollbar over the message box.
+
+     Shrinking, but never below the longest word in it: no `min-width: 0` here,
+     and `break-word` rather than `anywhere` — `anywhere` lets the minimum fall
+     to a single character, which stood `Bash` up on end, one letter per line,
+     beside a long command. A name too long for one line wraps between its
+     hyphens instead. */
+  .tool-line__name { flex: 0 1 auto; overflow-wrap: break-word; font-weight: 700; }
   .tool-line__detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; opacity: 0.85; }
 

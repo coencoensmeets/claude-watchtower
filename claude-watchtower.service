@@ -5,7 +5,11 @@ PartOf=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 %h/Workspace/Projects/claude-watchtower/server.py --port 8787
+# No --port: the panel serves on the port it picked for this install and keeps
+# in ~/.config/claude-watchtower/listen.json, so the service and a panel started
+# by hand are on the same address. Add --lan here to serve the local network —
+# see "From your phone" in the README, and the key it prints.
+ExecStart=/usr/bin/python3 %h/Workspace/Projects/claude-watchtower/server.py
 Restart=on-failure
 RestartSec=3
 # xdotool needs the X display to raise windows.

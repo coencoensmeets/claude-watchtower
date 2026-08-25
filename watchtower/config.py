@@ -41,6 +41,11 @@ ROOT = Path(__file__).resolve().parents[1]
 STATIC_DIR = ROOT / "dist"
 
 
+# The port this install serves on and the key a request from off this machine
+# has to show. Both are decided once and kept — see watchtower.listen.
+LISTEN_FILE = HOME / ".config" / "claude-watchtower" / "listen.json"
+
+
 PAIR_FILE = HOME / ".config" / "claude-watchtower" / "pairs.json"
 
 
@@ -131,8 +136,15 @@ LIVENESS_GRACE = 45.0
 
 
 # Whether the panel may send input at all. Decided in main() from the bind
-# address and --no-send, then read on every request that would act.
+# address, the key, and --no-send, then read on every request that would act.
 SAY_ENABLED = False
+
+
+# The key a request has to show when it did not come from this machine, or None
+# when none is wanted — which is the case for a panel on loopback alone, where
+# the only thing that can reach it is already here. Decided in main() and read
+# on every request; see watchtower.listen.access_key.
+ACCESS_KEY: str | None = None
 
 
 # Whether a /usage errand is out right now, so a second poll does not start

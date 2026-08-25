@@ -199,6 +199,100 @@ if (!folderGroups.length) {
     && await evaluate(`document.querySelectorAll('.session-item').length`) === list.items);
 }
 
+/* -------------------------------------------------------------- arranging */
+/* A row can be dragged where you want it, and from then on the order is yours
+   rather than the state sort's. The drag itself has to be a browser: a
+   DataTransfer is the one thing only one can hand over. */
+const rowNames = () => evaluate(`JSON.stringify([...sessionList.querySelectorAll('li[data-id]')]
+  .map((li) => li.querySelector('.session-item__headline').textContent.trim()))`);
+// dragstart on one block, dragover and drop on another, then dragend — which is
+// the whole sequence the panel listens for. Returns the landing line it drew,
+// so a refused drop is told apart from one that simply changed nothing.
+await evaluate(`window.__dragRow = (fromSel, toSel, where) => {
+  const from = document.querySelector(fromSel), to = document.querySelector(toSel);
+  if (!from || !to) return null;
+  const data = new DataTransfer();
+  const fire = (el, type, y) => (el.querySelector('.session-item') || el)
+    .dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: data, clientX: 24, clientY: y }));
+  const box = to.getBoundingClientRect();
+  // A folded group draws its rows at no height at all, and every landing place
+  // in it would be the same point. Say so rather than testing nothing.
+  if (box.height < 8) return 'hidden';
+  const y = where === 'after' ? box.bottom - 2 : box.top + 2;
+  fire(from, 'dragstart', 0);
+  fire(to, 'dragover', y);
+  const mark = to.dataset.drop || null;
+  fire(to, 'drop', y);
+  fire(from, 'dragend', y);
+  return mark;
+}; true`);
+
+check("every row offers a grip to carry it by",
+  await evaluate(`document.querySelectorAll('.session-item[draggable="true"]').length`) === list.items
+  && await evaluate(`document.querySelectorAll('.session-item__grip').length`) === list.items);
+
+const rowsIn = (sel) => evaluate(`document.querySelectorAll('${sel}').length`);
+// Inside a group when the fixtures have one, and at the top level otherwise:
+// either way it is two rows in one list, which is what a drag needs.
+const nest = await rowsIn(".group__items li[data-id]") > 1 ? ".group__items li[data-id]" : "#sessionList > li[data-id]";
+// A narrow window shows one pane at a time and the checks above opened a
+// session, so the list may be off screen — where a row has no geometry to drag
+// by. Coming back to it is what the back button is for.
+await evaluate(`backButton.click()`);
+await sleep(300);
+// Whatever the checks above left folded: a fold hides the rows this is about.
+await evaluate(`[...sessionList.querySelectorAll('li.group[data-collapsed="true"] > .group__header')]
+  .forEach((header) => header.click()); true`);
+await sleep(400);
+if (await rowsIn(nest) < 2) {
+  console.log("SKIP  arranging — fewer than two rows in one list");
+} else {
+  const before = JSON.parse(await rowNames());
+  // The row at the bottom of that list, which is the one being carried.
+  const carried = await evaluate(`document.querySelector('${nest}:last-child .session-item__headline').textContent.trim()`);
+  const mark = await evaluate(`__dragRow('${nest}:last-child', '${nest}:first-child', 'before')`);
+  await sleep(400);
+  const after = JSON.parse(await rowNames());
+  check("the drag draws a line where the row would land", mark === "before", String(mark));
+  check("dragging a row to the top of its list puts it there",
+    after.indexOf(carried) === before.indexOf(before.find((n) => n !== carried)),
+    `${carried}: ${before.join(",")} -> ${after.join(",")}`);
+  check("the rest of the list is left in the order it was in",
+    after.filter((n) => n !== carried).join(",") === before.filter((n) => n !== carried).join(","),
+    after.join(","));
+  check("the order you dragged is kept",
+    await evaluate(`(JSON.parse(localStorage.getItem('cbu-order') || '[]')).length`) >= before.length);
+  await sleep(1600);
+  check("a poll does not put the row back", (await rowNames()) === JSON.stringify(after));
+
+  // Alt with an arrow is the same move from the keyboard.
+  await evaluate(`(() => { const row = sessionList.querySelector('${nest}:first-child .session-item');
+    row.focus();
+    row.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', altKey: true, bubbles: true }));
+    return true; })()`);
+  await sleep(400);
+  const nudged = JSON.parse(await rowNames());
+  check("alt with an arrow moves the focused row", nudged[0] !== after[0] && nudged.includes(after[0]),
+    nudged.join(","));
+
+  // And the state sort can be asked for back, from any row's menu.
+  await evaluate(`(() => { const row = sessionList.querySelector('li[data-id] .session-item');
+    const box = row.getBoundingClientRect();
+    row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: box.left + 8, clientY: box.top + 8 }));
+    return true; })()`);
+  await sleep(300);
+  const sortItem = await evaluate(`!![...sessionMenu.querySelectorAll('.menu__item')].find((b) => b.textContent.includes('Sort by state again'))`);
+  check("a row you have arranged offers the state sort back", sortItem);
+  if (sortItem) {
+    await evaluate(`[...sessionMenu.querySelectorAll('.menu__item')].find((b) => b.textContent.includes('Sort by state again')).click()`);
+    await sleep(400);
+    check("sorting by state again forgets the arrangement",
+      (await rowNames()) === JSON.stringify(before)
+      && await evaluate(`(JSON.parse(localStorage.getItem('cbu-order') || '[]')).length === 0`),
+      await rowNames());
+  }
+}
+
 /* ------------------------------------------------------------ state trace */
 // A settled session: its pane will not rebuild under us mid-check.
 await evaluate(`document.querySelector('.session-item[data-status="idle"]')?.click()`);

@@ -85,15 +85,17 @@ export function announce(sessions) {
   for (const key of [...lastAnnounced.keys()]) if (!seen.has(key)) lastAnnounced.delete(key);
 }
 
-export function paintFavicon(counts) {
-  const read = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+/* The dot is the worst state on the list, or the neutral one when the tally
+   is not to hand — repainting on a theme change has no counts to pass. */
+export function paintFavicon(counts?: Record<string, number>) {
+  const read = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   const dot = counts?.waiting ? read("--md-extended-color-waiting-color")
     : counts?.busy ? read("--md-sys-color-primary") : read("--md-extended-color-idle-color");
   const back = read("--md-sys-color-surface-container-highest");
   if (!dot || !back) return;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
     <rect width="32" height="32" rx="9" fill="${back}"/><circle cx="16" cy="16" r="7" fill="${dot}"/></svg>`;
-  let link = document.querySelector("link[rel='icon']");
+  let link = document.querySelector<HTMLLinkElement>("link[rel='icon']");
   if (!link) { link = document.createElement("link"); link.rel = "icon"; document.head.appendChild(link); }
   link.href = "data:image/svg+xml," + encodeURIComponent(svg);
 }

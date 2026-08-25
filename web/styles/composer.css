@@ -3,6 +3,9 @@
   .composer {
     flex: none; display: flex; gap: var(--md-sys-spacing-2); align-items: flex-end;
     padding: var(--md-sys-spacing-3) var(--md-sys-spacing-6) var(--md-sys-spacing-4);
+    /* The box is the last thing above the bottom edge, which on a phone is
+       where the home indicator lives. */
+    padding-bottom: max(var(--md-sys-spacing-4), env(safe-area-inset-bottom));
     border-top: 1px solid var(--md-sys-color-outline-variant);
     background: var(--md-sys-color-surface);
     position: relative;

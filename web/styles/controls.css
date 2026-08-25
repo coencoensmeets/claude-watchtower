@@ -132,14 +132,16 @@
   .segmented__item[aria-pressed="true"] svg { display: block; }
 
   /* ============================== context menu ============================= */
-  /* Right-clicking a session opens this over everything, positioned at the
-     pointer. Fixed, and a child of body, so a list repaint cannot tear it out. */
+  /* Right-clicking a session — or a message in the conversation — opens this
+     over everything, positioned at the pointer. Fixed, and a child of body, so
+     a repaint of either pane cannot tear it out. */
   .menu {
     position: fixed; z-index: 20; min-width: 232px; max-width: min(320px, 92vw);
     padding: var(--md-sys-spacing-2) 0;
     /* A short window must not put the last items out of reach — scroll instead
        of overflowing. The cap is set from innerHeight when it opens. */
-    max-height: calc(100vh - 16px); overflow-y: auto; overscroll-behavior: contain;
+    max-height: calc(100vh - 16px); max-height: calc(100dvh - 16px);
+    overflow-y: auto; overscroll-behavior: contain;
     background: var(--md-sys-color-surface-container);
     color: var(--md-sys-color-on-surface);
     border-radius: var(--md-sys-shape-corner-small);

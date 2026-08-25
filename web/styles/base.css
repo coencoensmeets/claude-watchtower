@@ -9,6 +9,11 @@
     color: var(--md-sys-color-on-surface);
     font: var(--md-sys-typescale-body-medium-weight) var(--md-sys-typescale-body-medium-size)/var(--md-sys-typescale-body-medium-line-height) var(--md-sys-typescale-body-medium-font);
     min-height: 100vh;
+    /* A phone's browser counts the collapsing toolbar as part of 100vh, so the
+       page is taller than the glass and the bottom of it — the message box —
+       sits under the toolbar until you scroll. dvh is the height that is
+       actually visible; vh stays above it for anything that has no dvh. */
+    min-height: 100dvh;
     -webkit-font-smoothing: antialiased;
     transition: background var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-standard);
   }
@@ -38,11 +43,15 @@
   /* ============================== app shell ================================ */
   html, body { height: 100%; }
   body { overflow: hidden; }
-  .app { display: flex; flex-direction: column; height: 100vh; }
+  .app { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
 
   .app-bar {
     display: flex; align-items: center; gap: var(--md-sys-spacing-2);
     height: 64px; flex: none; padding: 0 var(--md-sys-spacing-4);
+    /* Clear of a notch when the phone is on its side, and only then: max() with
+       the ordinary padding means a screen with no inset is unchanged. */
+    padding-inline: max(var(--md-sys-spacing-4), env(safe-area-inset-left))
+                    max(var(--md-sys-spacing-4), env(safe-area-inset-right));
     background: var(--md-sys-color-surface-container);
     color: var(--md-sys-color-on-surface);
     position: relative;

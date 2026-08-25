@@ -5,7 +5,11 @@
     .panes { grid-template-columns: 1fr; }
     .panes[data-view="list"] .detail-pane { display: none; }
     .panes[data-view="detail"] .list-pane { display: none; }
-    .panes[data-view="detail"] .back-button { display: grid; }
+    /* The way back out of the detail pane. Matched through :has() because the
+       button is in the app bar and the view is on .panes below it — as a
+       descendant selector this never matched anything, and a phone that had
+       tapped into a session had no way back to the list. */
+    .app:has(.panes[data-view="detail"]) .back-button { display: grid; }
     .app-bar__supporting { display: none; }
     /* No room for it beside the title once the bar is this narrow. */
     .app-bar__nudge { display: none; }
@@ -15,6 +19,29 @@
     .tab { padding-inline: var(--md-sys-spacing-4); }
     .msg { max-width: 92%; }
   }
+  /* A phone, rather than a narrow window: everything above still assumed a
+     tablet's worth of width. What changes here is the room the chrome takes —
+     the panel's own padding is the first thing a 380px screen cannot afford. */
+  @media (max-width: 599px) {
+    .detail-header, .tab-panel { padding-inline: var(--md-sys-spacing-3); }
+    .composer { padding-inline: var(--md-sys-spacing-3); }
+    .tab { padding-inline: var(--md-sys-spacing-3); }
+    /* Nearly the full width: at this size the alignment is what says who spoke,
+       and an inch of margin says nothing. */
+    .msg { max-width: 96%; }
+    /* The menu is the width of the screen less a thumb's worth either side,
+       rather than a fixed 232px that a narrow phone cannot fit. */
+    .menu { min-width: min(232px, calc(100vw - 32px)); }
+    /* Every action in a menu is a tap target, and 36px is not one. */
+    .menu__item { min-height: 48px; }
+    /* Focus window, Open in the editor: they sit in a column beside the name at
+       every other size, and `flex: none` means that column overflows the screen
+       rather than narrowing when there is no room for it. Under the name
+       instead, full width, which is where a phone puts a button anyway. */
+    .detail-header__top { flex-direction: column; gap: var(--md-sys-spacing-3); }
+    .detail-header__actions { width: 100%; }
+  }
+
   @media (min-width: 1400px) {
     .panes { grid-template-columns: 380px 1fr; }
   }

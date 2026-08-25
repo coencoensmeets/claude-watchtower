@@ -158,6 +158,30 @@
     color: inherit; font: inherit; letter-spacing: inherit; outline: none;
   }
 
+  /* ========================== putting rows in order ======================== */
+  /* A row can be dragged where you want it. The grip is the cue, faint until the
+     pointer is on the row, and reserved space either way so nothing shifts when
+     it appears. */
+  .session-item__grip { flex: none; width: 14px; display: grid; place-items: center;
+    color: var(--md-sys-color-on-surface-variant); opacity: 0; cursor: grab;
+    transition: opacity var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard); }
+  .session-item__grip svg { width: 14px; height: 14px; }
+  .session-item:hover .session-item__grip,
+  .session-item:focus-visible .session-item__grip,
+  .session-list[data-dragging="true"] .session-item__grip { opacity: 0.55; }
+  /* The row being carried stays where it was, dimmed: taking it out would close
+     the gap and move every landing place under the pointer mid-drag. */
+  .session-list li[data-dragging="true"] .session-item { opacity: 0.4; }
+  /* Where it would land, drawn on the edge of the block it is over. */
+  .session-list li[data-drop] { position: relative; }
+  .session-list li[data-drop]::after {
+    content: ""; position: absolute; inset-inline: 4px; height: 2px;
+    background: var(--md-sys-color-primary); border-radius: var(--md-sys-shape-corner-full);
+    pointer-events: none;
+  }
+  .session-list li[data-drop="before"]::after { top: -2px; }
+  .session-list li[data-drop="after"]::after { bottom: -2px; }
+
   /* ========================== picking several rows ========================== */
   /* Ctrl-click or shift-click ticks rows for a group action. Picked is primary,
      which is nothing else in the list, so it never reads as the selection. */

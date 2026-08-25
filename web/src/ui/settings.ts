@@ -35,7 +35,8 @@ function renderSwatches() {
   custom.className = "swatch swatch--custom md-state";
   custom.title = "Any colour";
   custom.innerHTML = `${ICON.plus}<input type="color" value="${app.settings.seed}" aria-label="Custom base colour">`;
-  custom.querySelector("input").addEventListener("input", (event) => setSeed(event.target.value));
+  const picker = custom.querySelector<HTMLInputElement>("input");
+  picker.addEventListener("input", () => setSeed(picker.value));
   swatchRow.appendChild(custom);
   const hct = Hct.fromInt(argbFromHex(app.settings.seed));
   detailPane.querySelector("#seedReadout").innerHTML = `Base <span class="code">${escapeHtml(app.settings.seed.toUpperCase())}</span> · hue ${Math.round(hct.hue)}° · chroma ${Math.round(hct.chroma)}`;
@@ -45,7 +46,7 @@ function renderSwatches() {
    up there read as a thing to flip often — it is not; it is picked once and
    left, like the base colour it belongs beside. */
 export function syncTheme() {
-  const toggle = detailPane.querySelector("#themeToggle");
+  const toggle = detailPane.querySelector<HTMLInputElement>("#themeToggle");
   if (!toggle) return;
   toggle.checked = app.settings.dark;
   detailPane.querySelector("#themeLabel").textContent = app.settings.dark ? "Dark" : "Light";
@@ -82,7 +83,7 @@ function renderNotify() {
         class="switch__says md-label-small"><b>${escapeHtml(kind.says[0])}</b>${
         escapeHtml(kind.says[1])}</span></span>
     </label>`).join("");
-  for (const input of box.querySelectorAll("[data-notify]")) {
+  for (const input of box.querySelectorAll<HTMLInputElement>("[data-notify]")) {
     input.addEventListener("change", () => {
       app.settings.notify[input.dataset.notify] = input.checked;
       persist();
@@ -97,7 +98,7 @@ function renderNotify() {
    line of small print, and where there is something to press, the notice is
    the thing that presses it. */
 export function paintNotifyPermission() {
-  const box = detailPane.querySelector("#notifyHint");
+  const box = detailPane.querySelector<HTMLElement>("#notifyHint");
   if (!box) return;
   const state = "Notification" in window ? Notification.permission : "unsupported";
   box.hidden = state === "granted";
@@ -220,15 +221,16 @@ export function paintSettings() {
   renderContrast();
   renderNotify();
   paintUpdateSetting();
-  detailPane.querySelector("#themeToggle").addEventListener("change", (event) => {
-    app.settings.dark = event.target.checked;
+  const themeToggle = detailPane.querySelector<HTMLInputElement>("#themeToggle");
+  themeToggle.addEventListener("change", () => {
+    app.settings.dark = themeToggle.checked;
     persist();
     applyScheme();
   });
-  const editorToggle = detailPane.querySelector("#editorToggle");
+  const editorToggle = detailPane.querySelector<HTMLInputElement>("#editorToggle");
   editorToggle.checked = app.settings.showEditor;
-  editorToggle.addEventListener("change", (event) => {
-    app.settings.showEditor = event.target.checked;
+  editorToggle.addEventListener("change", () => {
+    app.settings.showEditor = editorToggle.checked;
     persist();
   });
   detailPane.querySelector("#closeSettings").addEventListener("click", () => openSettings(false));

@@ -6,6 +6,8 @@ import { detailPane } from "../ui/dom.js";
 import { ago, clip, escapeHtml, plural } from "../ui/format.js";
 import { ICON } from "../ui/icons.js";
 import { openMenu } from "../ui/menu.js";
+import type { MenuItem } from "../ui/menu.js";
+import type { GitFile } from "../types.js";
 import { showSnackbar } from "../ui/snackbar.js";
 
 /* Reading a repository costs a subprocess or three, unlike the transcript's file
@@ -37,7 +39,7 @@ export function gitStamp(g) {
           ).join(",")].join("|");
 }
 
-export async function fetchGit(force) {
+export async function fetchGit(force = false) {
   const id = app.selectedId;
   if (!id || repo.gitBusy) return;
   // Nobody is reading a hidden tab. A Git tab left open behind another window
@@ -261,7 +263,7 @@ function fileRow(file, staged) {
   const base = (cut === -1 ? trimmed : trimmed.slice(cut + 1)) + (folder ? "/" : "");
   const open = repo.diffOpen && repo.diffOpen.path === file.path && repo.diffOpen.staged === staged;
   const can = repo.git?.canWrite;
-  const act = (action, icon, title, danger) =>
+  const act = (action: string, icon: string, title: string, danger = false) =>
     `<button class="scm-icon md-state${danger ? " scm-icon--danger" : ""}" type="button"
        data-git="${action}" title="${escapeHtml(title)}" aria-label="${escapeHtml(`${title} — ${file.path}`)}">${icon}</button>`;
 
@@ -494,14 +496,14 @@ export function gitPanel(session) {
 
   const groups = gitGroups(repo.git.files);
   const can = repo.git.canWrite;
-  const act = (action, icon, title, danger) =>
+  const act = (action: string, icon: string, title: string, danger = false) =>
     `<button class="scm-icon md-state${danger ? " scm-icon--danger" : ""}" type="button"
        data-git="${action}" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">${icon}</button>`;
 
   // A group's buttons carry no paths of their own: the handler reads the group
   // back out of the same split, so what a click acts on is whatever the list is
   // showing at the moment of the click rather than whatever it showed at paint.
-  const group = (key, title, files, staged, actions) => files.length ? `
+  const group = (key: string, title: string, files: GitFile[], staged: boolean, actions = "") => files.length ? `
     <section class="scm-group" data-group="${key}">
       <header class="scm-group__head">
         <h3 class="scm-group__title md-label-medium">${escapeHtml(title)}<span class="scm-count md-label-small">${files.length}</span></h3>
@@ -578,7 +580,7 @@ function growCommit(field) {
 /* Whether the commit button can be pressed changes as the message is typed,
    which is far too often to rebuild the pane for. */
 function syncCommitButton(session) {
-  const button = detailPane.querySelector("[data-git='commit']");
+  const button = detailPane.querySelector<HTMLButtonElement>("[data-git='commit']");
   if (!button || !repo.git) return;
   const blocked = commitBlocker(session, gitGroups(repo.git.files || []));
   button.disabled = Boolean(blocked);
@@ -596,7 +598,7 @@ async function doCommit(session, button, { amend = false, then = null } = {}) {
   }
   if (!message && !amend) {
     showSnackbar("A commit needs a message");
-    detailPane.querySelector("#commitField")?.focus();
+    detailPane.querySelector<HTMLTextAreaElement>("#commitField")?.focus();
     return;
   }
   // Nothing staged is the editor's "commit all": the Changes group goes in as it
@@ -605,7 +607,7 @@ async function doCommit(session, button, { amend = false, then = null } = {}) {
   const ok = await gitDo("commit", { message, amend, stageAll }, button);
   if (!ok) return;
   commitDrafts.delete(session.sessionId);
-  const field = detailPane.querySelector("#commitField");
+  const field = detailPane.querySelector<HTMLTextAreaElement>("#commitField");
   if (field) { field.value = ""; growCommit(field); }
   if (then) await gitDo(then, {}, button);
 }
@@ -644,7 +646,7 @@ async function suggestMessage(session, button) {
       return;
     }
     commitDrafts.set(session.sessionId, data.text);
-    const field = detailPane.querySelector("#commitField");
+    const field = detailPane.querySelector<HTMLTextAreaElement>("#commitField");
     if (field) {
       field.value = data.text;
       growCommit(field);
@@ -660,7 +662,7 @@ async function suggestMessage(session, button) {
   } finally {
     repo.gitActing = false;
     repo.suggesting = false;
-    const live = detailPane.querySelector("[data-git='suggest']");
+    const live = detailPane.querySelector<HTMLButtonElement>("[data-git='suggest']");
     if (live) {
       live.disabled = false;
       delete live.dataset.busy;
@@ -696,7 +698,7 @@ function commitMenuItems(session) {
 function branchMenuItems(session) {
   const local = repo.git?.branches?.local || [];
   const remote = repo.git?.branches?.remote || [];
-  const items = [
+  const items: MenuItem[] = [
     { key: "new", icon: ICON.plus, label: "Create new branch…", hint: "from here",
       run: () => createBranch(session, null) },
     // No hint on this one: with one, the label is what gets ellipsised, and
@@ -828,7 +830,9 @@ function gitMenuItems(session) {
    what it is about to lose before it does it — and says "delete" rather than
    "discard" for a file that has never been committed, because that is what
    happens to it. */
-async function discardWithConfirm(paths, files, button, { all = false } = {}) {
+async function discardWithConfirm(
+  paths: string[], files: GitFile[], button: HTMLButtonElement, { all = false } = {},
+) {
   const byPath = new Map((files || []).map((f) => [f.path, f]));
   const untracked = paths.filter((p) => byPath.get(p)?.untracked);
   const tracked = paths.filter((p) => !byPath.get(p)?.untracked);
@@ -893,7 +897,7 @@ function openGitMenu(button, title, items) {
 }
 
 export function wireGit(session) {
-  const field = detailPane.querySelector("#commitField");
+  const field = detailPane.querySelector<HTMLTextAreaElement>("#commitField");
   if (field) {
     growCommit(field);
     if (repo.commitCaret) {

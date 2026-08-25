@@ -1,8 +1,32 @@
 import { app } from "../state.js";
 import { clip } from "../ui/format.js";
+import type { Session } from "../types.js";
 
 /* ------------------------------------------------------------- state map */
-export const STATE = {
+
+/** A state a row can be drawn in. `label`/`short`/`prefix` are written below;
+    `colour`/`container`/`onContainer` are filled in by the loop at the foot of
+    this file, which is why they are optional here and read as certain
+    everywhere else. */
+export interface StateLook {
+  label: string;
+  short: string;
+  /** The custom-colour family to take the three roles from, or null for the
+      neutral outline. Unset where `sys` or `tertiary` decides instead. */
+  prefix?: string | null;
+  sys?: boolean;
+  tertiary?: boolean;
+  colour?: string;
+  container?: string;
+  onContainer?: string;
+}
+
+/** Named rather than `string` so a typo in a state name is an error, and so
+    the two draw-only states cannot be mistaken for a status. */
+export type StateKey =
+  | "waiting" | "busy" | "idle" | "offline" | "stopped" | "here" | "compacting";
+
+export const STATE: Record<StateKey, StateLook> = {
   waiting: { label: "Needs an answer", short: "answer", prefix: "--md-extended-color-waiting" },
   busy: { label: "Working", short: "working", prefix: "--md-sys-color-primary", sys: true },
   idle: { label: "Waiting", short: "waiting", prefix: "--md-extended-color-idle" },
@@ -27,14 +51,15 @@ export const STATE = {
    ends, so on screen it was a second colour for the same thing: waiting. The raw
    status still drives behaviour (a message can be queued for a shell session);
    only the display folds it in. */
-const STATE_ALIAS = { shell: "idle" };
-export const stateKeyOf = (status) => STATE_ALIAS[status] || status;
-const stateOf = (status) => STATE[stateKeyOf(status)] || STATE.idle;
+const STATE_ALIAS: Record<string, StateKey> = { shell: "idle" };
+export const stateKeyOf = (status: string): StateKey =>
+  STATE_ALIAS[status] || (status as StateKey);
+const stateOf = (status: string): StateLook => STATE[stateKeyOf(status)] || STATE.idle;
 /* What to draw for a session, which is not always what to reason about it with.
    An adopted session's status stays `stopped` — nothing is running, and every
    check that turns on that is still right — but calling it Stopped on screen was
    what made "make interactive" look like it had only stopped things. */
-export const drawnStateOf = (session) => {
+export const drawnStateOf = (session: Session): StateLook => {
   const owned = (app.feed.owned || {})[session.sessionId] || {};
   // Before anything else, because it is the more particular thing to say: a
   // compacting session is busy, and saying Working over it hides the one turn
@@ -53,7 +78,7 @@ export const drawnStateOf = (session) => {
    the row, the detail pane and the notification all want the same three facts —
    which kind it is, what to call it, and whether it is the same prompt as the
    one that was there a second ago. */
-export function standingAsk(session) {
+export function standingAsk(session: Session) {
   const gate = ((app.feed.owned || {})[session.sessionId] || {}).ask;
   if (gate) {
     const header = gate.input?.questions?.[0]?.header;
@@ -85,7 +110,7 @@ export const ASK_ICON = { question: "ask", permission: "gate", prompt: "ask" };
 /* When the state you can see began. The server times the raw status, which
    restarts every time a waiting session dips through `shell`; on screen nothing
    happened, so the clock should not jump back to zero. */
-export function displaySince(session) {
+export function displaySince(session: Session): number {
   const spans = session.trace || [];
   const key = stateKeyOf(session.status);
   let since = session.statusSince;
@@ -114,4 +139,4 @@ for (const entry of Object.values(STATE)) {
     entry.onContainer = "var(--md-sys-color-on-surface-variant)";
   }
 }
-export const STATE_ORDER = ["waiting", "busy", "idle", "offline", "stopped"];
+export const STATE_ORDER: StateKey[] = ["waiting", "busy", "idle", "offline", "stopped"];

@@ -10,7 +10,9 @@ the places it was wrong — is recorded under Progress.
 
 ## Progress
 
-Phases 0–3, 5 and 6 are done. Phases 4 and 7 are not started.
+Phases 0–3, 5 and 6 are done. Phase 4 is done as far as a clean
+`tsc --noEmit` at its loosest useful setting; the two strictness flags it
+leaves are named below. Phase 7 is not started.
 
 | Phase | State |
 |---|---|
@@ -18,7 +20,7 @@ Phases 0–3, 5 and 6 are done. Phases 4 and 7 are not started.
 | 1 — build pipeline | done: `web/` → `dist/`, Node type stripping, no packages |
 | 2 — CSS split | done: 17 stylesheets, cascade order preserved exactly |
 | 3 — TypeScript modules | done: 6,611 lines of inline script → 24 modules |
-| 4 — types | not started |
+| 4 — types | done: `web/src/types.ts`, `tsconfig.json`, clean `tsc --noEmit` |
 | 5 — Python package | done: server.py 6,066 → 117 lines across 22 modules |
 | 6 — route table | done: 31 routes in a table, with tests over it |
 | 7 — docs split | not started |
@@ -266,12 +268,56 @@ likely to surface a hidden ordering dependency — hence one module at a time.
 
 ### Phase 4 — types
 
-- `types.ts` describing the server's JSON payloads: `Session`, `TranscriptBlock`,
-  `GitState`, `Usage`, `Question`, `Plan`. Hand-written from the server, which
-  also documents the wire format for the first time.
-- `tsconfig.json` for `tsc --noEmit` only. Start at `strict: false` with
-  `noImplicitAny` off, then ratchet one flag at a time so the diff stays small.
-- CI runs the type check plus both test suites.
+What this settled, which the plan above only sketched:
+
+- **`web/src/types.ts`** — every payload the server sends, hand-written from the
+  Python that emits it, with the emitting function named against each one. It is
+  the first written record of the wire format. Two rules held throughout, because
+  guessing broke both: a field the server can leave out is optional (`?`), a
+  field it always sends but may send as null is `| null`, and they are not the
+  same thing. Reading the Python rather than the callers is what caught
+  `Owned.commands` being a `{available, terminalOnly}` object and not the string
+  list every reader treated it as.
+- **`tsconfig.json`** — `noEmit` only, and deliberately not wired to a
+  `package.json`. The build is still `node tools/build.mjs` and still needs no
+  packages; the type check is a contributor's step with any `tsc` to hand. That
+  is the whole reason `module: preserve` is set rather than `nodenext`, which
+  wants a `"type": "module"` in a `package.json` that does not exist.
+- **`verbatimModuleSyntax`** is the one flag here that is about the build rather
+  than about strictness. Node strips types without understanding them, so it
+  cannot tell a type-only import from a real one and would leave
+  `import { Session }` in the output, pointing at a module that exports nothing
+  at runtime. The flag forces `import type`, and so keeps `types.ts` from ever
+  becoming a runtime import.
+- **`web/typings/vendor/`** — the vendored colour library, declared. It is served
+  from an absolute URL, so no resolver can follow the specifier to a file; a
+  `paths` mapping points it here. Only what the panel calls is declared, which
+  means a new call has to be declared too.
+- **The DOM boundary** carried 184 of the 234 errors, all of them the same shape:
+  `querySelector` hands back an `Element`, and the panel immediately reads a
+  `value` or a `dataset` off it. Fixed at the declarations rather than the uses,
+  and the element each selector really finds was read out of the template that
+  draws it, not guessed. `ui/dom.ts` grew `hitElement`/`hitClosest`/`control` for
+  the other half of it: `event.target` is an `EventTarget`, which is the honest
+  type — an event can be raised on the document, which has no `closest`.
+- **The lifting tests** — composer, chat, update and save — read the sources as
+  text and evaluate what they lift, so they now strip the types first with the
+  same `node:module` stripper the build uses. `liftConst` also had to stop
+  expecting exactly one space before the `=`: strip mode blanks an annotation in
+  place, so `const STATE: Record<…> =` arrives with the gap still in it.
+
+Not done, in the order they are worth doing. Each is a few hundred annotations
+and turning the flag on prints the list:
+
+| Flag turned on alone | Errors it raises today |
+|---|---|
+| `noImplicitAny` | 590 |
+| `strictNullChecks` | 516 |
+| full `strict` | 886 |
+
+They overlap heavily rather than adding up, which is the argument for taking
+`noImplicitAny` first: most of what `strictNullChecks` finds is in code that has
+no parameter types to reason about yet.
 
 ### Phase 5 — Python package split
 

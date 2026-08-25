@@ -11,10 +11,19 @@
 // A failure prints the case and exits 1.
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
+import { stripTypeScriptTypes } from "node:module";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
+
+/* Read as JavaScript, not as TypeScript. The sources carry type annotations
+   now, and everything below lifts a function out by matching text and then
+   evaluates it — so the annotations have to come off first or the lift is not
+   valid JS. Node's own stripper, the same one tools/build.mjs uses, in `strip`
+   mode: it blanks the types in place rather than reformatting, so every offset
+   this file matches on still lines up with the source it came from. */
+const asJs = (text) => stripTypeScriptTypes(text, { mode: "strip" });
 
 /* The panel is a package of modules now, and a function can be lifted out of
    whichever one holds it — so what is read is all of them, joined. Importing
@@ -23,7 +32,7 @@ function sources(dir) {
   return readdirSync(dir).flatMap((name) => {
     const path = join(dir, name);
     if (statSync(path).isDirectory()) return sources(path);
-    return name.endsWith(".ts") ? [readFileSync(path, "utf8")] : [];
+    return name.endsWith(".ts") ? [asJs(readFileSync(path, "utf8"))] : [];
   });
 }
 const page = sources(join(here, "..", "web", "src")).join("\n");
