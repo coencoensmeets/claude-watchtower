@@ -93,12 +93,32 @@ with tempfile.TemporaryDirectory() as tmp:
     check("two clones do not want the same port", one != two, f"{one} vs {two}")
     check("and one clone wants the same port every time", listen._hashed_port() == listen._hashed_port())
 
-    # The key.
+    # The key, whose whole job is being the same one tomorrow.
     kept.unlink(missing_ok=True)
     key = listen.access_key()
     check("a key is made when one is wanted", len(key) == listen.KEY_LENGTH, key)
     check("and kept, so a phone stays let in", listen.access_key() == key)
+    check("it is written down as well, so it can be looked up",
+          json.loads(kept.read_text()).get("key") == key)
     check("--new-key replaces it", listen.access_key(fresh=True) != key)
+
+    # The case that used to hand out a different key every start: nothing can be
+    # written down. Derived from the machine instead, so it is still constant.
+    kept.unlink(missing_ok=True)
+    real_write = listen._write
+    listen._write = lambda entry: None          # a config directory that refuses
+    try:
+        first, second = listen.access_key(), listen.access_key()
+        derived = listen._derived_key()
+        check("with nothing saveable the key is still the same every time", first == second, first)
+        check("because it comes from the machine rather than from chance",
+              derived is not None and first == derived, f"{first} vs {derived}")
+        check("and the panel knows it will survive a restart",
+              listen.key_is_remembered(first))
+        check("while a key it could neither derive nor save is reported as temporary",
+              not listen.key_is_remembered("zzzzzzzz"))
+    finally:
+        listen._write = real_write
 
 
 # ----------------------------------------------------------------- the gate

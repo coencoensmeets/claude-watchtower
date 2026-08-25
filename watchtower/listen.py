@@ -154,18 +154,62 @@ def chosen_port(explicit: int | None = None) -> tuple[int, bool]:
     return start, False
 
 
+def _derived_key() -> str | None:
+    """A key that is the same every run without anything having to be written
+    down, or None on a machine with no identity to derive one from.
+
+    This is what makes the key constant in the case that used to break it: a
+    random key is only stable while it can be saved, and a config directory that
+    cannot be written — read-only home, full disk, a panel started as another
+    user — gave a fresh key on every start and no warning that it had. A phone
+    given yesterday's key was locked out by this morning's.
+
+    The machine's own id is the seed, mixed with who is running the panel and
+    where it is installed. systemd calls that id confidential and it is not
+    readable from off the machine, which is exactly the boundary the key is
+    guarding; it is hashed rather than used, so the key never carries it.
+    """
+    for path in (Path("/etc/machine-id"), Path("/var/lib/dbus/machine-id")):
+        try:
+            identity = path.read_text().strip()
+        except OSError:
+            continue
+        if not identity:
+            continue
+        seed = f"{identity}:{os.environ.get('USER') or ''}:{ROOT}:watchtower-key"
+        digest = hashlib.blake2s(seed.encode("utf-8", "replace"), digest_size=16).digest()
+        return "".join(KEY_ALPHABET[byte % len(KEY_ALPHABET)] for byte in digest[:KEY_LENGTH])
+    return None
+
+
 def access_key(fresh: bool = False) -> str:
     """The key a request from off this machine has to show.
 
-    Made once and kept, so a phone that has been given it stays given it across
-    restarts — a key that changed every morning would be a key nobody uses.
+    The same key every run, so a phone that has been given it stays given it:
+    what was written down if anything was, otherwise one derived from this
+    machine, and only failing both a random one — which is the only case where
+    being unable to save it matters, and the caller is told about that.
     """
-    kept = _read().get("key")
-    if not fresh and isinstance(kept, str) and len(kept) >= 6:
-        return kept
+    if not fresh:
+        kept = _read().get("key")
+        if isinstance(kept, str) and len(kept) >= 6:
+            return kept
+        derived = _derived_key()
+        if derived:
+            # Written down as well, so `cat listen.json` answers "what is my
+            # key" — but the value does not depend on the writing succeeding.
+            _write({**_read(), "key": derived})
+            return derived
     key = "".join(secrets.choice(KEY_ALPHABET) for _ in range(KEY_LENGTH))
     _write({**_read(), "key": key})
     return key
+
+
+def key_is_remembered(key: str) -> bool:
+    """Whether the key would survive a restart. False means the panel could
+    neither derive it nor save it, so the next start will print a different one —
+    worth saying out loud rather than letting a phone discover it."""
+    return _read().get("key") == key or _derived_key() == key
 
 
 def lan_address() -> str | None:

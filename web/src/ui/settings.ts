@@ -4,6 +4,7 @@ import { Hct, TonalPalette, argbFromHex, hexFromArgb } from "/vendor/material-co
 import { applyScheme, openSettings, persist } from "../main.js";
 import { app } from "../state.js";
 import { paintUpdateSetting } from "../views/update.js";
+import { copyText } from "./clipboard.js";
 import { detailPane } from "./dom.js";
 import { escapeHtml } from "./format.js";
 import { ICON } from "./icons.js";
@@ -197,6 +198,11 @@ function settingsPage() {
             folder, opening it in your editor</span></span>
         </label>
       </section>
+      <!-- The way in from a phone. Hidden until the server says it is serving
+           the network at all, and filled by paintReach below: the address it
+           shows is read at that moment, because a laptop changes networks and a
+           code pointing at this morning's address is worse than none. -->
+      <section class="section" id="reachSection" hidden></section>
       <!-- Which release the panel is on, and a button to go and ask. Empty
            here on purpose: the app bar's chip only appears when there is
            something to press, so this is the only place that says "up to date"
@@ -221,6 +227,7 @@ export function paintSettings() {
   renderContrast();
   renderNotify();
   paintUpdateSetting();
+  paintReach();
   const themeToggle = detailPane.querySelector<HTMLInputElement>("#themeToggle");
   themeToggle.addEventListener("change", () => {
     app.settings.dark = themeToggle.checked;
@@ -240,6 +247,69 @@ export function paintSettings() {
     app.settings = { ...app.settings, seed: DEFAULT_SEED,
       dark: matchMedia("(prefers-color-scheme: dark)").matches, contrast: "standard" };
     persist(); applyScheme(); renderSwatches(); renderContrast(); showSnackbar("Colours reset");
+  });
+}
+
+/* ==========================================================================
+   On your phone — the address, and the code that saves typing it.
+
+   The panel serves the network by default and answers nobody off this machine
+   without the key it printed, so the address a phone needs has a key on the end
+   of it. Typing that once is tolerable; the point of the code is that you do not
+   have to. It is drawn by the server — see watchtower/qr.py — because the panel
+   ships no packages and an encoder is the same hundred lines of arithmetic in
+   either language, with the difference that in Python it can be checked against
+   a reference encoder in a test.
+
+   Asked for on every visit to the page rather than kept: it is three lines of
+   JSON, and the answer changes when the machine changes networks.
+   ========================================================================== */
+async function paintReach() {
+  const section = detailPane.querySelector<HTMLElement>("#reachSection");
+  if (!section) return;
+  let reach;
+  try {
+    const response = await fetch("/api/reach", { cache: "no-store" });
+    reach = await response.json();
+  } catch (error) {
+    return;                       // the poll will say the panel is unreachable
+  }
+  // The pane may have moved on while that was in flight.
+  if (!section.isConnected) return;
+  if (!reach?.lan) {
+    // Serving this machine only, which is what --local does. Say so, rather
+    // than leaving a reader to wonder where the phone section went.
+    section.hidden = false;
+    section.innerHTML = `<h3 class="section__title md-title-small">On your phone</h3>
+      <p class="md-body-medium">This panel is serving this machine only, so there is
+        nothing for a phone to open. Start it without <code class="md-mono">--local</code>
+        to serve the network.</p>`;
+    return;
+  }
+  section.hidden = false;
+  const where = reach.address
+    ? `<code class="md-mono reach__url">${escapeHtml(reach.url)}</code>`
+    : `<span class="md-body-medium">this machine's own address, port
+        <code class="md-mono">${reach.port}</code></span>`;
+  section.innerHTML = `
+    <h3 class="section__title md-title-small">On your phone</h3>
+    <div class="reach">
+      ${reach.address ? `<img class="reach__code" src="/api/qr" alt="The address of this panel, as a code to scan"
+        width="248" height="248">` : ""}
+      <div class="reach__said">
+        <p class="md-body-medium">Point a camera at this, or type it in:</p>
+        ${where}
+        ${reach.key
+          ? `<p class="md-body-small reach__note">The key on the end is what lets a phone in — the
+             panel answers nothing from off this machine without it. It is the same key every
+             time, and each phone only needs it once.</p>`
+          : `<p class="md-body-small reach__note">This panel is running without a key, so anyone
+             who can reach that address can read every conversation on it.</p>`}
+        <button class="button button--text md-state" id="copyReach">Copy the address</button>
+      </div>
+    </div>`;
+  section.querySelector("#copyReach").addEventListener("click", () => {
+    copyText(reach.url || `${location.origin}/`, "Address copied");
   });
 }
 

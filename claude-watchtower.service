@@ -5,10 +5,10 @@ PartOf=graphical-session.target
 
 [Service]
 Type=simple
-# No --port: the panel serves on the port it picked for this install and keeps
-# in ~/.config/claude-watchtower/listen.json, so the service and a panel started
-# by hand are on the same address. Add --lan here to serve the local network —
-# see "From your phone" in the README, and the key it prints.
+# No --port and no --host: the panel serves on the port it picked for this
+# install and keeps in ~/.config/claude-watchtower/listen.json, and on every
+# interface, so a phone on the same network can open it with the key it prints —
+# see "From your phone" in the README. Add --local to keep it to this machine.
 ExecStart=/usr/bin/python3 %h/Workspace/Projects/claude-watchtower/server.py
 Restart=on-failure
 RestartSec=3

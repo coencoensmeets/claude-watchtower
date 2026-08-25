@@ -80,6 +80,30 @@
   .settings-row__wide { grid-column: 1 / -1; }
   .settings-row { margin-bottom: var(--md-sys-spacing-6); }
   .notify-grid { align-items: start; margin-top: var(--md-sys-spacing-3); }
+
+  /* ---------------------------- on your phone ----------------------------- */
+  /* The code and the words beside it, which become the code above the words
+     once there is not room for two columns.
+
+     The code itself is black on white whatever the theme is doing, because a
+     scanner needs dark modules on a light field — so what is styled here is
+     only the card it sits on. */
+  .reach { display: flex; flex-wrap: wrap; gap: var(--md-sys-spacing-6); align-items: flex-start; }
+  .reach__code {
+    flex: none; width: 248px; height: 248px;
+    background: #fff; border-radius: var(--md-sys-shape-corner-small);
+    /* An outline, so a white code on a light surface still reads as an object. */
+    box-shadow: 0 0 0 1px var(--md-sys-color-outline-variant);
+  }
+  .reach__said { flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column;
+    align-items: flex-start; gap: var(--md-sys-spacing-2); }
+  .reach__url {
+    display: block; max-width: 100%; overflow-wrap: anywhere;
+    padding: var(--md-sys-spacing-2) var(--md-sys-spacing-3);
+    border-radius: var(--md-sys-shape-corner-extra-small);
+    background: var(--md-sys-color-surface-container-high);
+  }
+  .reach__note { color: var(--md-sys-color-on-surface-variant); max-width: 46ch; }
   /* Not small print: it is the reason none of the switches above will do
      anything, so it is drawn as the obstacle it is and carries the one button
      that clears it. */

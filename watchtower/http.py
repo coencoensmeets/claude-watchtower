@@ -35,7 +35,9 @@ from watchtower.owned import (
 from watchtower.paste import (DROP_MAX_BYTES, PASTE_MAX_BYTES, POST_MAX_BYTES,
                               save_dropped_file, save_pasted_image)
 from watchtower.plan import read_plan
+from watchtower.listen import lan_address
 from watchtower.proc import proc_gone
+from watchtower.qr import svg as qr_svg
 from watchtower.rows import (
     _KEPT, _KEPT_LOCK, drop_unpinned_row, forget_row, keep_row, kept_rows, pin_row, unpin_row,
 )
@@ -295,6 +297,52 @@ class Handler(BaseHTTPRequestHandler):
     @route("GET", "/api/state")
     def _get_state(self) -> None:
         self._json(STORE.snapshot())
+
+    @route("GET", "/api/reach")
+    def _get_reach(self) -> None:
+        """Where a phone should point, for the settings page to show.
+
+        The address is looked up now rather than at startup: a laptop moves
+        between networks, and a code pointing at the address it had this morning
+        is worse than no code at all. Only a request that got this far sees the
+        key, which is the same rule as everything else here — and on loopback
+        there is no key to see.
+        """
+        where = lan_address() if config.SERVE_LAN else None
+        key = config.ACCESS_KEY or ""
+        url = f"http://{where}:{config.SERVE_PORT}/{f'?k={key}' if key else ''}" if where else ""
+        self._json({
+            "ok": True,
+            "lan": config.SERVE_LAN,
+            "address": where or "",
+            "port": config.SERVE_PORT,
+            "key": key,
+            "url": url,
+        })
+
+    @route("GET", "/api/qr")
+    def _get_qr(self) -> None:
+        """The same address as a code to point a camera at.
+
+        Drawn here rather than in the browser because the panel has no packages
+        and the encoder is a hundred lines of arithmetic either way — and here it
+        can be checked against a reference encoder in a test.
+        """
+        where = lan_address() if config.SERVE_LAN else None
+        if not where:
+            self._send(404, b"nothing to point at", "text/plain; charset=utf-8")
+            return
+        key = config.ACCESS_KEY or ""
+        url = f"http://{where}:{config.SERVE_PORT}/{f'?k={key}' if key else ''}"
+        try:
+            drawn = qr_svg(url)
+        except ValueError:
+            # A URL longer than a version 6 code holds. The settings page shows
+            # the address as text regardless, so this is a missing picture
+            # rather than a missing way in.
+            self._send(404, b"that address is too long to draw", "text/plain; charset=utf-8")
+            return
+        self._send(200, drawn.encode(), "image/svg+xml; charset=utf-8")
 
     @route("GET", "/api/transcript")
     def _get_transcript(self) -> None:

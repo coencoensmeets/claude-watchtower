@@ -140,6 +140,15 @@ LIVENESS_GRACE = 45.0
 SAY_ENABLED = False
 
 
+# What the panel is serving on, for the routes that have to tell a phone where
+# to point: the port, and whether the socket is open to anything but this
+# machine. Both decided in main(). The address is deliberately not kept here —
+# it is read at the moment it is asked for, because a laptop changes networks
+# and a code pointing at last week's address is worse than none.
+SERVE_PORT = 0
+SERVE_LAN = False
+
+
 # The key a request has to show when it did not come from this machine, or None
 # when none is wanted — which is the case for a panel on loopback alone, where
 # the only thing that can reach it is already here. Decided in main() and read

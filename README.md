@@ -54,7 +54,7 @@ python3 server.py
 
 3. Open the address it prints. The panel picks a port for this install on its first run and stays on it from then on, so the address is worth a bookmark — see [Its own port](#its-own-port). Every Claude Code session on this machine is already in the list: there is nothing to configure and nothing to install.
 
-4. To read it on your phone, start it with `--lan` and open the second address it prints. See [From your phone](#from-your-phone).
+4. It prints a second address, the one your phone can reach. Open **Settings** and point a camera at the code, or type that address in once. See [From your phone](#from-your-phone), and `--local` if you would rather it served this machine only.
 
 5. Optional: `sudo apt install xdotool` to enable **Focus window** under X11, and see [Keeping it running](#keeping-it-running) for the bundled systemd user unit.
 
@@ -64,7 +64,7 @@ python3 server.py
 |---|---|
 | [What it shows](#what-it-shows) | The four states, and why the one you care about is inferred rather than read |
 | [Layout](#layout-an-index-and-a-detail-pane) | The index, groups, dragging the rows into order, the detail pane and its five tabs |
-| [From your phone](#from-your-phone) | Serving the local network, the key that guards it, and the port it keeps |
+| [From your phone](#from-your-phone) | The code to scan, the key that guards it, and the port it keeps |
 | [Sending a message](#sending-a-message) | The composer, the unix socket behind it, and its three honest limits |
 | [Pasting a picture](#pasting-a-picture) | A screenshot pasted into the box, saved into the session's folder and sent as a path |
 | [Dropping a file](#dropping-a-file) | A file dragged onto the box types its path — or is saved and named, when the drag has no path to give |
@@ -761,16 +761,17 @@ Components used: top app bar, navigation-drawer style list items, filter chips, 
 ## Options
 
 ```bash
-python3 server.py [--lan] [--port N] [--host H] [--no-key] [--new-key] [--no-send] [--build] [--no-build]
+python3 server.py [--local] [--port N] [--host H] [--no-key] [--new-key] [--no-send] [--build] [--no-build]
 ```
 
 | Flag | Does |
 |---|---|
-| `--lan` | Serve to the local network as well, so a phone can open it. The same as `--host 0.0.0.0`, and the thing you actually type |
+| `--local` | Serve this machine only. No phone, and no key to type — the panel as it was before it could be reached from anywhere else |
 | `--port N` | Serve on this port **for this run only**. What is remembered is left alone, so the bookmark still works tomorrow |
 | `--no-key` | Answer anyone who can reach the port, with no key — and read-only, since nothing then stands between the network and the composer |
 | `--new-key` | Throw the remembered key away and make another. Every phone has to be given the new one |
 | `--no-send` | Read-only, wherever it is bound |
+| `--lan` | Nothing: serving the network is the default. Kept so the flag still works |
 
 `--build` builds the frontend and exits; `--no-build` serves whatever is already
 built, however stale. Neither is needed day to day — starting the panel builds
@@ -786,21 +787,21 @@ It is picked rather than fixed because two people on one network both running a 
 
 ### From your phone
 
-```bash
-python3 server.py --lan
-```
-
-It prints two addresses: the loopback one, and the one your phone can reach, with the key on the end.
+Nothing to pass: the network is where the panel serves by default. It prints two addresses — the loopback one, and the one your phone can reach, with the key on the end.
 
 ```
 claude-watchtower → http://127.0.0.1:8867
 on this network  → http://192.168.1.24:8867/?k=r4pm7dwq
-                  type that on the phone once — it is remembered after that
+                  or scan the code in Settings — it is the same address
 ```
 
-**The key is the whole gate, and it is a real one.** Anything arriving from off this machine — a page, a stylesheet, an API call, a POST — is answered only if it carries the key, in the URL or in the cookie the first answer set. Everything else gets a 403 that says nothing about the machine behind it. A request from this machine is never asked: the only thing that can reach loopback is already at the keyboard.
+**Or don't type it at all.** **Settings → On your phone** shows that address as a QR code. Point a camera at it and the phone opens the panel already holding the key. The code is drawn by the panel itself — `watchtower/qr.py`, a hundred lines of the standard's own arithmetic, because a panel that installs nothing does not grow a dependency for one picture — and it is checked against an independent encoder, module for module, in `tests/qr-check.py`.
 
-The key lives in the same `listen.json` and does not rotate, so a phone that has been given it stays given it. `--new-key` replaces it when you want that.
+The address in that section is read at the moment you open it rather than at startup, so it is right after the laptop has moved between networks.
+
+**The key is the same key every time.** It is derived from this machine and written down in `listen.json`; a phone that has been given it stays given it, across restarts and across networks. `--new-key` is the only thing that changes it — and if the panel can neither derive nor save one, it says so on startup rather than letting a phone discover it.
+
+**The key is the whole gate, and it is a real one.** Anything arriving from off this machine — a page, a stylesheet, an API call, a POST — is answered only if it carries the key, in the URL or in the cookie the first answer set. Everything else gets a 403 that says nothing about the machine behind it. A request from this machine is never asked: the only thing that can reach loopback is already at the keyboard.
 
 **What the phone gets is the whole panel**, composer included: sending, running a turn here, pasting a picture, git writes. That is the trade the key buys, and it is why `--no-key` — which takes the key away — takes sending with it.
 
@@ -840,7 +841,7 @@ systemctl --user enable --now claude-watchtower
 
 `systemctl --user status claude-watchtower` to check it, `journalctl --user -u claude-watchtower` for logs.
 
-The unit names no port, so the service is on this install's remembered one — the same address as when you start the panel by hand. To serve the network from the service, add `--lan` to its `ExecStart`; to pin a port there, set `Environment=CLAUDE_WATCHTOWER_PORT=8787` rather than passing `--port`, which would leave the remembered one to drift out of step with what the unit uses.
+The unit names no port and no host, so the service is on this install's remembered port and reachable from your phone — the same address as when you start the panel by hand. Add `--local` to its `ExecStart` to keep it to this machine; to pin a port there, set `Environment=CLAUDE_WATCHTOWER_PORT=8787` rather than passing `--port`, which would leave the remembered one to drift out of step with what the unit uses.
 
 ## Repository layout
 
