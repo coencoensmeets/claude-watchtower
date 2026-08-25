@@ -2,6 +2,8 @@
   .detail-empty { flex: 1 1 auto; display: grid; place-items: center; padding: var(--md-sys-spacing-6); text-align: center; color: var(--md-sys-color-on-surface-variant); }
 
   .detail-header {
+    /* Relative for the fold handle, which hangs in the top corner on a phone. */
+    position: relative;
     flex: none; padding: var(--md-sys-spacing-6) var(--md-sys-spacing-6) var(--md-sys-spacing-4);
     background: var(--state-container); color: var(--state-on-container);
   }
@@ -34,6 +36,29 @@
     border: 0; border-bottom: 2px solid currentColor; border-radius: var(--md-sys-shape-corner-small);
     color: inherit; font: inherit; letter-spacing: inherit; outline: none;
   }
+  /* The header folds down to its title bar on a phone — the rules that do the
+     folding are in responsive.css, because that is the only width where the
+     header's five lines of context are worth less than the room they cost.
+     Here is only the machinery: one grid row taken from 1fr to 0fr, which is
+     the way to animate something to its own natural height without measuring
+     it in script. The inner box carries the overflow, since a grid row of zero
+     height does not itself clip what is in it. */
+  .detail-header__fold {
+    display: grid; grid-template-rows: 1fr;
+    transition: grid-template-rows var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-standard);
+  }
+  .detail-header__fold-inner { min-height: 0; overflow: hidden; }
+  /* The handle. Drawn at every width and shown only on a phone, so the markup
+     and the wiring are the same everywhere and only the stylesheet knows where
+     it belongs. Pushed to the end of the title row, where a fold's handle sits.
+     Colour inherited: the header is painted in the session's state colour, and
+     the icon button's own on-surface-variant is not legible on it. */
+  .fold-button {
+    display: none; color: inherit;
+    transition: transform var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized);
+  }
+  .detail-header[data-folded="1"] .fold-button { transform: rotate(-180deg); }
+
   .detail-header__meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--md-sys-spacing-1) var(--md-sys-spacing-2); margin-top: var(--md-sys-spacing-3); opacity: 0.9; }
   .detail-header__actions { flex: none; display: flex; flex-direction: column; gap: var(--md-sys-spacing-1); align-items: stretch; }
   .meta-sep { opacity: 0.45; }

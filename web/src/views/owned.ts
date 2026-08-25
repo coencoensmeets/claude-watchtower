@@ -3,7 +3,7 @@
 
 import { reloadState } from "../refresh.js";
 import { displaySince, stateKeyOf } from "../sessions/state.js";
-import { app, chat } from "../state.js";
+import { app, chat, ui } from "../state.js";
 import { clockOf, duration, escapeHtml, shorten, tokens } from "../ui/format.js";
 import { ICON } from "../ui/icons.js";
 import { imagesFor } from "../ui/images.js";
@@ -131,7 +131,8 @@ export function detailHeader(session, state, host) {
   // one that came with the session behind it, so the subject is there on the
   // first paint rather than a moment after it.
   const title = (chat.transcriptFor === session.sessionId && chat.transcript?.title) || session.title || null;
-  return `<header class="detail-header">
+  const folded = ui.headerFolded;
+  return `<header class="detail-header" data-folded="${folded ? 1 : 0}">
       <div class="detail-header__top">
         <div class="detail-header__text">
           <div class="detail-header__title">
@@ -141,16 +142,29 @@ export function detailHeader(session, state, host) {
             </h2>
             <span class="md-label-large">${escapeHtml(state.label)}
               <span class="md-mono md-body-small" data-since="${displaySince(session)}">${duration(Date.now() / 1000 + app.skew - displaySince(session))}</span></span>
+            ${foldButton(folded)}
           </div>
-          ${title ? `<p class="detail-header__subtitle md-body-medium">${escapeHtml(title)}</p>` : ""}
-          ${modeBar(session)}
-          ${contextBar(session)}
-          <div class="detail-header__meta">${meta.join(" ")}</div>
+          <div class="detail-header__fold" id="headerFold"><div class="detail-header__fold-inner">
+            ${title ? `<p class="detail-header__subtitle md-body-medium">${escapeHtml(title)}</p>` : ""}
+            ${modeBar(session)}
+            ${contextBar(session)}
+            <div class="detail-header__meta">${meta.join(" ")}</div>
+          </div></div>
         </div>
         <div class="detail-header__actions">${headerActions(session)}${editorAction(session)}</div>
       </div>
       ${traceFor(session)}
     </header>`;
+}
+/* The handle on the fold. Drawn at every width and shown only on a phone, which
+   is the only size where the header's five lines of context are competing with
+   the conversation for room. The chevron turns rather than being swapped: it is
+   the same control saying which way it will go next. */
+function foldButton(folded) {
+  return `<button class="icon-button md-state fold-button" type="button" data-act="fold"
+      aria-expanded="${String(!folded)}" aria-controls="headerFold"
+      title="${folded ? "Show the session's details" : "Fold the details away"}"
+      aria-label="${folded ? "Show the session's details" : "Fold the details away"}">${ICON.chevron}</button>`;
 }
 /* Opening the session's folder in VS Code. Offered whatever state the session is
    in — a stopped one still has the checkout you were working in — and disabled

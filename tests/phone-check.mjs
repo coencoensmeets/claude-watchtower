@@ -180,6 +180,44 @@ check("and unmarked when it goes", tapped.stillMarked === false);
 check("the download is the file a mouse would have got",
   /\.md$/.test(tapped.name || "") && /^# /.test(tapped.head || ""), `${tapped.name} · ${tapped.head}`);
 
+/* --------------------------------------------- the header folds out of the way */
+/* The header is the whole session in five lines, and on a phone those five lines
+   are the conversation's room. Scrolling into the transcript folds it to its
+   title; the chevron does the same on demand, and holds against the scroll. */
+const fold = await evaluate(`(async () => {
+  const scroller = document.getElementById('chatScroll');
+  const header = document.querySelector('.detail-header');
+  const button = document.querySelector('.fold-button');
+  const tall = () => Math.round(header.getBoundingClientRect().height);
+  const settle = () => new Promise(r => setTimeout(r, 420));
+  scroller.scrollTop = 0; scroller.dispatchEvent(new Event('scroll')); await settle();
+  const open = tall();
+  const room = scroller.scrollHeight - scroller.clientHeight;
+  scroller.scrollTop = scroller.scrollHeight; scroller.dispatchEvent(new Event('scroll')); await settle();
+  const scrolled = tall();
+  // Unfolded by hand while still scrolled down, and it must stay unfolded.
+  button.click(); await settle();
+  const byHand = tall();
+  scroller.scrollTop = Math.max(200, scroller.scrollTop - 40);
+  scroller.dispatchEvent(new Event('scroll')); await settle();
+  const held = tall();
+  scroller.scrollTop = 0; scroller.dispatchEvent(new Event('scroll')); await settle();
+  const back = tall();
+  return { open, scrolled, byHand, held, back, room,
+           shown: getComputedStyle(button).display,
+           tap: Math.round(button.getBoundingClientRect().height) };
+})()`);
+if (fold.room <= 200) console.log("  --  the folding header: this conversation has nothing to scroll");
+else {
+  check("scrolling into the conversation folds the header away",
+    fold.scrolled < fold.open - 40, JSON.stringify(fold));
+  check("the chevron brings it back", fold.byHand === fold.open);
+  check("and it stays back while you carry on reading", fold.held === fold.open);
+  check("scrolling to the top unfolds it again", fold.back === fold.open);
+}
+check("the chevron is a tap target on a phone", fold.shown !== "none" && fold.tap >= 40,
+  `${fold.shown} · ${fold.tap}px`);
+
 /* ------------------------------------------------ nothing under the chrome */
 const box = await evaluate(`(() => {
   const c = document.querySelector('.composer');
@@ -222,7 +260,8 @@ const desk = await evaluate(`(async () => {
   const out = { held, right: menu.dataset.open, title: menu.querySelector('.menu__title')?.textContent,
                 panes: getComputedStyle(document.querySelector('.list-pane')).display,
                 back: getComputedStyle(document.getElementById('backButton')).display,
-                header: getComputedStyle(document.querySelector('.detail-header__top')).flexDirection };
+                header: getComputedStyle(document.querySelector('.detail-header__top')).flexDirection,
+                fold: getComputedStyle(document.querySelector('.fold-button')).display };
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   return out;
 })()`);
@@ -232,6 +271,8 @@ check("right-clicking a message still opens its menu", desk.right === "true" && 
 check("both panes are back", desk.panes !== "none");
 check("and the back button is gone with them", desk.back === "none");
 check("the header puts its actions beside the name again", desk.header === "row");
+check("and the fold handle is gone: a header beside the conversation costs nothing",
+  desk.fold === "none", desk.fold);
 
 /* ============================== the stylesheet ============================ */
 /* The two rules the browser here cannot be asked about: headless Chrome always

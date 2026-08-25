@@ -143,6 +143,12 @@ export const ui = {
   // A file is being held over the message box. Same purpose as the flag above:
   // the pane must not be rebuilt out from under a drag that has not landed yet.
   droppingOnComposer: false,
+  // Whether the detail pane's header is folded down to its title. A phone thing:
+  // the header is four or five lines of context that the conversation needs the
+  // room for, so scrolling into the transcript folds it and scrolling back to
+  // the top unfolds it again. Lives here rather than on the element because the
+  // pane is rebuilt from scratch on every poll, and the fold must survive that.
+  headerFolded: false,
 };
 
 export const selected = () => app.feed.sessions.find((s) => s.sessionId === app.selectedId) || null;

@@ -40,6 +40,35 @@
        instead, full width, which is where a phone puts a button anyway. */
     .detail-header__top { flex-direction: column; gap: var(--md-sys-spacing-3); }
     .detail-header__actions { width: 100%; }
+
+    /* ---------------------------- the folding header ---------------------- */
+    /* On a phone the detail header — subject, mode chips, context bar, folder,
+       branch, uptime, the state trace — is most of the screen before the
+       conversation gets a line. So it folds: scrolling into the transcript
+       folds it away, scrolling back to the top brings it back, and the chevron
+       in the title row does either on demand. What stays folded is the one line
+       that says which session you are in and what it is doing.
+
+       Only here. At any width with room for both, the header is the context you
+       read the conversation against and it stays put. */
+    /* In the corner rather than in the title row: at the end of the row it is
+       the third thing on a line already holding a name and a state, so it wraps
+       to a line of its own and the folded header keeps a band of empty space —
+       which is the space this was meant to win back. The title makes room for
+       it instead. */
+    .fold-button { display: grid; position: absolute; top: 6px; inset-inline-end: 6px; }
+    .detail-header__title { padding-inline-end: 40px; }
+    .detail-header[data-folded="1"] { padding-block: var(--md-sys-spacing-3); }
+    .detail-header[data-folded="1"] .detail-header__fold { grid-template-rows: 0fr; }
+    /* The trace and the buttons go with it — they are two more rows of header,
+       and folding the middle out while leaving them behind would save nothing.
+       Both are dropped rather than collapsed: neither has a height worth
+       animating from, and the fold above is the motion that reads as folding. */
+    .detail-header[data-folded="1"] .detail-header__actions,
+    .detail-header[data-folded="1"] .trace { display: none; }
+    /* The title row keeps its own gap from the fold below it, but a folded
+       header should be exactly one row tall. */
+    .detail-header[data-folded="1"] .detail-header__top { gap: 0; }
   }
 
   @media (min-width: 1400px) {

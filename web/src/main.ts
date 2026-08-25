@@ -1760,6 +1760,7 @@ function renderDetail(force = false) {
   // Nothing to jump to the bottom of while a comparison has the pane: the dock
   // is about the conversation, and the conversation is not what is on screen.
   if (chatAfter && app.tab === "chat" && chat.changeShown === null) wireJumpDock(chatAfter);
+  wireHeaderFold(chatAfter);
 
   // Fade the panel in when it is showing something genuinely different — another
   // tab, another session. Not on every rebuild: the pane is rebuilt whenever a
@@ -1846,6 +1847,62 @@ function wireJumpDock(scroller) {
   bottom.addEventListener("click", () => {
     scroller.scrollTo({ top: scroller.scrollHeight, behavior: glide() });
   });
+  scroller.addEventListener("scroll", sync, { passive: true });
+  sync();
+}
+
+/* Folding the detail header away on a phone.
+
+   The header is the session's whole context — subject, mode chips, how full the
+   conversation is, folder, branch, uptime, the state trace. On a desktop that
+   sits beside the conversation for free. On a phone it is most of the screen
+   before a single message is drawn, so it folds down to its title as soon as
+   you scroll into the transcript, and comes back when you scroll to the top.
+   The chevron in the title row does either on demand.
+
+   Only the attribute changes here; what it means is in responsive.css, and it
+   means nothing above phone width.
+
+   Both thresholds and the hold below exist for the same reason: folding the
+   header makes the panel taller, which moves the scroll under the reader, and
+   anything that folds and unfolds on adjacent pixels reads as a shudder. */
+const FOLD_AT = 120;        /* scrolled this far in, the header folds */
+const UNFOLD_AT = 24;       /* back to about the top, it comes out again */
+/* A panel with less than this left to scroll keeps its header: folding one away
+   to reveal two more lines, and bouncing the scroll back to the top doing it, is
+   a worse trade than the room it wins. */
+const FOLD_WORTH_IT = 200;
+const onPhone = () => matchMedia("(max-width: 599px)").matches;
+/* Someone who unfolds the header by hand while reading halfway down means it:
+   without this the very next scroll event folds it straight back, and the
+   button looks broken. The hold is let go when the scroll comes back to the
+   top, which is the point at which the reader is plainly done with it. */
+let foldHeld = false;
+
+function setFold(folded) {
+  ui.headerFolded = folded;
+  const header = detailPane.querySelector<HTMLElement>(".detail-header");
+  if (header) header.dataset.folded = folded ? "1" : "0";
+  const button = detailPane.querySelector<HTMLElement>(".fold-button");
+  if (!button) return;
+  const what = folded ? "Show the session's details" : "Fold the details away";
+  button.setAttribute("aria-expanded", String(!folded));
+  button.setAttribute("aria-label", what);
+  button.title = what;
+}
+
+function wireHeaderFold(scroller) {
+  detailPane.querySelector<HTMLElement>(".fold-button")?.addEventListener("click", () => {
+    foldHeld = true;
+    setFold(!ui.headerFolded);
+  });
+  if (!scroller) return;
+  const sync = () => {
+    if (!onPhone()) return;
+    const room = scroller.scrollHeight - scroller.clientHeight;
+    if (scroller.scrollTop < UNFOLD_AT) { foldHeld = false; setFold(false); }
+    else if (!foldHeld && scroller.scrollTop > FOLD_AT && room > FOLD_WORTH_IT) setFold(true);
+  };
   scroller.addEventListener("scroll", sync, { passive: true });
   sync();
 }
