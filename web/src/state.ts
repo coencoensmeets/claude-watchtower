@@ -78,6 +78,14 @@ export const app = {
   feed: { sessions: [], now: Date.now() / 1000, historySeconds: 1800, canFocus: true, canSend: false } as Feed,
   skew: 0,
   lastGood: 0,
+  // When the server first stopped answering, or 0 while it is answering. A
+  // single missed poll is not a lost connection — a phone waking up misses
+  // one — so the bar reports on how long it has been since the last answer
+  // rather than on the last request having failed. See showLink in main.ts.
+  lostSince: 0,
+  // The state poll is being answered but the conversation is not: a fault that
+  // looks, on screen, exactly like a session that has gone quiet.
+  readFailed: false,
   filter: "all",
   selectedId: localStorage.getItem("cbu-selected") || null,
   tab: localStorage.getItem("cbu-tab") || "chat",

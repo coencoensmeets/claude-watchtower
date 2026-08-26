@@ -67,6 +67,50 @@
   .app-bar__supporting { color: var(--md-sys-color-on-surface-variant); white-space: nowrap; }
   .app-bar__actions { display: flex; align-items: center; gap: var(--md-sys-spacing-2); flex: none; }
 
+  /* ------------------------------ the link to the server ------------------- */
+  /* Whether the panel is still being answered. A dot alone while it is: this
+     sits in the bar for the whole of a working day, and a word saying "fine"
+     for eight hours is a word nobody reads by the second hour. It grows a
+     label only when there is something to say — which is also the moment it
+     stops being decoration.
+
+     Not a button: nothing about it can be operated. The panel is already
+     retrying once a second, so a "reconnect" here would do nothing that is not
+     happening anyway. */
+  .link-chip {
+    display: inline-flex; align-items: center; gap: 6px; flex: none;
+    height: 32px; padding: 0 2px; border-radius: var(--md-sys-shape-corner-full);
+    color: var(--md-sys-color-on-surface-variant); white-space: nowrap;
+  }
+  .link-chip__dot {
+    width: 8px; height: 8px; flex: none; border-radius: 50%;
+    background: var(--md-extended-color-plenty-color, var(--md-sys-color-primary));
+  }
+  /* Empty while all is well, so the chip is the dot and nothing else. */
+  .link-chip__text:empty { display: none; }
+  /* Nothing has been read that should have been — the server is answering, but
+     the conversation is not arriving, which on screen looks exactly like a
+     session that has gone quiet. Worth telling apart. */
+  .link-chip[data-state="patchy"] {
+    padding-inline: var(--md-sys-spacing-2);
+    background: var(--md-extended-color-waiting-container, var(--md-sys-color-tertiary-container));
+    color: var(--md-extended-color-waiting-on-container, var(--md-sys-color-on-tertiary-container));
+  }
+  .link-chip[data-state="patchy"] .link-chip__dot {
+    background: var(--md-extended-color-waiting-color, var(--md-sys-color-tertiary));
+  }
+  .link-chip[data-state="lost"] {
+    padding-inline: var(--md-sys-spacing-2);
+    background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container);
+  }
+  .link-chip[data-state="lost"] .link-chip__dot {
+    background: var(--md-sys-color-error);
+    /* Beating, because the panel is still trying. A steady red dot says the
+       connection is gone; this one says it is being looked for. */
+    animation: link-beat 1.6s var(--md-sys-motion-easing-standard) infinite;
+  }
+  @keyframes link-beat { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+
   /* When every session is working there is nothing to answer, so the middle of
      the bar — otherwise empty — says to go and do something else for a minute.
      Centred on the bar rather than laid out between the title and the actions,

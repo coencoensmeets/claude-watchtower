@@ -34,6 +34,16 @@
       </a>
     </div>
     <div class="app-bar__actions">
+      <!-- Whether the panel is still hearing from the server. It polls once a
+           second, so "connected" is a fact a second old at worst — and on a
+           phone, where the supporting line under the title is hidden and a
+           dropped connection used to show as nothing but a conversation that
+           never arrived, it is the only place that fact is told. A dot while
+           all is well; a dot and a word when it is not. -->
+      <span class="link-chip md-label-medium" id="linkChip" data-state="live" role="status" aria-live="polite">
+        <span class="link-chip__dot" aria-hidden="true"></span>
+        <span class="link-chip__text" id="linkChipText"></span>
+      </span>
       <!-- Only ever on screen when there is actually a newer release: the panel
            reads its own repository's tags, so an update is a fact rather than a
            standing invitation. -->

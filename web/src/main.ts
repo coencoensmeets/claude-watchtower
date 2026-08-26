@@ -12,7 +12,7 @@ import { ASK_ICON, ASK_WORD, STATE, STATE_ORDER, displaySince, drawnStateOf, sta
 import type { StateKey } from "./sessions/state.js";
 import { CHAT_LIMIT_MAX, CHAT_PAGE, app, chat, loadKeySet, mutedSessions, quietWhenDone, readJson, repo, sayDrafts, selected, sessionById, sidebar, spend, ui } from "./state.js";
 import { askConfirm, askScrim, closeAsk } from "./ui/ask.js";
-import { backButton, barNudge, barNudgeIcon, barNudgeLink, barNudgeText, barSupporting, chipSet, control, detailPane, endScrim, hitClosest, hitElement, listEmpty, panes, pickBar, pickClear, pickCount, pickGroup, sessionList, settingsButton } from "./ui/dom.js";
+import { backButton, barNudge, barNudgeIcon, barNudgeLink, barNudgeText, barSupporting, chipSet, control, detailPane, endScrim, hitClosest, hitElement, linkChip, linkChipText, listEmpty, panes, pickBar, pickClear, pickCount, pickGroup, sessionList, settingsButton } from "./ui/dom.js";
 import { duration, escapeHtml, shorten, tokens } from "./ui/format.js";
 import { ICON, hostOf } from "./ui/icons.js";
 import { attachPicture, dropImage, imagesStamp, picturesOn, sendMessage } from "./ui/images.js";
@@ -410,17 +410,68 @@ async function poll() {
     const data = await response.json();
     app.skew = data.now - Date.now() / 1000;
     app.feed = data;
-    app.lastGood = Date.now();
+    heard();
     announce(data.sessions);
     render();
     if (app.selectedId && (chat.transcriptFor !== app.selectedId || app.tab === "chat")) fetchTranscript();
     if (app.selectedId && isGitTab(app.tab)) fetchGit();
     if (app.selectedId && app.tab === "usage") fetchUsage();
   } catch (error) {
+    if (!app.lostSince) app.lostSince = Date.now();
     barSupporting.textContent = "lost the server — retrying";
     // The counts on screen are stale, so a nudge based on them is a guess.
     barNudge.hidden = true;
+    showLink();
   }
+}
+
+/* ------------------------------------------------------- the link to the server
+   The panel is a page that only ever changes because the server told it to, so
+   a server that has stopped answering looks like a machine where nothing is
+   happening: the conversation simply stops arriving. On a desktop the line
+   under the title says so. On a phone that line is hidden — there is no room
+   for it — and until this went in there was nothing at all to tell a quiet
+   afternoon from a dropped connection.
+
+   Three things are worth telling apart, and they are not the same fault:
+
+     live    — answered within the grace below
+     patchy  — the state poll is answered, the conversation is not. The server
+               is up and something about this session's transcript is not
+               being read: on screen, indistinguishable from a session that has
+               gone quiet, which is the whole reason it is called out
+     lost     — nothing at all for longer than the grace
+
+   Grace, rather than "the last request failed": the poll runs once a second,
+   and a phone coming back from sleep or a laptop changing network drops one
+   as a matter of course. Four seconds is four missed polls — long enough that
+   nothing normal reaches it, short enough to still be news. */
+const LOST_AFTER = 4000;
+
+/** The server answered something. Any endpoint will do — they are one server. */
+function heard() {
+  app.lastGood = Date.now();
+  app.lostSince = 0;
+  showLink();
+}
+
+/* Driven from the poll and from the ticker both. The ticker matters: a request
+   that hangs rather than failing never reaches either branch of the poll, and
+   that is exactly what a connection dropped mid-flight does — so without a
+   clock running underneath it the bar would sit there claiming to be connected
+   for as long as the socket took to give up. */
+function showLink() {
+  const quiet = Date.now() - app.lastGood;
+  const state = app.lostSince && quiet > LOST_AFTER ? "lost"
+    : app.readFailed ? "patchy" : "live";
+  linkChip.dataset.state = state;
+  linkChipText.textContent = state === "lost" ? `offline ${duration(quiet / 1000)}`
+    : state === "patchy" ? "chat not loading" : "";
+  linkChip.title = state === "lost"
+    ? `Nothing from the server for ${duration(quiet / 1000)} — still trying, once a second`
+    : state === "patchy"
+      ? "The server is answering, but this conversation could not be read — what is on screen may be behind"
+      : "Connected to the panel";
 }
 
 async function fetchTranscript() {
@@ -445,9 +496,14 @@ async function fetchTranscript() {
     const changed = stamp(data) !== stamp(chat.transcript) || chat.transcriptFor !== id;
     chat.transcript = data;
     chat.transcriptFor = id;
+    app.readFailed = false;
+    heard();
     if (changed) renderDetail(true);
   } catch (error) {
-    /* leave the previous transcript on screen */
+    /* Leave the previous transcript on screen — but say that it is the previous
+       one. A conversation that stops arriving is the symptom this is here for. */
+    app.readFailed = true;
+    showLink();
   } finally {
     chat.transcriptBusy = false;
   }
@@ -851,6 +907,8 @@ export function selectSession(id) {
   chat.transcript = null;
   chat.transcriptFor = null;
   chat.chatLimit = CHAT_PAGE;
+  // The read that failed was the last session's. This one has not been tried.
+  app.readFailed = false;
   chat.chatGrew = false;
   // A change belongs to the conversation it was made in, so it does not travel
   // to the next session's pane. The patch itself stays cached under its own id,
@@ -2513,6 +2571,9 @@ setInterval(() => fetchPlan(false), 30_000);
 fetchUpdate(true);
 setInterval(() => fetchUpdate(false), 60_000);
 setInterval(() => {
+  // Whether the server is still there is a fact about the clock as much as
+  // about the last request — see showLink.
+  showLink();
   const now = Date.now() / 1000 + app.skew;
   for (const node of document.querySelectorAll<HTMLElement>("[data-since]")) {
     node.textContent = duration(now - Number(node.dataset.since));

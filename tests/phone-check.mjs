@@ -180,6 +180,47 @@ check("and unmarked when it goes", tapped.stillMarked === false);
 check("the download is the file a mouse would have got",
   /\.md$/.test(tapped.name || "") && /^# /.test(tapped.head || ""), `${tapped.name} · ${tapped.head}`);
 
+/* ------------------------------------------ is the server still answering? */
+/* A phone has no room for the line under the title, so a dropped connection
+   used to show as nothing whatever: the conversation simply stopped arriving,
+   which is exactly what a quiet session looks like. The bar says which. */
+const link = await evaluate(`(async () => {
+  const chip = document.getElementById('linkChip');
+  const read = () => ({ state: chip.dataset.state, text: chip.textContent.trim(),
+                        wide: Math.round(chip.getBoundingClientRect().width) });
+  const settle = (ms) => new Promise(r => setTimeout(r, ms));
+  const live = read();
+  const real = window.fetch;
+  try {
+    // Everything fails, the way a dropped connection does.
+    window.fetch = () => Promise.reject(new TypeError('failed'));
+    await settle(1500);
+    const blink = read();                    // one missed poll is not a drop
+    await settle(4000);
+    const lost = read();
+    // Now only the conversation fails: the server is up and the chat is not
+    // arriving, which is the fault that started all this.
+    window.fetch = (u, o) => String(u).startsWith('/api/transcript')
+      ? Promise.reject(new TypeError('failed')) : real(u, o);
+    await settle(3000);
+    const patchy = read();
+    window.fetch = real;
+    await settle(2500);
+    return { live, blink, lost, patchy, back: read() };
+  } finally { window.fetch = real; }
+})()`);
+check("the bar says the panel is connected, with a dot and no words",
+  link.live.state === "live" && link.live.text === "" && link.live.wide < 20, JSON.stringify(link.live));
+check("one missed poll is not a lost connection", link.blink.state === "live", JSON.stringify(link.blink));
+check("but a server that has stopped answering is said out loud",
+  link.lost.state === "lost" && /^offline /.test(link.lost.text), JSON.stringify(link.lost));
+check("and how long it has been quiet, since nothing else on screen moves",
+  /\d+s$/.test(link.lost.text), link.lost.text);
+check("a conversation that will not load is told apart from a lost server",
+  link.patchy.state === "patchy" && !!link.patchy.text, JSON.stringify(link.patchy));
+check("and the bar goes quiet again when the server comes back",
+  link.back.state === "live" && link.back.text === "", JSON.stringify(link.back));
+
 /* --------------------------------------------- the header folds out of the way */
 /* The header is the whole session in five lines, and on a phone those five lines
    are the conversation's room. Scrolling into the transcript folds it to its
