@@ -59,6 +59,9 @@ export const ICON = {
   ask: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.3 9.4A2.8 2.8 0 0 1 12 7.4c1.5 0 2.8 1 2.8 2.4 0 1.8-2.3 2.1-2.8 3.7"/><path d="M12 17h.01"/></svg>',
   // Angle brackets around a slash, the mark VS Code puts on a folder it holds.
   editor: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 7-5 5 5 5M16 7l5 5-5 5"/><path d="m14 4-4 16"/></svg>',
+  // A prompt and a line, the shape every desktop puts on a terminal — the way
+  // back out of the panel, beside the way into the editor.
+  terminal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="16" rx="3"/><path d="m7 10 2.5 2L7 14M12.5 14.5H17"/></svg>',
   // Two stars, the mark every editor now uses for "a model did this".
   sparkle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3.5 11.7 8 16 9.8 11.7 11.5 10 16l-1.7-4.5L4 9.8 8.3 8z"/><path d="m17.5 15 .8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></svg>',
   // Two chevrons pointing at each other: squeezed inwards from both ends, which

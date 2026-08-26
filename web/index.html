@@ -111,6 +111,21 @@
   </div>
 </div>
 
+<!-- The changelog, read out of the checkout. A scrim of its own rather than a
+     tab in the update dialog: it is what changed over every release, which is a
+     different question from "should I take this one", and it is worth reading
+     when there is no update to take at all. -->
+<div class="scrim" id="changelogScrim" data-open="false">
+  <div class="dialog dialog--wide" role="dialog" aria-modal="true" aria-labelledby="changelogHeadline">
+    <h2 class="dialog__headline md-headline-small" id="changelogHeadline">What changed</h2>
+    <div class="changelog" id="changelogBody"></div>
+    <div class="dialog__actions">
+      <span class="md-label-small dialog__actions-start" id="changelogAge"></span>
+      <button class="button button--filled md-state" id="closeChangelog">Done</button>
+    </div>
+  </div>
+</div>
+
 <div class="scrim" id="planScrim" data-open="false">
   <div class="dialog dialog--wide" role="dialog" aria-modal="true" aria-labelledby="planHeadline">
     <h2 class="dialog__headline md-headline-small" id="planHeadline">Your plan</h2>

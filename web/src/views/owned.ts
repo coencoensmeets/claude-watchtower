@@ -150,7 +150,7 @@ export function detailHeader(session, state, host) {
             <div class="detail-header__meta">${meta.join(" ")}</div>
           </div></div>
         </div>
-        <div class="detail-header__actions">${headerActions(session)}${editorAction(session)}</div>
+        <div class="detail-header__actions">${headerActions(session)}${terminalAction(session)}${editorAction(session)}</div>
         ${foldButton(folded)}
       </div>
       ${traceFor(session)}
@@ -167,6 +167,32 @@ function foldButton(folded) {
       title="${folded ? "Show the session's details" : "Fold the details away"}"
       aria-label="${folded ? "Show the session's details" : "Fold the details away"}">${ICON.chevron}</button>`;
 }
+/* Handing an interactive session back to a terminal — `claude --resume` in a
+   window of your own, on the same conversation.
+
+   The other half of *Make interactive*, and offered in the same place that one
+   is not: a session the panel runs has no window to focus, so the actions column
+   holds only the editor button, and this goes above it. A session already in a
+   terminal is left alone — it is already where this would put it, and *Focus
+   window* is the button for that.
+
+   Not offered mid-turn. The panel refuses it anyway — a terminal opened on a
+   transcript a panel turn is halfway through is two processes on one
+   conversation — and a disabled button saying so is a better answer than a
+   snackbar after the press. Whatever is typed ahead of the session goes with the
+   hand-back, which is why the hint says so rather than the queue quietly
+   emptying. */
+function terminalAction(session) {
+  if (!runsHere(session) || !session.cwd) return "";
+  const running = ownedFor(session).running === true;
+  const can = app.feed.canSend && !running;
+  const why = running ? "wait for this turn to finish"
+    : !app.feed.canSend ? "opening a terminal needs the panel on loopback"
+    : `Resume this session in a terminal — the panel lets go of it`;
+  return `<button class="button button--outlined md-state detail-header__terminal" data-act="terminal"
+                  ${can ? "" : "disabled"} title="${escapeHtml(why)}">${ICON.terminal} Open in terminal</button>`;
+}
+
 /* Opening the session's folder in VS Code. Offered whatever state the session is
    in — a stopped one still has the checkout you were working in — and disabled
    rather than dropped when the panel cannot act, so its absence is never read as

@@ -92,6 +92,9 @@
     gap: var(--md-sys-spacing-4); flex-wrap: wrap;
   }
   .update-setting__text { min-width: 12rem; flex: 1 1 16rem; }
+  /* The two buttons together, so the pair wraps as a pair rather than the
+     changelog going down a line on its own. */
+  .update-setting__acts { display: flex; align-items: center; gap: var(--md-sys-spacing-2); flex: none; }
   .update-setting__now { margin: 0; }
   .update-setting__says { display: block; margin-top: 2px; color: var(--md-sys-color-on-surface-variant); }
   /* A release waiting to be taken is the one state on this page worth a colour —
@@ -107,3 +110,20 @@
     #updateChipText { display: none; }
     .update-chip { padding-inline: var(--md-sys-spacing-2); }
   }
+
+  /* ------------------------------ the changelog --------------------------- */
+  /* A long document in a dialog, so it scrolls inside its own box and the
+     dialog's buttons stay where they were. The prose comes through the same
+     markdown renderer the conversation uses, so what is styled here is only how
+     much room it gets. */
+  .changelog {
+    max-height: min(62vh, 62dvh); overflow-y: auto; overscroll-behavior: contain;
+    padding-right: var(--md-sys-spacing-2);
+  }
+  .changelog > :first-child { margin-top: 0; }
+  .changelog > :last-child { margin-bottom: 0; }
+  /* The file's own top heading repeats the dialog's headline, which is one
+     "What changed" too many. It is an h3 rather than an h1 because the markdown
+     renderer demotes every heading by two — a message in a bubble should not
+     carry a page title, and this borrows that renderer. */
+  .changelog > h3:first-child { display: none; }

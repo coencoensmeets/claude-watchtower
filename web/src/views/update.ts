@@ -1,6 +1,7 @@
 import { detailPane } from "../ui/dom.js";
 import { ago, escapeHtml } from "../ui/format.js";
 import { showSnackbar } from "../ui/snackbar.js";
+import { changelogMissing, openChangelog } from "./changelog.js";
 
 /* ==========================================================================
    Updating the panel itself.
@@ -213,12 +214,18 @@ export function paintUpdateSetting() {
           <span class="md-mono">${escapeHtml(whereWeAre() || "an unread checkout")}</span></p>
         <p class="update-setting__says md-label-small">${escapeHtml(saysAbout(state))}</p>
       </div>
-      ${state === "ready"
-        ? `<button class="button button--filled md-state" id="updateOpen">See what changed</button>`
-        : `<button class="button button--outlined md-state" id="updateRecheck"${
-            checking || installing ? " disabled" : ""}>${
-            checking ? "Checking…" : "Check for updates"}</button>`}
+      <div class="update-setting__acts">
+        ${changelogMissing()
+          ? ""
+          : `<button class="button button--text md-state" id="changelogOpen">Changelog</button>`}
+        ${state === "ready"
+          ? `<button class="button button--filled md-state" id="updateOpen">See what changed</button>`
+          : `<button class="button button--outlined md-state" id="updateRecheck"${
+              checking || installing ? " disabled" : ""}>${
+              checking ? "Checking…" : "Check for updates"}</button>`}
+      </div>
     </div>`;
+  box.querySelector("#changelogOpen")?.addEventListener("click", () => openChangelog(true));
   box.querySelector("#updateRecheck")?.addEventListener("click", async () => {
     // Forced, so it goes past the server's own six-hour hold: pressing this is
     // somebody asking, which is exactly the case the hold is not for.

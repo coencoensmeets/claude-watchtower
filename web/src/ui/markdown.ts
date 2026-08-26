@@ -1,5 +1,6 @@
 import { app } from "../state.js";
 import { escapeHtml } from "./format.js";
+import { ICON } from "./icons.js";
 
 /* ------------------------------------------------------------------- paths
    A path written into the conversation is a place on this machine, and the
@@ -111,6 +112,19 @@ function safeUrl(url) {
   return /^(https?:\/\/|mailto:)[^\s"'<>]+$/i.test(value) ? value : null;
 }
 
+/* A fenced block is the thing in a message you most often want off the screen
+   and into a shell, and selecting it by hand means dragging across a box that
+   scrolls sideways under the finger. So every one of them carries the button
+   that takes it whole.
+
+   It sits outside the <pre> in a wrapper of its own, not inside it: the pre is
+   the horizontal scroller, and a button positioned in there slides off the
+   right edge the moment a long line is scrolled. The wrapper is the fixed frame
+   the button is pinned to; the code moves under it. */
+const copyButton = () =>
+  `<button class="md-copy md-state" type="button" data-copy-code`
+  + ` title="Copy code" aria-label="Copy code">${ICON.copy}</button>`;
+
 export function renderMarkdown(text) {
   const held = [];
   const keep = (html) => `${MD_HOLD}${held.push(html) - 1}${MD_HOLD}`;
@@ -124,7 +138,9 @@ export function renderMarkdown(text) {
   const body = source.replace(/^([ \t]*)```([^\n]*)\n?([\s\S]*?)(?:^[ \t]*```[ \t]*$|$(?![\s\S]))/gm, (all, pad, info, code) => {
     const flat = pad ? code.replace(new RegExp(`^${pad}`, "gm"), "") : code;
     const lang = String(info || "").trim().split(/\s+/)[0].replace(/[^\w.+-]/g, "").slice(0, 24);
-    return pad + keep(`<pre class="md-code"${lang ? ` data-lang="${escapeHtml(lang)}"` : ""}><code class="md-mono">${escapeHtml(flat.replace(/\n$/, ""))}</code></pre>`);
+    return pad + keep(`<div class="md-codeblock">`
+      + `<pre class="md-code"${lang ? ` data-lang="${escapeHtml(lang)}"` : ""}><code class="md-mono">${escapeHtml(flat.replace(/\n$/, ""))}</code></pre>`
+      + `${copyButton()}</div>`);
   });
 
   const inline = (raw) => {

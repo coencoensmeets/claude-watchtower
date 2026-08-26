@@ -26,7 +26,7 @@ from urllib.parse import parse_qs, urlparse
 
 from watchtower import config
 from watchtower.catalog import read_catalog
-from watchtower.config import HOME, STATIC_DIR
+from watchtower.config import HOME, ROOT, STATIC_DIR
 from watchtower.control import new_session, open_editor, pick_folder, show_folder, start_session
 from watchtower.git.actions import git_action
 from watchtower.git.message import suggest_message
@@ -84,6 +84,11 @@ OFF_HERE = ("Running turns here is off because the panel is not bound to loopbac
 # than once per page. HttpOnly: no script has any business reading it, and the
 # panel's own scripts never need to — the browser sends it with every request
 # they make, including the fetches for the modules themselves.
+# Longer than the file has any business being, and short enough that a browser
+# is not handed a megabyte of prose to lay out.
+CHANGELOG_MAX = 200_000
+
+
 KEY_COOKIE = "wt-key"
 KEY_PARAM = "k"
 # A year. The key does not expire on its own — it is the same key until it is
@@ -343,6 +348,27 @@ class Handler(BaseHTTPRequestHandler):
     @route("GET", "/api/state")
     def _get_state(self) -> None:
         self._json(STORE.snapshot())
+
+    @route("GET", "/api/changelog")
+    def _get_changelog(self) -> None:
+        """The changelog, as it is written down in the checkout.
+
+        Read from disk on every ask rather than held: it changes when the panel
+        updates itself, which is exactly when a held copy would be the old one.
+        Sent as text for the browser to render, the way a message is — nothing
+        here builds HTML out of a file.
+        """
+        path = ROOT / "CHANGELOG.md"
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")[:CHANGELOG_MAX]
+            when = path.stat().st_mtime
+        except OSError:
+            # A tarball without it, or a checkout where it has been removed. The
+            # button that asks for this is hidden on this answer rather than
+            # opening an empty dialog.
+            self._json({"ok": False, "message": "This copy of the panel has no changelog"}, 404)
+            return
+        self._json({"ok": True, "text": text, "at": when})
 
     @route("GET", "/api/reach")
     def _get_reach(self) -> None:

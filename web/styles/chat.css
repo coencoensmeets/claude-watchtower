@@ -107,14 +107,43 @@
     padding: 1px 5px; border-radius: var(--md-sys-shape-corner-extra-small);
     background: color-mix(in srgb, currentColor 12%, transparent); font-size: 0.92em;
   }
+  /* The frame around a code block: the pre scrolls inside it, the copy button
+     stays pinned to its corner. The margin lives out here now, on the thing that
+     is actually the block as far as the bubble's rhythm is concerned. */
+  .md-codeblock { position: relative; margin: var(--md-sys-spacing-2) 0; }
   .md-code {
-    margin: var(--md-sys-spacing-2) 0; padding: var(--md-sys-spacing-3);
+    margin: 0; padding: var(--md-sys-spacing-3);
     border-radius: var(--md-sys-shape-corner-medium);
     background: color-mix(in srgb, currentColor 8%, transparent);
     border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
     overflow-x: auto; white-space: pre; -webkit-overflow-scrolling: touch;
   }
   .md-code code { padding: 0; background: none; font-size: 0.88em; line-height: 1.5; }
+  /* Faint until the block is under the pointer, like the button on a turn: a
+     long answer can hold half a dozen of these, and six solid buttons down the
+     side of a conversation is more furniture than the code it belongs to.
+
+     Room is made for it in the block's own padding — a first line long enough
+     to reach the button would otherwise be read with a button on top of it — so
+     the top-right corner of the code is kept clear rather than overlaid. */
+  .md-code { padding-inline-end: calc(var(--md-sys-spacing-3) + 28px); }
+  .md-copy {
+    position: absolute; top: 4px; right: 4px;
+    width: 30px; height: 30px; padding: 0;
+    display: grid; place-items: center;
+    border: 0; border-radius: var(--md-sys-shape-corner-small);
+    background: none; color: inherit; cursor: pointer;
+    opacity: 0; transition: opacity 90ms linear;
+  }
+  .md-copy svg { width: 16px; height: 16px; }
+  .md-codeblock:hover .md-copy, .md-copy:focus-visible { opacity: 0.7; }
+  .md-copy:hover { opacity: 1; }
+  /* A touch screen has no hover to bring it out, and no fine pointer to hit a
+     30px target with either, so there it is simply present and finger-sized. */
+  @media (hover: none) {
+    .md-copy { opacity: 0.6; width: 40px; height: 40px; }
+    .md-code { padding-inline-end: calc(var(--md-sys-spacing-3) + 36px); }
+  }
   .msg__text blockquote {
     margin-inline: 0; padding-inline-start: var(--md-sys-spacing-3);
     border-inline-start: 3px solid color-mix(in srgb, currentColor 30%, transparent);

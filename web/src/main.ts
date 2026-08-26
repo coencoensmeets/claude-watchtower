@@ -1644,6 +1644,10 @@ function renderDetail(force = false) {
     run("/api/identify", session, control(e), IDENTIFY_NOTE));
   detailPane.querySelector("[data-act='unpair']")?.addEventListener("click", (e) => run("/api/unpair", session, control(e)));
   detailPane.querySelector("[data-act='editor']")?.addEventListener("click", (e) => run("/api/editor", session, control(e)));
+  // Handing it back: /api/start lets go of the session and resumes it in a
+  // terminal. The pane repaints off the next poll, by which point the row is a
+  // terminal session again and offers Make interactive instead.
+  detailPane.querySelector("[data-act='terminal']")?.addEventListener("click", (e) => run("/api/start", session, control(e)));
   detailPane.querySelector("#stickyToggle")?.addEventListener("change", (event) =>
     run("/api/sticky", session, control(event), null,
         { pinned: control<HTMLInputElement>(event).checked }));
@@ -2587,6 +2591,26 @@ document.addEventListener("keydown", (event) => {
   if (!link) return;
   event.preventDefault();
   openPath(link);
+});
+
+/* ------------------------------------------------------ copying a code block
+   Delegated for the same reason the paths are: the transcript is rebuilt
+   whenever a poll lands, and a long answer holds a dozen of these.
+
+   The text comes off the <code> element rather than out of the message, because
+   the element is exactly what is on screen — one block of the answer, escaped
+   back to the characters that were written, with no fence around it. */
+document.addEventListener("click", (event) => {
+  const button = hitClosest<HTMLButtonElement>(event, "[data-copy-code]");
+  if (!button) return;
+  const code = button.closest(".md-codeblock")?.querySelector("code");
+  if (!code) return;
+  copyText(code.textContent ?? "", "Code copied");
+  // The snackbar is the answer, but it appears at the other end of the pane, so
+  // the button says it too. A poll rebuilding the transcript takes the tick away
+  // early; the message it confirms has already been seen by then.
+  button.innerHTML = ICON.check;
+  setTimeout(() => { if (button.isConnected) button.innerHTML = ICON.copy; }, 1400);
 });
 
 /* ----------------------------------------------------------- interactions */

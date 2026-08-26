@@ -201,6 +201,8 @@ const { linkPaths, renderMarkdown, editor } = new Function(`
   ${liftConst("TRAILING")}
   ${liftConst("SUFFIX")}
   ${liftConst("BARE_RE")}
+  const ICON = { copy: "<svg/>" };
+  ${liftConst("copyButton")}
   ${lift("safeUrl")}
   ${lift("linkPaths")}
   ${lift("mark")}
@@ -258,6 +260,23 @@ editor.showEditor = false;
 check("and nothing is a link at all with the editor switched off in Settings",
   linked("see /tmp/out.log").length === 0);
 editor.showEditor = true;
+
+/* ========================== copying a code block =========================
+   Every fenced block carries the button that takes it, and the button has to be
+   outside the <pre> — inside, it rides the block's own sideways scroll off the
+   edge of the bubble. */
+const fenced = renderMarkdown("here:\n\n```sh\ndocker compose up\n```\n");
+check("a fenced block carries a copy button",
+  /<button[^>]*data-copy-code/.test(fenced));
+check("in a frame of its own, outside the code that scrolls under it",
+  /<div class="md-codeblock"><pre class="md-code"[\s\S]*<\/pre><button[^>]*data-copy-code[\s\S]*<\/button><\/div>/.test(fenced));
+check("the block is still a pre.md-code with its language on it — that is what a quote reads",
+  /<pre class="md-code" data-lang="sh">/.test(fenced),
+  fenced.slice(fenced.indexOf("<div class=\"md-codeblock\""), fenced.indexOf("<code")));
+check("and inline code gets no button — it is a few words mid-sentence",
+  !/data-copy-code/.test(renderMarkdown("run `ls` here")));
+check("what the button copies is the code and nothing else",
+  /<code class="md-mono">docker compose up<\/code>/.test(fenced));
 
 /* And one check that is about the stylesheet rather than the markup, because the
    bug it guards is invisible to everything above: a folded preview sitting in

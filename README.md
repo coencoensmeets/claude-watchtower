@@ -973,6 +973,9 @@ PANEL_URL=http://127.0.0.1:8787 node tests/ui-check.mjs
 | `GET /api/commands` | `?sessionId=…` — the skills and slash commands that session could be asked for, read from the project's folders, yours, and any enabled plugin's. A session that has gone is answered with what is true of every session rather than a 404 |
 | `GET /api/plan` | The subscription's limits, read by running `claude --print /usage`; `?force=1` skips the five-minute cache; loopback only |
 | `GET /api/update` | Whether a newer release is tagged on this checkout's own remote: the release HEAD is on, the newest one, the notes in between, and whether it can be applied; `?force=1` skips the six-hour cache; loopback only |
+| `GET /api/changelog` | The changelog as it is written down in this checkout, as text for the browser to render. Read from disk on every ask, since it changes exactly when the panel updates itself. 404 for a copy that has none |
+| `GET /api/reach` | The address a phone should point at — looked up now rather than at startup, because a laptop moves between networks — with the key on it. Empty when the panel is on loopback only |
+| `GET /api/qr` | The same address as an SVG code to point a camera at. 404 when there is nothing to point at |
 | `POST /api/update` | `{"tag": "v1.4.0"}` — check that release out, rebuild the frontend and restart the panel on it. The tag is checked against what the server reads for itself rather than trusted; loopback only |
 | `GET /api/git` | `?sessionId=…` — that session's repository: branch, upstream drift, changed files, recent commits with their parents, and the branches it could switch to |
 | `GET /api/git/diff` | `?sessionId=…&path=…&staged=1` — one changed file's unified diff, one side at a time |
