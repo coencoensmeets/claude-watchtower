@@ -27,7 +27,7 @@ from urllib.parse import parse_qs, urlparse
 from watchtower import config
 from watchtower.catalog import read_catalog
 from watchtower.config import HOME, STATIC_DIR
-from watchtower.control import new_session, open_editor, pick_folder, start_session
+from watchtower.control import new_session, open_editor, pick_folder, show_folder, start_session
 from watchtower.git.actions import git_action
 from watchtower.git.message import suggest_message
 from watchtower.git.read import read_diff, read_git
@@ -1098,8 +1098,14 @@ class Handler(BaseHTTPRequestHandler):
         if spot is None:
             self._json({"ok": False, "message": refused}, 403)
             return
+        # A file goes to the editor, at the line the message quoted. A folder
+        # goes to the desktop's own file manager: a path in a conversation is as
+        # often a place things are kept as a place code is written, and an
+        # editor pointed at a build directory is not what was wanted.
         line = payload.get("line")
-        ok, message = open_editor(str(spot), int(line) if isinstance(line, (int, float)) else None)
+        ok, message = (show_folder(str(spot)) if spot.is_dir()
+                       else open_editor(str(spot),
+                                        int(line) if isinstance(line, (int, float)) else None))
         self._json({"ok": ok, "message": message}, 200 if ok else 409)
 
     @route("POST", "/api/new")

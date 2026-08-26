@@ -76,7 +76,7 @@ function mark(all, before, path, where) {
   const said = `${text}${where || ""}`;
   return `${before}<span class="path-link" role="link" tabindex="0"`
     + ` data-path="${text}"${line ? ` data-line="${line}"` : ""}`
-    + ` title="Open ${said} in the editor">${said}</span>${trail ? trail[0] : ""}`;
+    + ` title="Open ${said}">${said}</span>${trail ? trail[0] : ""}`;
 }
 
 /* Run `fn` over the text of a fragment of HTML and nothing else — not over the

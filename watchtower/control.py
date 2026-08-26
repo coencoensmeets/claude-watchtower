@@ -177,6 +177,10 @@ def open_editor(target: str, line: int | None = None) -> tuple[bool, str]:
     Only the folder case is behind the panel's own buttons. The file case is a
     path clicked out of a conversation — see the containment in http.py, which
     is what decides whether a path from a message may be opened at all.
+
+    A folder clicked out of a conversation does not come here at all: see
+    show_folder, which hands it to the desktop instead. This is for a folder the
+    panel offered to open in VS Code by name.
     """
     if not target:
         return False, "That session has no folder"
@@ -210,6 +214,43 @@ def open_editor(target: str, line: int | None = None) -> tuple[bool, str]:
     except OSError as exc:
         return False, f"Could not open the editor: {exc}"
     return True, f"Opening {spot.name or target} in VS Code…"
+
+
+def show_folder(target: str) -> tuple[bool, str]:
+    """Show a folder in whatever this desktop uses to look at folders.
+
+    Not the editor, deliberately. A path written into a conversation is as often
+    somewhere you keep things as somewhere you write code — a build output, a
+    log directory, a downloads folder — and an editor asked to open one of those
+    gives you a sidebar of a thousand artefacts and a trust prompt. The desktop
+    already knows which application looks at folders, and answers with the one
+    you would have picked.
+
+    Files still go to the editor, because for a file the editor is almost always
+    right and it can open at the line the message quoted.
+
+    `xdg-open` is the portable spelling of "the desktop decides". Where there is
+    no such thing — a machine with no desktop session — the editor is a better
+    answer than nothing, and the message says which one you got.
+    """
+    if not target:
+        return False, "There is no folder there"
+    spot = Path(target)
+    if not spot.is_dir():
+        return False, f"That is not a folder: {target}"
+    opener = shutil.which("xdg-open")
+    if not opener:
+        ok, message = open_editor(str(spot))
+        return ok, message if not ok else f"No desktop opener here, so: {message}"
+    try:
+        subprocess.Popen(
+            [opener, str(spot)], cwd=str(spot), stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+            env=top_level_env(),
+        )
+    except OSError as exc:
+        return False, f"Could not open that folder: {exc}"
+    return True, f"Showing {spot.name or target}…"
 
 
 # ------------------------------------------------------------- folder chooser

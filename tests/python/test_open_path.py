@@ -22,6 +22,73 @@ sys.path.insert(0, str(ROOT))
 from watchtower.http import _resolve_under  # noqa: E402
 
 
+class WhatOpensWhat(unittest.TestCase):
+    """A file goes to the editor, a folder to the desktop.
+
+    The command line is asserted rather than run: these would otherwise open
+    windows on whoever's machine is running the tests.
+    """
+
+    def setUp(self) -> None:
+        import watchtower.control as control
+        self.control = control
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name) / "build"
+        self.dir.mkdir()
+        self.file = self.dir / "main.ts"
+        self.file.write_text("x")
+        self.ran: list[list[str]] = []
+
+        def popen(argv, **kwargs):
+            self.ran.append(list(argv))
+            return None
+
+        self._popen_was = control.subprocess.Popen
+        control.subprocess.Popen = popen
+        self._which_was = control.shutil.which
+        control.shutil.which = lambda name: f"/usr/bin/{name}"
+        os.environ.pop("CLAUDE_WATCHTOWER_EDITOR", None)
+        self.addCleanup(setattr, control.subprocess, "Popen", self._popen_was)
+        self.addCleanup(setattr, control.shutil, "which", self._which_was)
+        self.addCleanup(self.tmp.cleanup)
+
+    def test_a_file_goes_to_the_editor_at_its_line(self) -> None:
+        ok, said = self.control.open_editor(str(self.file), 44)
+        self.assertTrue(ok, said)
+        self.assertEqual(self.ran, [["/usr/bin/code", "--goto", f"{self.file}:44"]])
+
+    def test_a_file_with_no_line_still_goes_through_goto(self) -> None:
+        self.control.open_editor(str(self.file))
+        self.assertEqual(self.ran, [["/usr/bin/code", "--goto", str(self.file)]])
+
+    def test_a_folder_the_button_named_goes_to_the_editor_bare(self) -> None:
+        # The header's own button, which says VS Code on it.
+        self.control.open_editor(str(self.dir))
+        self.assertEqual(self.ran, [["/usr/bin/code", str(self.dir)]])
+
+    def test_a_folder_clicked_in_a_message_goes_to_the_desktop(self) -> None:
+        ok, said = self.control.show_folder(str(self.dir))
+        self.assertTrue(ok, said)
+        self.assertEqual(self.ran, [["/usr/bin/xdg-open", str(self.dir)]])
+
+    def test_the_desktop_opener_is_not_offered_a_file(self) -> None:
+        ok, said = self.control.show_folder(str(self.file))
+        self.assertFalse(ok)
+        self.assertEqual(self.ran, [])
+
+    def test_without_a_desktop_opener_a_folder_falls_back_to_the_editor(self) -> None:
+        self.control.shutil.which = lambda name: None if name == "xdg-open" else f"/usr/bin/{name}"
+        ok, said = self.control.show_folder(str(self.dir))
+        self.assertTrue(ok, said)
+        self.assertEqual(self.ran, [["/usr/bin/code", str(self.dir)]])
+        self.assertIn("No desktop opener", said)
+
+    def test_nothing_is_opened_that_is_not_there(self) -> None:
+        self.assertFalse(self.control.open_editor(str(self.dir / "gone.ts"))[0])
+        self.assertFalse(self.control.show_folder(str(self.dir / "gone"))[0])
+        self.assertEqual(self.ran, [])
+
+
 class ResolveUnder(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
