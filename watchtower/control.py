@@ -159,39 +159,57 @@ def new_session(cwd: str) -> tuple[bool, str]:
 EDITORS = ("code", "code-insiders", "codium", "vscodium")
 
 
-def open_editor(cwd: str) -> tuple[bool, str]:
-    """Show a session's folder in VS Code.
+def open_editor(target: str, line: int | None = None) -> tuple[bool, str]:
+    """Show a folder — or a file, at a line — in VS Code.
 
-    No flags: that is what makes an editor already running the one that answers.
-    The `code` command talks to a running instance over its own socket rather
-    than starting a second one, and that instance raises the window already
-    holding this folder if there is one, or opens a new window if there is not.
-    `--new-window` would forfeit the first half of that, `--reuse-window` the
-    second — it would take over whichever window you last looked at.
+    No flags for a folder: that is what makes an editor already running the one
+    that answers. The `code` command talks to a running instance over its own
+    socket rather than starting a second one, and that instance raises the
+    window already holding this folder if there is one, or opens a new window if
+    there is not. `--new-window` would forfeit the first half of that,
+    `--reuse-window` the second — it would take over whichever window you last
+    looked at.
+
+    A file goes through `--goto`, which is how the same command is told where in
+    a file to land. Without a line it still beats plain `code file`: `--goto`
+    opens the file in the window that already holds its folder.
+
+    Only the folder case is behind the panel's own buttons. The file case is a
+    path clicked out of a conversation — see the containment in http.py, which
+    is what decides whether a path from a message may be opened at all.
     """
-    if not cwd or not Path(cwd).is_dir():
-        return False, f"That folder is gone: {cwd}" if cwd else "That session has no folder"
+    if not target:
+        return False, "That session has no folder"
+    spot = Path(target)
+    if not spot.exists():
+        return False, f"That is not here any more: {target}"
     override = os.environ.get("CLAUDE_WATCHTOWER_EDITOR")
+    # Where the editor is started from: a file's own folder, so an editor that
+    # takes a working directory lands somewhere sensible either way.
+    home = str(spot if spot.is_dir() else spot.parent)
     if override:
         parts = override.split()
         if not parts or not shutil.which(parts[0]):
             return False, f"CLAUDE_WATCHTOWER_EDITOR names something not on PATH: {override}"
-        argv = parts + [cwd]
+        # An override is somebody else's editor and nobody else's flags: it gets
+        # the path and nothing more, since --goto is VS Code's spelling alone.
+        argv = parts + [str(spot)]
     else:
         found = next((shutil.which(name) for name in EDITORS if shutil.which(name)), None)
         if not found:
             return False, ("Cannot find the code command on PATH — install VS Code's shell "
                            "command, or set CLAUDE_WATCHTOWER_EDITOR")
-        argv = [found, cwd]
+        argv = [found] if spot.is_dir() else [found, "--goto"]
+        argv.append(f"{spot}:{line}" if line and not spot.is_dir() else str(spot))
     try:
         subprocess.Popen(
-            argv, cwd=cwd, stdin=subprocess.DEVNULL,
+            argv, cwd=home, stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
             env=top_level_env(),
         )
     except OSError as exc:
         return False, f"Could not open the editor: {exc}"
-    return True, "Opening it in VS Code…"
+    return True, f"Opening {spot.name or target} in VS Code…"
 
 
 # ------------------------------------------------------------- folder chooser

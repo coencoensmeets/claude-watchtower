@@ -1,4 +1,99 @@
+import { app } from "../state.js";
 import { escapeHtml } from "./format.js";
+
+/* ------------------------------------------------------------------- paths
+   A path written into the conversation is a place on this machine, and the
+   thing you want from it is almost always to go and look. So the ones the
+   panel is confident about become targets: click one and it opens in the
+   editor, the same way the header's button opens the session's folder.
+
+   Confident is the operative word — this runs over every line of every
+   message, and a false positive turns ordinary prose into a live control. So
+   a match must look like nothing else:
+
+     rooted    /tmp/x, ~/.motorcortex/build/…, ./web/src, ../other
+     relative  only with a file extension on the end — web/src/main.ts
+
+   which leaves "and/or", "I/O", "km/h", "24/7" and "1/2" alone, all of which
+   appear in conversation far more often than a bare relative directory does.
+   A trailing :12 or :12:5 comes along as the line to open at, because that is
+   how every tool on this machine writes a place in a file.
+
+   Matched against already-escaped text, so a URL cannot be mistaken for a
+   path: `https://x/a/b.md` has a colon before the slashes, and a colon is not
+   one of the characters a match may begin after. */
+/* A segment is made of word characters and the punctuation a real path uses —
+   dot, dash, at, plus, tilde — and none of the comma, semicolon or bracket a
+   sentence would put against one. */
+const PATH_RE =
+  /(^|[\s(\[{])((?:~|\.{1,2})?\/[A-Za-z0-9._@+~-][A-Za-z0-9._@+~/-]*|[A-Za-z0-9._@+~-]+(?:\/[A-Za-z0-9._@+~-]+)*\/[A-Za-z0-9._@+~-]*\.[A-Za-z][A-Za-z0-9]{0,7})(:\d+(?::\d+)?)?/g;
+/* Prose punctuation that has attached itself to the end of a path. The full
+   stop is the awkward one — it is also how an extension starts — but a path
+   never ends in one, so whatever trails comes off and stays outside the link. */
+const TRAILING = /[.,;:!?)\]}]+$/;
+
+/* A bare file name — no slash at all — is a path too, and `main.ts` is how a
+   file usually gets mentioned. It is only allowed inside code marks, where
+   writing it was a deliberate act, and only with a suffix off this list: in a
+   code span `Array.from`, `app.settings` and `obj.method` all look exactly like
+   a file with a four-letter extension, and the list is what tells them apart.
+   Prose keeps the stricter rule — it must have a slash in it — because half the
+   full stops in a sentence would otherwise be reaching for the disk. */
+const SUFFIX = new Set([
+  "ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "rb", "go", "rs", "c", "h", "cc",
+  "cpp", "hpp", "java", "kt", "swift", "cs", "php", "lua", "sh", "bash", "zsh",
+  "sql", "md", "rst", "txt", "log", "json", "yaml", "yml", "toml", "ini", "cfg",
+  "conf", "env", "xml", "html", "css", "scss", "svg", "png", "jpg", "jpeg",
+  "gif", "webp", "pdf", "csv", "grid", "link", "projpack", "service",
+]);
+const BARE_RE = /(^|[\s(\[{])([A-Za-z0-9._@+~-]*[A-Za-z0-9_~-]\.([A-Za-z][A-Za-z0-9]{0,7}))(:\d+(?::\d+)?)?/g;
+
+/** Turn every path in a run of escaped text into something that can be opened.
+
+    `bare` allows a file name with no slash in it, which only code marks get. */
+export function linkPaths(escaped, bare = false) {
+  // Off with the editor button: someone who does not open their sessions in an
+  // editor is not helped by half of every message becoming a link to one.
+  if (!app.settings.showEditor) return String(escaped);
+  // Bare names first, and it has to be that way round: a name with no slash in
+  // it cannot appear inside a path that has one — the character before it would
+  // be the slash, and a match may only begin after a space or an open bracket —
+  // whereas running the slashed pattern first would leave `main.ts` sitting in
+  // the attributes of its own link for the second pass to find again.
+  const named = bare
+    ? String(escaped).replace(BARE_RE, (all, before, name, suffix, where) =>
+        (SUFFIX.has(suffix.toLowerCase()) ? mark(all, before, name, where) : all))
+    : String(escaped);
+  return named.replace(PATH_RE, mark);
+}
+
+function mark(all, before, path, where) {
+  const trail = path.match(TRAILING);
+  const text = trail ? path.slice(0, -trail[0].length) : path;
+  // A bare "/", "./" or "..." is punctuation, not a place.
+  if (!/[A-Za-z0-9]/.test(text)) return all;
+  const line = where ? where.slice(1).split(":")[0] : "";
+  const said = `${text}${where || ""}`;
+  return `${before}<span class="path-link" role="link" tabindex="0"`
+    + ` data-path="${text}"${line ? ` data-line="${line}"` : ""}`
+    + ` title="Open ${said} in the editor">${said}</span>${trail ? trail[0] : ""}`;
+}
+
+/* Run `fn` over the text of a fragment of HTML and nothing else — not over the
+   tags, and not over the text inside an <a>, which is already somewhere to go.
+   The splitter keeps the tags as odd-numbered pieces, so what is left is
+   exactly the text. */
+function outsideLinks(html, fn) {
+  let depth = 0;
+  return html.split(/(<[^>]*>)/).map((piece, i) => {
+    if (i % 2) {
+      if (/^<a[\s>]/i.test(piece)) depth++;
+      else if (/^<\/a>/i.test(piece)) depth = Math.max(0, depth - 1);
+      return piece;
+    }
+    return depth ? piece : fn(piece);
+  }).join("");
+}
 
 /* ------------------------------------------------------------------ markdown */
 /* A transcript is Markdown, and reading it raw — literal ###, **, and fences —
@@ -34,7 +129,11 @@ export function renderMarkdown(text) {
 
   const inline = (raw) => {
     // Inline code goes the same way, so emphasis cannot reach inside it.
-    let s = String(raw).replace(/`([^`\n]+)`/g, (all, code) => keep(`<code class="md-mono">${escapeHtml(code)}</code>`));
+    // A path in an answer is usually written in code marks, so the span is
+    // opened as readily as bare prose is — the marks say "this is a name on a
+    // machine", which is exactly the case this is for.
+    let s = String(raw).replace(/`([^`\n]+)`/g, (all, code) =>
+      keep(`<code class="md-mono">${linkPaths(escapeHtml(code), true)}</code>`));
     s = escapeHtml(s);
     // An image becomes a link to it: the panel never loads a remote file.
     s = s.replace(/!\[([^\]\n]*)\]\(([^)\s]+)\)/g, (all, alt, url) => `[${alt || "image"}](${url})`);
@@ -55,6 +154,9 @@ export function renderMarkdown(text) {
     s = s.replace(/(^|[^*\w])\*(\S(?:[^*\n]*\S)?)\*/g, "$1<em>$2</em>");
     s = s.replace(/(^|[^_\w])_(\S(?:[^_\n]*\S)?)_(?!\w)/g, "$1<em>$2</em>");
     s = s.replace(/~~([^~]+)~~/g, "<del>$1</del>");
+    // Last, and only between the tags everything above has added: a path may
+    // not be found inside an href, and the text of a link is already a link.
+    s = outsideLinks(s, linkPaths);
     return s.replace(/\n/g, "<br>");
   };
 

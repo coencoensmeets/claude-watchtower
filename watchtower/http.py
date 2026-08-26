@@ -1,10 +1,17 @@
 """The web layer: what the browser may ask for, and what it gets back.
 
-Two rules hold across every route here. A request never names a path on this
-machine — the panel acts on what it already discovered for the session it was
-asked about, so no request can point git, an editor or a paste at a folder the
+Two rules hold across every route here. A request acts on what the panel
+already discovered for the session it names, rather than on a path it was
+handed — so no request can point git, a paste or a new session at a folder the
 panel is not showing. And anything that acts is behind config.SAY_ENABLED,
 which is false unless the panel is bound to loopback and sending is switched on.
+
+There is exactly one exception to the first rule, and it is written down here
+because an exception nobody wrote down is a hole. /api/editor takes a path: it
+is how a path clicked out of a conversation is opened, which is the whole point
+of the paths in a conversation being clickable. It is fenced in three ways —
+loopback only, like everything that acts; the path must already exist; and it
+must be inside your home folder or the session's own. See _resolve_under.
 """
 
 from __future__ import annotations
@@ -107,6 +114,45 @@ NO_KEY_PAGE = """<!doctype html>
 </div></body></html>
 """.encode()
 
+
+
+def _resolve_under(raw: str, cwd: str, repo_root: str) -> tuple[Path | None, str]:
+    """A path from a message, made absolute and judged — or None and why not.
+
+    The two refusals are worth telling apart on screen. "It is not there" is
+    about the path, and usually means the message is older than the file; "it is
+    outside" is about the panel, and means it will not go looking there however
+    real the path is.
+
+    Judged against three roots — your home folder, the session's working folder
+    and its repository — because those are what a path written in this session's
+    transcript can be about. Everything else on the machine is somebody else's
+    business, and a panel that opens any path a message contains is a panel that
+    opens whatever a message can be made to contain.
+
+    Resolved first, and by the filesystem: `..` cannot climb out of the roots
+    afterwards, and neither can a symlink that points out of them.
+    """
+    if not raw or "\x00" in raw or len(raw) > 4096:
+        return None, "That is not a path this panel will open"
+    spot = Path(raw).expanduser()
+    if not spot.is_absolute():
+        if not cwd:
+            return None, "That session has no folder to read that path against"
+        spot = Path(cwd) / spot
+    try:
+        spot = spot.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return None, f"Nothing is there now: {raw}"
+    roots = [Path(HOME)] + [Path(p) for p in (cwd, repo_root) if p]
+    for root in roots:
+        try:
+            if spot == root.resolve() or root.resolve() in spot.parents:
+                return spot, ""
+        except (OSError, RuntimeError):
+            continue
+    return None, ("That path is outside your home folder and this session's, "
+                  "so the panel will not open it")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1029,16 +1075,31 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": False, "message": "Opening an editor is off because the panel "
                                                 "is not bound to loopback"}, 403)
             return
-        # The folder is the session's own, as everywhere else here: the request
-        # names a session and nothing more, so it cannot point the editor at a
-        # folder the panel is not already showing.
         session = self._session_by_id(session_id)
         entry = kept_rows().get(session_id) or {}
         cwd = (session or {}).get("cwd") or entry.get("cwd") or ""
         if not session and not entry:
             self._json({"ok": False, "message": "That session is no longer around"}, 404)
             return
-        ok, message = open_editor(cwd)
+        # Without a path this is the header's button, and the folder is the
+        # session's own — the request names a session and nothing more.
+        raw = str(payload.get("path") or "").strip()
+        if not raw:
+            ok, message = open_editor(cwd)
+            self._json({"ok": ok, "message": message}, 200 if ok else 409)
+            return
+        # With one it is a path clicked out of the conversation, which is the one
+        # place the panel takes a path from the browser at all. What keeps that
+        # from being "open anything on this machine": it must already exist, and
+        # it must be inside your home folder or inside this session's own — the
+        # two places a path in this session's transcript can honestly be about.
+        # Resolved before it is judged, so neither .. nor a symlink walks out.
+        spot, refused = _resolve_under(raw, cwd, (session or {}).get("repoRoot") or "")
+        if spot is None:
+            self._json({"ok": False, "message": refused}, 403)
+            return
+        line = payload.get("line")
+        ok, message = open_editor(str(spot), int(line) if isinstance(line, (int, float)) else None)
         self._json({"ok": ok, "message": message}, 200 if ok else 409)
 
     @route("POST", "/api/new")

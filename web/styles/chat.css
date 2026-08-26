@@ -148,3 +148,32 @@
   .tool-line__name { flex: 0 1 auto; overflow-wrap: break-word; font-weight: 700; }
   .tool-line__detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; opacity: 0.85; }
 
+  /* ------------------------------- paths in the chat ----------------------- */
+  /* A path in a message opens in the editor. Underlined the way a link is, but
+     dotted rather than solid and in the text's own colour: there are a dozen of
+     these in a working conversation, and a dozen blue links through a paragraph
+     would be reading it through a hedge. The colour arrives on hover, which is
+     also when the pointer says it can be pressed.
+
+     Wrapping is allowed anywhere: a build path is longer than a phone is wide,
+     and the alternative to breaking it mid-segment is a line that scrolls. */
+  .path-link {
+    cursor: pointer; border-radius: 3px;
+    text-decoration: underline dotted;
+    text-underline-offset: 2px;
+    text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+    overflow-wrap: anywhere;
+  }
+  .path-link:hover, .path-link:focus-visible {
+    color: var(--md-sys-color-primary);
+    text-decoration: underline solid;
+    outline: none;
+  }
+  .path-link:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: 2px; }
+  /* Inside a code span the text is already set apart, so the dots would be a
+     second mark saying the same thing. The tint on hover carries it alone. */
+  code .path-link { text-decoration: none; }
+  code .path-link:hover, code .path-link:focus-visible {
+    background: color-mix(in srgb, var(--md-sys-color-primary) 14%, transparent);
+  }
+

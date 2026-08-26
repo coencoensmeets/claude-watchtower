@@ -66,6 +66,17 @@ const { changeBlock, changePanel, diffBody, diffRows, sideBySide, full, busy, sh
            full: changeFull, busy: changeBusy,
            show: (id, t) => { chat.changeShown = id; chat.transcript = t; } };`)();
 
+/* The same lift, for the constants a lifted function closes over — the
+   patterns it matches with are the half of it worth checking. Cut at a
+   semicolon that ends a line, since a character class may hold one of its own. */
+function liftConst(name) {
+  const start = page.indexOf(`const ${name} =`);
+  if (start < 0) throw new Error(`${name} is not in the page any more`);
+  const end = page.slice(start).search(/;[ \t]*(\n|$)/);
+  if (end < 0) throw new Error(`${name} does not end`);
+  return unexport(page.slice(start, start + end + 1));
+}
+
 let failures = 0;
 function check(what, ok, note = "") {
   console.log(`${ok ? "  ok  " : "FAIL  "}${what}${note ? `  — ${note}` : ""}`);
@@ -177,6 +188,76 @@ check("what a patch contains is escaped, not run",
 check("a change whose preview is the whole of it promises no more lines",
   !/more line/.test(changeBlock({ name: "Edit", detail: "x", change: {
     ...change, id: "toolu_03", lines: change.preview.length } })));
+
+/* ============================ paths in a message ==========================
+   A path written into the conversation opens in the editor, so the renderer has
+   to find the paths and — much harder — leave everything that is not one alone.
+   Every line below is a thing that turned up in a real transcript. */
+const { linkPaths, renderMarkdown, editor } = new Function(`
+  const escapeHtml = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  const app = { settings: { showEditor: true } };
+  ${liftConst("MD_HOLD")}
+  ${liftConst("PATH_RE")}
+  ${liftConst("TRAILING")}
+  ${liftConst("SUFFIX")}
+  ${liftConst("BARE_RE")}
+  ${lift("safeUrl")}
+  ${lift("linkPaths")}
+  ${lift("mark")}
+  ${lift("outsideLinks")}
+  ${lift("renderMarkdown")}
+  return { linkPaths, renderMarkdown, editor: app.settings };`)();
+
+const linked = (text) => [...renderMarkdown(text).matchAll(/data-path="([^"]+)"(?: data-line="(\d+)")?/g)]
+  .map((m) => m[1] + (m[2] ? `:${m[2]}` : ""));
+
+check("a path in prose becomes something to open",
+  linked("built into ~/.motorcortex/build/20260826T084947Z/intel-2026.05/ · tool commit cb7f775")
+    .join() === "~/.motorcortex/build/20260826T084947Z/intel-2026.05/",
+  JSON.stringify(linked("built into ~/.motorcortex/build/20260826T084947Z/intel-2026.05/ · tool commit cb7f775")));
+check("so does one in code marks, which is where they usually are",
+  linked("see `web/src/main.ts` for it").join() === "web/src/main.ts");
+check("a line number comes with it", linked("`web/src/main.ts:1560`").join() === "web/src/main.ts:1560");
+check("an absolute path, a relative one and a home one all count",
+  linked("/tmp/out.log, ./web/styles/base.css and ~/notes").join() === "/tmp/out.log,./web/styles/base.css,~/notes",
+  JSON.stringify(linked("/tmp/out.log, ./web/styles/base.css and ~/notes")));
+check("the full stop that ends the sentence is not part of the path",
+  linked("it went to /tmp/out.log.").join() === "/tmp/out.log");
+check("nor is the bracket it was written inside",
+  linked("(see docs/cleanup-plan.md) for why").join() === "docs/cleanup-plan.md");
+
+/* A file name with no folder on it is a path too, but only where writing it was
+   deliberate: inside code marks, and only with a suffix the panel knows. */
+check("a bare file name in code marks counts", linked("look at `server.py:44`").join() === "server.py:44");
+check("but not the same name in prose — half the full stops in a sentence would light up",
+  linked("look at server.py for it").length === 0);
+check("and not a method call, which looks exactly like a file with a short extension",
+  linked("use `Array.from` and `app.settings.showEditor`").length === 0,
+  JSON.stringify(linked("use `Array.from` and `app.settings.showEditor`")));
+check("a name inside a path is not found twice",
+  linked("`web/src/main.ts`").join() === "web/src/main.ts");
+
+/* The other half, and the half that matters: what must never light up. */
+for (const [text, why] of [
+  ["either and/or both", "and/or"],
+  ["the I/O is slow", "I/O"],
+  ["at 30 km/h", "a unit"],
+  ["open 24/7 here", "a phrase with numbers"],
+  ["about 1/2 of them", "a fraction"],
+  ["see https://example.com/a/b.md now", "a URL"],
+  ["read [the docs](https://x.dev/a/b.md) first", "a URL inside a link"],
+  ["a `/* comment */` in C", "a comment marker"],
+]) {
+  check(`${why} is left alone`, linked(text).length === 0, JSON.stringify(linked(text)));
+}
+
+check("a path inside a fenced block is left as text — a whole file of them would be a wall of links",
+  linked("```\n/tmp/one.log\n```") .length === 0);
+
+editor.showEditor = false;
+check("and nothing is a link at all with the editor switched off in Settings",
+  linked("see /tmp/out.log").length === 0);
+editor.showEditor = true;
 
 /* And one check that is about the stylesheet rather than the markup, because the
    bug it guards is invisible to everything above: a folded preview sitting in

@@ -2547,6 +2547,38 @@ backButton.addEventListener("click", () => { panes.dataset.view = "list"; });
 pickGroup.addEventListener("click", () => groupPicked());
 pickClear.addEventListener("click", () => clearPicked());
 
+/* --------------------------------------------------------- paths in the chat
+   A path written into the conversation is a place on this machine, and the
+   panel is already the thing that can open a place on this machine. Clicking
+   one hands it to the editor — a file at the line it was quoted at, a folder
+   as a folder.
+
+   Delegated from the document rather than wired per element: the transcript is
+   rebuilt whenever a poll lands, and there are a hundred of these in a long
+   conversation. Which path was pressed is on the element.
+
+   A press that ends a text selection is not a click on the thing it ended on —
+   dragging across a line to quote it must not also open half of it. */
+function openPath(link: HTMLElement) {
+  if (String(window.getSelection?.() ?? "")) return;
+  const session = selected();
+  if (!session) return;
+  run("/api/editor", session, link as HTMLButtonElement, null,
+      { path: link.dataset.path, line: link.dataset.line ? Number(link.dataset.line) : null });
+}
+document.addEventListener("click", (event) => {
+  const link = hitClosest(event, ".path-link");
+  if (link) openPath(link);
+});
+/* It says it is a link, so it answers to the keys a link answers to. */
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  const link = hitElement(event)?.closest<HTMLElement>(".path-link");
+  if (!link) return;
+  event.preventDefault();
+  openPath(link);
+});
+
 /* ----------------------------------------------------------- interactions */
 document.addEventListener("pointerdown", (event) => {
   const target = hitClosest<HTMLButtonElement>(event, ".md-state");

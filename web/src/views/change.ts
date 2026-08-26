@@ -5,7 +5,7 @@ import { CHAT_LIMIT_MAX, CHAT_PAGE, chat } from "../state.js";
 import { detailPane } from "../ui/dom.js";
 import { clockOf, escapeHtml } from "../ui/format.js";
 import { ICON } from "../ui/icons.js";
-import { renderMarkdown } from "../ui/markdown.js";
+import { linkPaths, renderMarkdown } from "../ui/markdown.js";
 import { showSnackbar } from "../ui/snackbar.js";
 import { diffBody, sideBySide } from "./git.js";
 import { messageKey } from "./owned.js";
@@ -173,7 +173,7 @@ export function chatPanel(session) {
     : [];
   const toolLines = (tools) => (tools || []).map((tool) => `<span class="tool-line md-mono md-body-small">
       <span class="tool-line__name">${escapeHtml(tool.name)}</span>
-      <span class="tool-line__detail">${escapeHtml(tool.detail || "")}</span></span>${changeBlock(tool)}`).join("");
+      <span class="tool-line__detail">${linkPaths(escapeHtml(tool.detail || ""))}</span></span>${changeBlock(tool)}`).join("");
 
   for (const message of chat.transcript.messages) {
     // Tool-only turns are activity, not speech — keep them out of bubbles so the
