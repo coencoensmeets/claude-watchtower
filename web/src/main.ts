@@ -1498,6 +1498,9 @@ function renderDetail(force = false) {
     (() => { const o = ownedFor(session);
       return [o.mode ?? "", o.here ?? "", o.running ?? "", o.busy ?? "",
               o.ask?.requestId ?? "", o.stopping ?? "", (o.queued || []).length,
+              // Held or not is the difference between "waiting" and "waiting on
+              // you", and the strip says something else entirely for each.
+              o.queueHeld ?? "",
               // A compaction starting, ending, and what it managed. Not the
               // running percentage — that walks forward on the clock without a
               // repaint; see the ticker at the foot of the file.
@@ -1738,10 +1741,17 @@ function renderDetail(force = false) {
   // Taking back something typed ahead. By index rather than by text, because two
   // identical messages in the queue are two messages, and dropping "the one that
   // says this" would drop the wrong one.
+  // No index at all is the whole queue, which is what the *Drop them* on a held
+  // strip means. Written out rather than left to Number(undefined): that is NaN,
+  // which JSON turns into null, which the server reads as "all of it" — right by
+  // accident is not the same as right.
   for (const drop of detailPane.querySelectorAll<HTMLElement>("[data-act='unqueue']")) {
     drop.addEventListener("click", (e) => run("/api/owned/unqueue", session, control(e),
-      null, { index: Number(drop.dataset.index) }));
+      null, { index: drop.dataset.index === undefined ? null : Number(drop.dataset.index) }));
   }
+  // And letting a held queue go after all.
+  detailPane.querySelector("[data-act='resume']")?.addEventListener("click", (e) =>
+    run("/api/owned/resume", session, control(e)));
   // Answering the prompt a panel turn is standing on.
   const standing = ownedFor(session).ask;
   if (standing) {

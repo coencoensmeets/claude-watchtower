@@ -37,7 +37,7 @@ from watchtower.input import (
 from watchtower.owned import (
     OWNED_BUSY, OWNED_COMPACT, OWNED_MODES, OWNED_QUEUE, _OWNED_LOCK, answer_from_panel,
     load_owned, owned_hold, owned_interrupt, owned_new, owned_queued, owned_release,
-    owned_running, owned_say, owned_set_mode, owned_unqueue, save_owned,
+    owned_resume, owned_running, owned_say, owned_set_mode, owned_unqueue, save_owned,
 )
 from watchtower.paste import (DROP_MAX_BYTES, PASTE_MAX_BYTES, POST_MAX_BYTES,
                               save_dropped_file, save_pasted_image)
@@ -941,6 +941,17 @@ class Handler(BaseHTTPRequestHandler):
         raw = payload.get("index")
         index = int(raw) if isinstance(raw, (int, float)) and not isinstance(raw, bool) else None
         ok, message = owned_unqueue(session_id, index)
+        self._json({"ok": ok, "message": message, "queued": owned_queued(session_id)},
+                   200 if ok else 409)
+
+    @route("POST", "/api/owned/resume")
+    def _post_owned_resume(self, payload: dict, session_id: str) -> None:
+        # Letting go of a queue that a stop held back. Same gate as sending,
+        # because that is what it is: the messages go down the pipe.
+        if not config.SAY_ENABLED:
+            self._json({"ok": False, "message": OFF_HERE}, 403)
+            return
+        ok, message = owned_resume(session_id)
         self._json({"ok": ok, "message": message, "queued": owned_queued(session_id)},
                    200 if ok else 409)
 

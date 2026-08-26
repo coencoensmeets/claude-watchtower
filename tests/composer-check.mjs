@@ -277,6 +277,24 @@ setFeed({ one: { queued: ["<b>hi</b>"] } });
 check("what is queued is escaped where it is drawn",
   queuedStrip({ sessionId: "one" }).includes("&lt;b&gt;hi&lt;/b&gt;"));
 
+/* Held: what the queue becomes when you stop the turn it was waiting for. It is
+   the same messages, and it is a different thing — waiting for you rather than
+   for a turn — so the strip stops reporting and starts asking. */
+setFeed({ kept: { mode: "plan", here: true, running: true, busy: false,
+                  queued: ["and then the tests", "and push it"], queueHeld: true } });
+const held = queuedStrip({ sessionId: "kept" });
+check("a held queue still draws everything that was typed",
+  (held.match(/queued__item/g) || []).length === 2);
+check("and says why it is sitting there", /You stopped the turn/.test(held),
+  (held.match(/queued__head md-label-small">([^<]*)/) || [])[1] || "");
+check("with a way to send it", /data-act="resume"/.test(held));
+check("and a way to drop the lot — no index, which is the whole queue",
+  /data-act="unqueue"\s*>/.test(held.replace(/\n\s*/g, " ")), held.slice(-400));
+check("and says what typing something else would do, since that is the third way out",
+  /goes in last/.test(held));
+check("a queue nobody stopped is not asking anything",
+  !/data-act="resume"/.test(composer({ sessionId: "one", status: "busy" })));
+
 /* Stopping the train of thought. Only a session the panel holds has a channel
    for it — the interrupt goes down the pipe the panel owns — so that is the only
    one whose button does anything. */

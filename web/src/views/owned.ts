@@ -378,8 +378,14 @@ const wayIn = (session) => !runsHere(session) && app.feed.canSend
    you typed it may well answer it, and then the thing you least want is for it
    to be asked again as though nothing had happened. */
 function queuedStrip(session) {
-  const waiting = ownedFor(session).queued || [];
+  const owned = ownedFor(session);
+  const waiting = owned.queued || [];
   if (!waiting.length) return "";
+  // Stopping the turn in front of the queue holds the queue rather than
+  // emptying it — see owned_interrupt. That is a different thing from waiting,
+  // and it has to read as one: what is waiting goes on its own, and what is
+  // held is waiting on you.
+  const held = !!owned.queueHeld;
   const rows = waiting.map((text, i) => `<li class="queued__item">
       <span class="queued__place md-label-small md-mono">${i + 1}</span>
       <span class="queued__text md-body-small" title="${escapeHtml(text)}">${escapeHtml(text)}</span>
@@ -387,11 +393,22 @@ function queuedStrip(session) {
         data-act="unqueue" data-index="${i}"
         title="Take this back before the session gets to it">Drop</button>
     </li>`).join("");
-  return `<div class="queued">
-      <p class="queued__head md-label-small">${waiting.length === 1
-        ? "1 message waiting for this turn to end"
-        : `${waiting.length} messages waiting, in the order you typed them`}</p>
+  return `<div class="queued" data-held="${held ? 1 : 0}">
+      <p class="queued__head md-label-small">${held
+        ? (waiting.length === 1
+            ? "You stopped the turn this was waiting for. It is still here."
+            : `You stopped the turn these ${waiting.length} were waiting for. They are still here.`)
+        : waiting.length === 1
+          ? "1 message waiting for this turn to end"
+          : `${waiting.length} messages waiting, in the order you typed them`}</p>
       <ul class="queued__list">${rows}</ul>
+      ${held ? `<div class="queued__ask">
+        <button class="button button--filled md-state queued__go" type="button" data-act="resume">
+          ${ICON.play}${waiting.length === 1 ? "Send it" : "Send them"}</button>
+        <button class="button button--text md-state" type="button" data-act="unqueue">
+          ${waiting.length === 1 ? "Drop it" : "Drop them"}</button>
+        <span class="queued__note md-label-small">or type something — what you send goes in last</span>
+      </div>` : ""}
     </div>`;
 }
 

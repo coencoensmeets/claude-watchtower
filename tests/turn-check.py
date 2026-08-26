@@ -212,14 +212,51 @@ check("a working session of ours can be stopped", ok, said)
 frames = [f for f in written(proc) if f.get("type") == "control_request"]
 check("by one interrupt on the control channel",
       len(frames) == 1 and frames[0]["request"]["subtype"] == "interrupt", str(frames))
-check("nothing typed ahead survives the thing it was typed behind",
-      S.owned_queued("h") == [], str(S.owned_queued("h")))
-check("and it says so rather than dropping it silently", "dropped" in said, said)
+check("what was typed ahead survives the thing it was typed behind",
+      S.owned_queued("h") == ["and then this"], str(S.owned_queued("h")))
+check("and it says it is holding it rather than sending or dropping it",
+      "held, not sent" in said, said)
 check("a session that is not working has nothing to stop",
       S.owned_interrupt("i")[0] is False)
 with S._OWNED_LOCK:
     S.OWNED_BUSY.pop("h")
 check("nor has one of ours that is between turns", S.owned_interrupt("h")[0] is False)
+
+# The held queue, and the three ways out of it. The turn it was waiting for has
+# now ended — that is the state above — so anything that goes in from here is
+# something the panel decided to send on its own, which is the failure this
+# whole arrangement exists to prevent.
+S.owned_flush("h")
+check("the end of the stopped turn does not release it",
+      [f for f in written(proc) if f.get("type") == "user"] == [], "something went in")
+check("the panel says it is held, so the strip can ask what to do with it",
+      S.owned_state()["h"]["queueHeld"] is True)
+ok, said = S.owned_resume("h")
+check("sending it is a deliberate act, and then it goes", ok and said.startswith("Sending"), said)
+sent = [f["message"]["content"][0]["text"] for f in written(proc) if f.get("type") == "user"]
+check("in the order it was written", sent == ["and then this"], str(sent))
+check("and it is an ordinary queue again afterwards",
+      S.owned_state().get("h", {}).get("queueHeld", False) is False)
+
+# Dropping instead, and typing instead — the other two ways out.
+proc = hold("q1")
+S.owned_say("q1", "/tmp", "stale thought", "plan")
+S.owned_interrupt("q1")
+S.owned_unqueue("q1", None)
+check("dropping a held queue takes the hold with it",
+      S.owned_queued("q1") == [] and "q1" not in S.OWNED_HELD)
+
+proc = hold("q2")
+S.owned_say("q2", "/tmp", "stale thought", "plan")
+S.owned_interrupt("q2")
+with S._OWNED_LOCK:
+    S.OWNED_BUSY.pop("q2")
+S.owned_say("q2", "/tmp", "what I actually want", "plan")
+sent = [f["message"]["content"][0]["text"] for f in written(proc) if f.get("type") == "user"]
+check("typing something else releases it too — sending is how you say carry on",
+      sent == ["stale thought"], str(sent))
+check("and what you typed goes in last, which is the order you wrote them in",
+      S.owned_queued("q2") == ["what I actually want"], str(S.owned_queued("q2")))
 
 # The result of a stopped turn: `is_error` with `error_during_execution`, which is
 # the turn doing what it was told rather than going wrong. Read as an error it

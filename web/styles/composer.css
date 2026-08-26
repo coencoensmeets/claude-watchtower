@@ -78,6 +78,23 @@
   .queued__text { flex: 1 1 auto; min-width: 0;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .queued__drop { flex: none; }
+  /* Held by a stop, which is a different thing from waiting for a turn: it is
+     waiting for *you*. Solid border rather than dashed and the panel's own
+     colour behind it, because the strip has stopped reporting and started
+     asking — the dashed outline is for something on its way in by itself. */
+  .queued[data-held="1"] .queued__item {
+    border-style: solid;
+    border-color: color-mix(in srgb, var(--md-sys-color-primary) 40%, transparent);
+    background: var(--md-sys-color-surface-container-high);
+    color: var(--md-sys-color-on-surface);
+  }
+  .queued[data-held="1"] .queued__head { color: var(--md-sys-color-on-surface); }
+  .queued__ask {
+    display: flex; flex-wrap: wrap; align-items: center; gap: var(--md-sys-spacing-2);
+    margin-top: var(--md-sys-spacing-1);
+  }
+  .queued__go svg { width: 18px; height: 18px; }
+  .queued__note { color: var(--md-sys-color-on-surface-variant); }
   /* Pictures pasted into the box, waiting to be named in the message. A row of
      its own above the field, like the queue, since it is about the message being
      written rather than about the session. */

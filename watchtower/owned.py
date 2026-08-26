@@ -100,6 +100,15 @@ OWNED_LAST: dict[str, dict] = {}
 # business: the message was written, it is going in, and being told to come back
 # in four minutes and press Send again is work the panel can do itself.
 OWNED_QUEUE: dict[str, list[str]] = {}
+# sessionId -> when the queue behind it was held back. Stopping a turn used to
+# throw the queue away, on the reasoning that a train of thought you have just
+# stopped should not carry on regardless. Half of that was right: what must not
+# happen is the next message going in a tenth of a second after you pressed
+# Stop. Throwing away what you typed was the wrong half — it is your writing,
+# sometimes several minutes of it, and the panel deleting it is not the panel's
+# call to make. So it is kept and held instead, and the strip that shows it asks
+# what you want done with it.
+OWNED_HELD: dict[str, float] = {}
 # sessionId -> when it was told to stop. A turn ends in a result frame either way,
 # and this is what tells one that was stopped from one that failed: an interrupted
 # turn comes back `is_error` with `error_during_execution`, which read as the turn
@@ -175,6 +184,7 @@ def owned_state() -> dict[str, dict]:
         last = {k: dict(v) for k, v in OWNED_LAST.items()}
         asking = {k: dict(v) for k, v in OWNED_ASK.items()}
         waiting = {k: list(v) for k, v in OWNED_QUEUE.items() if v}
+        held = set(OWNED_HELD)
         stopping = set(OWNED_STOPPING)
         compacting = {k: dict(v) for k, v in OWNED_COMPACT.items()}
         commands = {k: dict(v) for k, v in OWNED_COMMANDS.items()}
@@ -195,6 +205,10 @@ def owned_state() -> dict[str, dict]:
             # it. The panel is loopback-only and shows the conversation itself,
             # so there is nothing here it is not already showing.
             "queued": waiting.get(session_id) or [],
+            # And whether the queue is going anywhere on its own. Held is what a
+            # queue is after you stop the turn in front of it: still there, still
+            # yours, and waiting to be told to go rather than going.
+            "queueHeld": session_id in held and bool(waiting.get(session_id)),
             # Told to stop, and not yet come back saying it has. The button it
             # was pressed on says so for that moment rather than sitting there
             # looking unpressed.
@@ -410,6 +424,7 @@ def owned_unqueue(session_id: str, index: int | None) -> tuple[bool, str]:
             return False, "Nothing is waiting behind this turn"
         if index is None:
             OWNED_QUEUE.pop(session_id, None)
+            OWNED_HELD.pop(session_id, None)
             return True, ("Dropped the message that was waiting" if len(queue) == 1
                           else f"Dropped the {len(queue)} messages that were waiting")
         if not 0 <= index < len(queue):
@@ -417,6 +432,7 @@ def owned_unqueue(session_id: str, index: int | None) -> tuple[bool, str]:
         queue.pop(index)
         if not queue:
             OWNED_QUEUE.pop(session_id, None)
+            OWNED_HELD.pop(session_id, None)
     return True, "Dropped it"
 
 
@@ -435,6 +451,12 @@ def owned_flush(session_id: str) -> None:
     """
     with _OWNED_LOCK:
         if session_id in OWNED_BUSY:
+            return
+        # Held by a stop. The turn that was in front of the queue has ended —
+        # that is what called this — but ending it is what you asked for, and
+        # sending the next message on the strength of it is exactly the thing
+        # the stop was meant to prevent. It goes when you say, see owned_resume.
+        if session_id in OWNED_HELD:
             return
         queue = OWNED_QUEUE.get(session_id) or []
         if not queue:
@@ -463,10 +485,12 @@ def owned_interrupt(session_id: str) -> tuple[bool, str]:
     stopped, the turn ends `error_during_execution`, and the process stays up and
     takes the next turn normally. Nothing is killed and nothing is restarted.
 
-    What is typed ahead goes with it. The queue was written for a train of thought
-    that has just been stopped, and delivering it a tenth of a second later — into
-    a session that is now waiting for you to say what you actually want — is the
-    opposite of what stopping meant.
+    What is typed ahead is kept, and held. Delivering it a tenth of a second
+    later — into a session that is now waiting for you to say what you actually
+    want — is the opposite of what stopping meant, so it does not go in on its
+    own. But it is not thrown away either: it is minutes of your writing, and it
+    is still there in the strip with *Send them* and *Drop them* beside it. Which
+    of those you want is not something the panel can work out for you.
     """
     with _OWNED_LOCK:
         held = OWNED_PROCS.get(session_id)
@@ -481,12 +505,37 @@ def owned_interrupt(session_id: str) -> tuple[bool, str]:
         return False, "It would not take the interrupt — the pipe has gone"
     with _OWNED_LOCK:
         OWNED_STOPPING[session_id] = time.time()
-        dropped = len(OWNED_QUEUE.pop(session_id, None) or [])
-    if not dropped:
+        kept = len(OWNED_QUEUE.get(session_id) or [])
+        if kept:
+            OWNED_HELD[session_id] = time.time()
+    if not kept:
         return True, "Stopping it"
-    return True, ("Stopping it — and the message that was waiting behind it is dropped"
-                  if dropped == 1 else
-                  f"Stopping it — and the {dropped} messages waiting behind it are dropped")
+    return True, ("Stopping it — the message waiting behind it is held, not sent"
+                  if kept == 1 else
+                  f"Stopping it — the {kept} messages waiting behind it are held, not sent")
+
+
+def owned_resume(session_id: str) -> tuple[bool, str]:
+    """Let a held queue go after all — the *Send them* on the strip.
+
+    The one thing this does not do is decide anything: it takes the hold off and
+    hands over to the same flush that would have run when the turn ended, so a
+    queue released here goes in one at a time and in order, exactly as a queue
+    that was never stopped does.
+    """
+    with _OWNED_LOCK:
+        queue = list(OWNED_QUEUE.get(session_id) or [])
+        if not queue:
+            OWNED_HELD.pop(session_id, None)
+            return False, "Nothing is waiting"
+        if session_id not in OWNED_HELD:
+            return False, "It is already on its way in"
+        if not OWNED_PROCS.get(session_id):
+            return False, "The panel is not running that session"
+        OWNED_HELD.pop(session_id, None)
+    owned_flush(session_id)
+    return True, ("Sending it" if len(queue) == 1
+                  else f"Sending them — {len(queue)}, in the order you typed them")
 
 
 def owned_reader(session_id: str, held: dict) -> None:
@@ -646,6 +695,7 @@ def owned_reader(session_id: str, held: dict) -> None:
             # the session back up to keep it. Deliberately letting go clears the
             # queue before it gets here, so this only fires for a process that
             # went on its own.
+            OWNED_HELD.pop(session_id, None)
             left = OWNED_QUEUE.pop(session_id, None) or []
         own_errand(proc.pid, False)
         # `stderr` is a DEVNULL rather than a pipe, so it is `None` here — and
@@ -777,6 +827,7 @@ def owned_release(session_id: str) -> bool:
         # it rather than being restarted into a session somebody has just handed
         # back to a terminal.
         OWNED_QUEUE.pop(session_id, None)
+        OWNED_HELD.pop(session_id, None)
     if not held:
         return False
     proc = held["proc"]
@@ -837,6 +888,13 @@ def owned_say(session_id: str, cwd: str, text: str, mode: str) -> tuple[bool, st
     # what the terminal's own prompt would have done with it.
     if wait:
         ok, said = owned_queue_add(session_id, text)
+        # Sending is how you say carry on. A queue held back by a stop is let go
+        # here rather than sitting behind a Send that visibly did nothing — and
+        # in the order it was written, this message last, because that is the
+        # promise the strip makes. Wanting to say something *instead* of what is
+        # waiting is what *Drop them* is for, and it is on the same strip.
+        with _OWNED_LOCK:
+            OWNED_HELD.pop(session_id, None)
         # And the turn may have ended while that was being written down, in which
         # case nothing else is coming along to send it.
         if ok:

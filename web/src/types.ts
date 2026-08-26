@@ -129,6 +129,8 @@ export interface Owned {
   last: OwnedResult | null;
   ask: OwnedAsk | null;
   queued: string[];
+  /** Held back by a stop: still queued, and going nowhere until you say. */
+  queueHeld: boolean;
   stopping: boolean;
   compact: OwnedCompact | null;
   /** What this session says it can be asked for, once it has said anything.
