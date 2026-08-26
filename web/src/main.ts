@@ -1909,17 +1909,21 @@ function wireJumpDock(scroller) {
   sync();
 }
 
-/* Folding the detail header away on a phone.
+/* Folding the detail header away.
 
    The header is the session's whole context — subject, mode chips, how full the
-   conversation is, folder, branch, uptime, the state trace. On a desktop that
-   sits beside the conversation for free. On a phone it is most of the screen
-   before a single message is drawn, so it folds down to its title as soon as
-   you scroll into the transcript, and comes back when you scroll to the top.
-   The chevron in the title row does either on demand.
+   conversation is, folder, branch, uptime, the state trace. The chevron folds it
+   down to its title at any width, and that is remembered: someone who does not
+   want five lines of preamble over every conversation should not have to say so
+   again on the next session, or after a reload.
 
-   Only the attribute changes here; what it means is in responsive.css, and it
-   means nothing above phone width.
+   A phone folds on the scroll as well. There the header is most of the screen
+   before a single message is drawn, so scrolling into the transcript folds it
+   and scrolling back to the top brings it out again. Nowhere else: a header
+   that folded itself away under a mouse would be taking back the context you
+   were reading the conversation against, unasked.
+
+   Only the attribute changes here; what it means is in the stylesheets.
 
    Both thresholds and the hold below exist for the same reason: folding the
    header makes the panel taller, which moves the scroll under the reader, and
@@ -1937,8 +1941,11 @@ const onPhone = () => matchMedia("(max-width: 599px)").matches;
    top, which is the point at which the reader is plainly done with it. */
 let foldHeld = false;
 
-function setFold(folded) {
+function setFold(folded, byHand = false) {
   ui.headerFolded = folded;
+  // Only a deliberate press is remembered. The scroll folds and unfolds the
+  // header a dozen times in a minute's reading, and none of that is a wish.
+  if (byHand) localStorage.setItem("cbu-header-folded", JSON.stringify(folded));
   const header = detailPane.querySelector<HTMLElement>(".detail-header");
   if (header) header.dataset.folded = folded ? "1" : "0";
   const button = detailPane.querySelector<HTMLElement>(".fold-button");
@@ -1952,7 +1959,7 @@ function setFold(folded) {
 function wireHeaderFold(scroller) {
   detailPane.querySelector<HTMLElement>(".fold-button")?.addEventListener("click", () => {
     foldHeld = true;
-    setFold(!ui.headerFolded);
+    setFold(!ui.headerFolded, true);
   });
   if (!scroller) return;
   const sync = () => {

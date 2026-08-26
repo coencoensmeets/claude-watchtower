@@ -142,7 +142,6 @@ export function detailHeader(session, state, host) {
             </h2>
             <span class="md-label-large">${escapeHtml(state.label)}
               <span class="md-mono md-body-small" data-since="${displaySince(session)}">${duration(Date.now() / 1000 + app.skew - displaySince(session))}</span></span>
-            ${foldButton(folded)}
           </div>
           <div class="detail-header__fold" id="headerFold"><div class="detail-header__fold-inner">
             ${title ? `<p class="detail-header__subtitle md-body-medium">${escapeHtml(title)}</p>` : ""}
@@ -152,14 +151,16 @@ export function detailHeader(session, state, host) {
           </div></div>
         </div>
         <div class="detail-header__actions">${headerActions(session)}${editorAction(session)}</div>
+        ${foldButton(folded)}
       </div>
       ${traceFor(session)}
     </header>`;
 }
-/* The handle on the fold. Drawn at every width and shown only on a phone, which
-   is the only size where the header's five lines of context are competing with
-   the conversation for room. The chevron turns rather than being swapped: it is
-   the same control saying which way it will go next. */
+/* The handle on the fold. Last in the header's top row and hard against the
+   right edge, which is the one place it does not move between the two states:
+   the actions column beside it goes when the header folds, and a handle in the
+   title row would slide across the pane as it went. The chevron turns rather
+   than being swapped — the same control saying which way it will go next. */
 function foldButton(folded) {
   return `<button class="icon-button md-state fold-button" type="button" data-act="fold"
       aria-expanded="${String(!folded)}" aria-controls="headerFold"

@@ -227,9 +227,11 @@ check("and the bar goes quiet again when the server comes back",
    title; the chevron does the same on demand, and holds against the scroll. */
 const fold = await evaluate(`(async () => {
   const scroller = document.getElementById('chatScroll');
-  const header = document.querySelector('.detail-header');
-  const button = document.querySelector('.fold-button');
-  const tall = () => Math.round(header.getBoundingClientRect().height);
+  // Looked up afresh every time: the pane is rebuilt from scratch whenever a
+  // poll lands, and a node held across one of those measures as nothing.
+  const header = () => document.querySelector('.detail-header');
+  const button = () => document.querySelector('.fold-button');
+  const tall = () => Math.round(header().getBoundingClientRect().height);
   const settle = () => new Promise(r => setTimeout(r, 420));
   scroller.scrollTop = 0; scroller.dispatchEvent(new Event('scroll')); await settle();
   const open = tall();
@@ -237,7 +239,7 @@ const fold = await evaluate(`(async () => {
   scroller.scrollTop = scroller.scrollHeight; scroller.dispatchEvent(new Event('scroll')); await settle();
   const scrolled = tall();
   // Unfolded by hand while still scrolled down, and it must stay unfolded.
-  button.click(); await settle();
+  button().click(); await settle();
   const byHand = tall();
   scroller.scrollTop = Math.max(200, scroller.scrollTop - 40);
   scroller.dispatchEvent(new Event('scroll')); await settle();
@@ -245,8 +247,8 @@ const fold = await evaluate(`(async () => {
   scroller.scrollTop = 0; scroller.dispatchEvent(new Event('scroll')); await settle();
   const back = tall();
   return { open, scrolled, byHand, held, back, room,
-           shown: getComputedStyle(button).display,
-           tap: Math.round(button.getBoundingClientRect().height) };
+           shown: getComputedStyle(button()).display,
+           tap: Math.round(button().getBoundingClientRect().height) };
 })()`);
 if (fold.room <= 200) console.log("  --  the folding header: this conversation has nothing to scroll");
 else {
@@ -312,8 +314,35 @@ check("right-clicking a message still opens its menu", desk.right === "true" && 
 check("both panes are back", desk.panes !== "none");
 check("and the back button is gone with them", desk.back === "none");
 check("the header puts its actions beside the name again", desk.header === "row");
-check("and the fold handle is gone: a header beside the conversation costs nothing",
-  desk.fold === "none", desk.fold);
+
+/* ------------------------------- the fold, with a mouse ------------------- */
+/* The chevron is offered at every width — a header of five lines is a lot of
+   preamble over a conversation whatever you are reading it on. What a desktop
+   does not do is fold on the scroll: nothing may take the context away unasked
+   where there is room for it. */
+const deskFold = await evaluate(`(async () => {
+  const scroller = document.getElementById('chatScroll');
+  const header = () => document.querySelector('.detail-header');
+  const button = () => document.querySelector('.fold-button');
+  const tall = () => Math.round(header().getBoundingClientRect().height);
+  const settle = () => new Promise(r => setTimeout(r, 420));
+  scroller.scrollTop = 0; scroller.dispatchEvent(new Event('scroll')); await settle();
+  const open = tall();
+  scroller.scrollTop = scroller.scrollHeight; scroller.dispatchEvent(new Event('scroll')); await settle();
+  const scrolled = tall();
+  button().click(); await settle();
+  const folded = tall();
+  const kept = localStorage.getItem('cbu-header-folded');
+  button().click(); await settle();
+  return { open, scrolled, folded, kept, back: tall(),
+           shown: getComputedStyle(button()).display };
+})()`);
+check("the fold handle is offered with a mouse too", deskFold.shown !== "none", deskFold.shown);
+check("scrolling does not fold it where there is room for it",
+  deskFold.scrolled === deskFold.open, JSON.stringify(deskFold));
+check("but the chevron does", deskFold.folded < deskFold.open - 40, JSON.stringify(deskFold));
+check("and asking for it is remembered", deskFold.kept === "true", String(deskFold.kept));
+check("pressing it again brings the header back", deskFold.back === deskFold.open);
 
 /* ============================== the stylesheet ============================ */
 /* The two rules the browser here cannot be asked about: headless Chrome always
