@@ -1560,6 +1560,31 @@ if (await evaluate(`!!document.getElementById('newButton')`)) {
   check("the card is headed by what was asked", /indent/i.test(shapes.askHead), shapes.askHead);
 }
 
+/* -------------------------------------------- clicking an icon, not beside it */
+/* Every icon-only control in the panel is a button with an `<svg>` filling its
+   face, and the handlers are delegated — one listener on the document, which
+   asks what was hit. An `<svg>` is not an HTMLElement, so a hit test that
+   insisted on one answered *nothing* for a click on the glyph: the ring of
+   button around it worked and the middle did not, which is the whole of the
+   button as far as a finger is concerned. Clicked here on the glyph itself, on
+   purpose, since that is the case that broke. */
+const onTheGlyph = JSON.parse(await evaluate(`(async () => {
+  const button = document.querySelector('#chatScroll .md-copy');
+  if (!button) return JSON.stringify({ skip: 'no code block in this transcript' });
+  const glyph = button.querySelector('svg');
+  const before = document.getElementById('snackbar')?.textContent || '';
+  // Straight at the glyph: a real click there has an SVGElement as its target,
+  // which is the thing this is about.
+  glyph.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  await new Promise(r => setTimeout(r, 200));
+  const bar = document.getElementById('snackbar');
+  return JSON.stringify({ target: glyph.tagName, answered: !!bar && bar.textContent !== before && !!bar.textContent,
+                          said: bar?.textContent || '' });
+})()`));
+if (onTheGlyph.skip) console.log(`  --  clicking an icon: ${onTheGlyph.skip}`);
+else check("a click lands on the icon-only button it was aimed at, not only on the ring around it",
+  onTheGlyph.answered, `${onTheGlyph.target} → ${onTheGlyph.said || "nothing happened"}`);
+
 /* ---------------------------------------------------------- touch targets */
 const smallTargets = JSON.parse(await evaluate(`(() => {
   const small = [];

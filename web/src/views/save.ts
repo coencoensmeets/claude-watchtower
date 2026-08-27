@@ -123,8 +123,8 @@ function downloadMessage(message, session) {
   showSnackbar(`Saved ${name}`);
 }
 
-async function copyMessage(message, session) {
-  await copyText(messageMarkdown(message, session), "Copied as Markdown");
+function copyMessage(message, session) {
+  copyText(messageMarkdown(message, session), "Copied as Markdown");
 }
 
 /* Right-clicking a message. On the pane, not on the transcript: the pane

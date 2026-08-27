@@ -2605,7 +2605,11 @@ document.addEventListener("click", (event) => {
   if (!button) return;
   const code = button.closest(".md-codeblock")?.querySelector("code");
   if (!code) return;
-  copyText(code.textContent ?? "", "Code copied");
+  // Synchronous, inside the click, so the browser still counts this as a
+  // gesture — see clipboard.ts. The tick follows the answer rather than being
+  // shown regardless: a tick over a copy that did not happen is a lie the size
+  // of whatever you paste next.
+  if (!copyText(code.textContent ?? "", "Code copied")) return;
   // The snackbar is the answer, but it appears at the other end of the pane, so
   // the button says it too. A poll rebuilding the transcript takes the tick away
   // early; the message it confirms has already been seen by then.

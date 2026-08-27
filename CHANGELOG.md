@@ -6,7 +6,12 @@ Entries say what changed and, where it is not obvious, why. Anything worth a par
 
 ## Unreleased
 
-## 0.2.0 — 2026-08-26
+## 0.2.1 — 2026-08-27
+
+- **A click on an icon does what the icon says.** Every icon-only control in the panel — the copy button on a code block, the ⋯ on a turn, the buttons in the app bar — is a button with an `<svg>` filling its face, and the delegated hit test insisted the thing clicked was an HTML element. An `<svg>` is not one. So the ring of button around the glyph answered and the middle did not, which reads as a button that works if you hit it just right and is dead if you aim at it. The copy button was the worst of them, being almost entirely glyph.
+- **Copying is synchronous now**, inside the click that asked for it, rather than after an `await` that some browsers treat as the end of the gesture — and when the clipboard cannot be reached at all, the text is selected instead so Ctrl+C finishes the job, rather than a snackbar reporting failure and leaving you to find it again.
+
+## 0.2.0 — 2026-08-27
 
 - **A path written in a conversation is a link.** Click one and it opens: a file goes to the editor at the line the message quoted it at, a folder goes to whatever the desktop opens folders with. The tool lines above a turn are clickable too, so the file an `Edit` touched is one click away. What counts as a path is deliberately narrow — rooted, or a folder and a suffix, or a bare name inside code marks with a known extension — because a false positive turns prose into a live control.
 - **The session header folds away at every width, and remembers it.** It was a phone control on the reasoning that a header beside a conversation costs nothing; it costs five lines of preamble over every session. Folding on scroll stays phone-only, where the header is most of the glass.

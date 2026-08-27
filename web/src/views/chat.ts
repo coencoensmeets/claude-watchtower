@@ -661,8 +661,10 @@ async function copySelection() {
   hideQuoteChip();
   if (!text) return;
   // Through the shared path, which has the fallback for a panel served over
-  // plain http — where there is no clipboard object at all.
-  await copyText(text, "Copied");
+  // plain http — where there is no clipboard object at all. Synchronous, and
+  // called with nothing awaited in front of it: the copy has to happen inside
+  // the click that asked for it.
+  copyText(text, "Copied");
 }
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !quoteChip.hidden) { hideQuoteChip(); event.stopPropagation(); }

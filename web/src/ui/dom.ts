@@ -40,9 +40,26 @@ export const pickClear = byId<HTMLButtonElement>("pickClear");
    window, neither of which has a `closest` to call. These narrow it once, at
    the top of a handler, instead of every handler asserting it for itself. */
 
-/** The element an event happened on, or null if it was not on one. */
-export const hitElement = (event: Event): HTMLElement | null =>
-  event.target instanceof HTMLElement ? event.target : null;
+/** The element an event happened on, or null if it was not on one.
+
+    The nearest HTML *ancestor* of the target, not the target itself, and the
+    difference is not academic: an `<svg>` and the `<path>` inside it are
+    SVGElement, which is not an HTMLElement. Every control in this panel whose
+    whole face is an icon — the copy button on a code block, the ⋯ on a turn,
+    the icon buttons in the app bar — was therefore dead in the middle. The ring
+    of button around the glyph answered clicks and the glyph did not, which
+    reads exactly like a button that works intermittently, or not at all if the
+    glyph is big enough. Anything delegated through `hitClosest` had it: the
+    ripple that never fired when you pressed an icon, the menu that closed when
+    you clicked an icon inside it, a row whose avatar swallowed the press.
+
+    Walking out to the enclosing element is what `closest()` would have done if
+    it were reachable from the target, and it costs a parent hop or two. */
+export const hitElement = (event: Event): HTMLElement | null => {
+  let node: Node | null = (event.target as Node | null) ?? null;
+  while (node && !(node instanceof HTMLElement)) node = node.parentNode;
+  return (node as HTMLElement | null) ?? null;
+};
 
 /** The control a listener is attached to — which is the thing that was
     operated, unlike `target`, which is whatever inside it was hit. Buttons by
