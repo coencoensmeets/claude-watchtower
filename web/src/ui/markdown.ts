@@ -1,6 +1,7 @@
 import { app } from "../state.js";
 import { escapeHtml } from "./format.js";
 import { ICON } from "./icons.js";
+import { renderMath } from "./math.js";
 
 /* ------------------------------------------------------------------- paths
    A path written into the conversation is a place on this machine, and the
@@ -28,6 +29,11 @@ import { ICON } from "./icons.js";
    sentence would put against one. */
 const PATH_RE =
   /(^|[\s(\[{])((?:~|\.{1,2})?\/[A-Za-z0-9._@+~-][A-Za-z0-9._@+~/-]*|[A-Za-z0-9._@+~-]+(?:\/[A-Za-z0-9._@+~-]+)*\/[A-Za-z0-9._@+~-]*\.[A-Za-z][A-Za-z0-9]{0,7})(:\d+(?::\d+)?)?/g;
+/* Inline maths: `$…$` on one line. See the note where it is used for why the
+   fence is this tight — every one of those clauses is a dollar sign that turns
+   up in ordinary prose and must not become an equation. */
+const MATH_RE = /(?<![\w$\\])\$(?!\s)((?:[^$\n\\]|\\.)+?)(?<![\s\\])\$(?![\w$])/g;
+
 /* Prose punctuation that has attached itself to the end of a path. The full
    stop is the awkward one — it is also how an extension starts — but a path
    never ends in one, so whatever trails comes off and stays outside the link. */
@@ -130,6 +136,9 @@ export function renderMarkdown(text) {
   const keep = (html) => `${MD_HOLD}${held.push(html) - 1}${MD_HOLD}`;
   const source = String(text ?? "").replace(/\r\n?/g, "\n");
 
+  // Display maths, held before the fences are read? No — after, and that order
+  // is the point: a `$$` inside a code block is a dollar sign, and the fence has
+  // already been taken out of the text by the time this runs. See mathHold.
   // Fenced code first: nothing inside a fence is Markdown. A fence inside a list
   // is indented, so the indent comes off the code and stays on the line — that is
   // what keeps the block inside its list item.
@@ -143,6 +152,12 @@ export function renderMarkdown(text) {
       + `${copyButton()}</div>`);
   });
 
+  // `$$…$$` and `\[…\]`, which may run over several lines, and are a block of
+  // their own rather than part of the paragraph they sit in.
+  const withMath = body
+    .replace(/\$\$([\s\S]+?)\$\$/g, (all, tex) => keep(`<div class="md-math-block">${renderMath(tex, true)}</div>`))
+    .replace(/\\\[([\s\S]+?)\\\]/g, (all, tex) => keep(`<div class="md-math-block">${renderMath(tex, true)}</div>`));
+
   const inline = (raw) => {
     // Inline code goes the same way, so emphasis cannot reach inside it.
     // A path in an answer is usually written in code marks, so the span is
@@ -150,6 +165,16 @@ export function renderMarkdown(text) {
     // machine", which is exactly the case this is for.
     let s = String(raw).replace(/`([^`\n]+)`/g, (all, code) =>
       keep(`<code class="md-mono">${linkPaths(escapeHtml(code), true)}</code>`));
+    // Then `$…$`, held the same way and for the same reason: what is inside is
+    // TeX, where `_` and `*` mean something other than emphasis. After the code
+    // marks, so a dollar written inside them stays a dollar.
+    //
+    // The fence around what counts is narrow, because a dollar in prose is
+    // usually money or a shell variable. The pair must be on one line, must not
+    // open or close against a space, must not start after a word character, and
+    // must not close before one — which is what tells `$S$ is the Jacobian`
+    // from `$PATH:$HOME`, and leaves `it costs $5 or $6` alone.
+    s = s.replace(MATH_RE, (all, tex) => (tex.trim() ? keep(renderMath(tex, false)) : all));
     s = escapeHtml(s);
     // An image becomes a link to it: the panel never loads a remote file.
     s = s.replace(/!\[([^\]\n]*)\]\(([^)\s]+)\)/g, (all, alt, url) => `[${alt || "image"}](${url})`);
@@ -203,7 +228,7 @@ export function renderMarkdown(text) {
   const closeAll = () => { flushQuote(); flushPara(); closeLists(0); };
   const add = (line) => (stack.length ? item : para).push(line);
 
-  const lines = body.split("\n");
+  const lines = withMath.split("\n");
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const bare = line.trim();
