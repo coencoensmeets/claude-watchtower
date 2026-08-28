@@ -29,6 +29,40 @@ import { renderMath } from "./math.js";
    sentence would put against one. */
 const PATH_RE =
   /(^|[\s(\[{])((?:~|\.{1,2})?\/[A-Za-z0-9._@+~-][A-Za-z0-9._@+~/-]*|[A-Za-z0-9._@+~-]+(?:\/[A-Za-z0-9._@+~-]+)*\/[A-Za-z0-9._@+~-]*\.[A-Za-z][A-Za-z0-9]{0,7})(:\d+(?::\d+)?)?/g;
+/* A picture a message names, served back through the panel — see /api/file,
+   which will only hand over something that resolves inside your home folder or
+   the session's own, and only if it is a picture.
+
+   Built here rather than taken from the message: the src is a URL this function
+   composes out of a path it has escaped, so nothing a message contains reaches
+   the page as an attribute. A remote picture is deliberately not fetched — see
+   `pictureFor` — and stays the link it always was.
+
+   The alt text is what a screen reader gets and what stands in the picture's
+   place if the file has gone, so a message with none is given the file's name
+   rather than the word "image". */
+function picture(rawPath, alt) {
+  const path = String(rawPath).replace(/&amp;/g, "&").trim();
+  const named = alt || path.split("/").pop() || "picture";
+  const src = `/api/file?sessionId=${encodeURIComponent(app.selectedId || "")}`
+    + `&path=${encodeURIComponent(path)}`;
+  // Wrapped in a link to itself, which is the whole of "click it to see it
+  // properly": the browser's own picture view zooms and pans better than
+  // anything worth writing here, and it works the same on a phone.
+  return `<a class="md-image-link" href="${escapeHtml(src)}" target="_blank" rel="noopener noreferrer">`
+    + `<img class="md-image" src="${escapeHtml(src)}" alt="${escapeHtml(named)}"`
+    + ` title="${escapeHtml(path)}" data-path="${escapeHtml(path)}" loading="lazy" decoding="async"></a>`;
+}
+
+/* Whether a message's image is one this panel can show. A path on this machine
+   is; an http one is not, and is left as the link it was — the panel does not
+   reach out to the network to draw a conversation, which is the same rule that
+   keeps a remote image out of an email client until you ask for it. */
+const LOCAL_PICTURE = /^(?:~|\.{0,2}\/|[A-Za-z0-9._-]+\/|[A-Za-z0-9._-]+\.[A-Za-z0-9]{2,5}$)/;
+const IMAGE_SUFFIX = /\.(?:png|jpe?g|gif|webp|avif|bmp|svg)$/i;
+const showable = (url) => IMAGE_SUFFIX.test(url) && !/^[a-z][a-z0-9+.-]*:/i.test(url)
+  && LOCAL_PICTURE.test(url);
+
 /* Inline maths: `$…$` on one line. See the note where it is used for why the
    fence is this tight — every one of those clauses is a dollar sign that turns
    up in ordinary prose and must not become an equation. */
@@ -158,6 +192,14 @@ export function renderMarkdown(text) {
     .replace(/\$\$([\s\S]+?)\$\$/g, (all, tex) => keep(`<div class="md-math-block">${renderMath(tex, true)}</div>`))
     .replace(/\\\[([\s\S]+?)\\\]/g, (all, tex) => keep(`<div class="md-math-block">${renderMath(tex, true)}</div>`));
 
+  // What the composer writes when a picture is pasted into it, or a file
+  // dropped on it: `[Pasted image: /path/to/it.png]`, on a line of its own.
+  // Claude is told the path because a path is what every transport it has
+  // takes; you sent a picture, so a picture is what you should see back.
+  const withPasted = withMath.replace(
+    /^\[(Pasted image|Dropped file): ([^\]\n]+)\]$/gm,
+    (all, label, path) => (showable(path) ? keep(picture(path, label)) : all));
+
   const inline = (raw) => {
     // Inline code goes the same way, so emphasis cannot reach inside it.
     // A path in an answer is usually written in code marks, so the span is
@@ -175,9 +217,23 @@ export function renderMarkdown(text) {
     // must not close before one — which is what tells `$S$ is the Jacobian`
     // from `$PATH:$HOME`, and leaves `it costs $5 or $6` alone.
     s = s.replace(MATH_RE, (all, tex) => (tex.trim() ? keep(renderMath(tex, false)) : all));
+    // A picture written as a tag, which is how a screenshot usually arrives in
+    // a message. Before the escaping, because that is where the tag still is —
+    // and the tag itself is never passed through: it is read for its src and
+    // its alt, and a new one is built from those, so everything else it carried
+    // (a handler, a style, an onerror) is gone by construction rather than by
+    // sanitising. Anything that is not a picture this panel can serve is left
+    // to be escaped with the rest of the prose, exactly as before.
+    s = s.replace(/<img\s[^>]*?src\s*=\s*["']([^"'>]+)["'][^>]*>/gi, (all, url) => {
+      if (!showable(url)) return all;
+      const alt = /alt\s*=\s*["']([^"'>]*)["']/i.exec(all)?.[1] || "";
+      return keep(picture(url, alt));
+    });
     s = escapeHtml(s);
-    // An image becomes a link to it: the panel never loads a remote file.
-    s = s.replace(/!\[([^\]\n]*)\]\(([^)\s]+)\)/g, (all, alt, url) => `[${alt || "image"}](${url})`);
+    // `![alt](path)`: a picture if the panel can serve it, and the link it
+    // always was if not — a remote one is not fetched to draw a conversation.
+    s = s.replace(/!\[([^\]\n]*)\]\(([^)\s]+)\)/g, (all, alt, url) =>
+      (showable(url) ? keep(picture(url, alt)) : `[${alt || "image"}](${url})`));
     s = s.replace(/\[([^\]\n]*)\]\(([^)\s]+)\)/g, (all, label, url) => {
       const href = safeUrl(url.replace(/&amp;/g, "&"));
       return href ? `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${label || escapeHtml(href)}</a>` : all;
@@ -228,7 +284,7 @@ export function renderMarkdown(text) {
   const closeAll = () => { flushQuote(); flushPara(); closeLists(0); };
   const add = (line) => (stack.length ? item : para).push(line);
 
-  const lines = withMath.split("\n");
+  const lines = withPasted.split("\n");
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const bare = line.trim();

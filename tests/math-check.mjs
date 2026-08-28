@@ -58,13 +58,15 @@ const TABLES = ["GREEK", "OPS", "BIG", "FUNCS", "DELIMS", "SPACES", "ACCENTS",
 
 const { renderMath, renderMarkdown } = new Function(`
   const escapeHtml = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-  const app = { settings: { showEditor: true } };
+  const app = { settings: { showEditor: true }, selectedId: "s-1" };
   const ICON = { copy: "<svg/>" };
   ${TABLES.map(liftConst).join("\n")}
   ${lift("tokenise")}
   ${liftClass("Parser")}
   ${lift("renderMath")}
-  ${["MD_HOLD", "PATH_RE", "TRAILING", "SUFFIX", "BARE_RE", "MATH_RE", "copyButton"].map(liftConst).join("\n")}
+  ${["MD_HOLD", "PATH_RE", "TRAILING", "SUFFIX", "BARE_RE", "MATH_RE",
+     "LOCAL_PICTURE", "IMAGE_SUFFIX", "showable", "copyButton"].map(liftConst).join("\n")}
+  ${lift("picture")}
   ${lift("safeUrl")}
   ${lift("linkPaths")}
   ${lift("mark")}
@@ -194,6 +196,43 @@ check("the matrices in it are tables", (drawn.match(/<mtable>/g) || []).length =
 check("the boxed result is boxed", drawn.includes('class="boxed"'));
 check("and the prose around it is still prose",
   drawn.includes("is the Jacobian of the force-feedback error vector"));
+
+/* ============================== pictures ================================== */
+/* A message that names a picture shows it. The panel serves the file itself,
+   through a route that will only hand over something inside your home folder or
+   the session's own — so the src is composed here, out of a path this code has
+   escaped, rather than being whatever the message said. */
+const shot = draws("![the plot](/tmp/plot.png)");
+check("a markdown image becomes a picture", /<img class="md-image"/.test(shot), shot);
+check("served through the panel, with the path as a parameter",
+  shot.includes("/api/file?sessionId=s-1&amp;path=%2Ftmp%2Fplot.png"), shot);
+check("its alt text is what the message called it", shot.includes('alt="the plot"'));
+check("and with none, the file's own name rather than the word image",
+  draws("![](/tmp/plot.png)").includes('alt="plot.png"'));
+check("it opens at full size in a tab of its own",
+  /<a class="md-image-link" href="\/api\/file[^"]*" target="_blank"/.test(shot));
+check("a relative path works too — a message names files as the session sees them",
+  draws("![](docs/assets/logo.png)").includes("path=docs%2Fassets%2Flogo.png"));
+check("and a tag written out is read for its src and rebuilt, not passed through",
+  /<img class="md-image"[^>]*path=%2Ftmp%2Fshot\.png/.test(
+    draws('<img src="/tmp/shot.png" width="500" onerror="alert(1)">')),
+  draws('<img src="/tmp/shot.png" width="500" onerror="alert(1)">'));
+check("so nothing the tag carried survives", !draws('<img src="/tmp/shot.png" onerror="alert(1)">').includes("onerror"));
+check("a remote picture is not fetched to draw a conversation",
+  !draws("![x](https://example.com/x.png)").includes("<img"),
+  draws("![x](https://example.com/x.png)"));
+check("nor is anything that is not a picture",
+  !draws("![x](/tmp/notes.txt)").includes("<img"));
+check("a data URI is not a picture this panel will show",
+  !draws('<img src="data:image/png;base64,AAAA">').includes('class="md-image"'));
+
+check("a picture pasted into the composer is shown back, not described",
+  draws("[Pasted image: /home/me/.claude/watchtower-images/shot.png]").includes('class="md-image"'),
+  draws("[Pasted image: /home/me/.claude/watchtower-images/shot.png]"));
+check("a dropped file that is a picture too",
+  draws("[Dropped file: /home/me/plot.png]").includes('class="md-image"'));
+check("but a dropped file that is not stays the line it was",
+  !draws("[Dropped file: /home/me/notes.txt]").includes("<img"));
 
 console.log();
 console.log(failures ? `${failures} failed` : "all ok");

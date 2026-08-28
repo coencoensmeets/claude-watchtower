@@ -177,6 +177,26 @@
   .tool-line__name { flex: 0 1 auto; overflow-wrap: break-word; font-weight: 700; }
   .tool-line__detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; opacity: 0.85; }
 
+  /* --------------------------------- pictures ------------------------------ */
+  /* A picture a message names, served back by /api/file. Held to a share of the
+     screen rather than drawn at its own size: a screenshot is usually wider and
+     taller than the bubble it is in, and a message that has to be scrolled past
+     is a message nobody reads. The link around it opens the file itself, where
+     the browser's own picture view does the zooming. */
+  .md-image {
+    display: block; max-width: 100%; height: auto;
+    max-height: min(60vh, 460px); object-fit: contain; object-position: left;
+    margin: var(--md-sys-spacing-2) 0;
+    border-radius: var(--md-sys-shape-corner-medium);
+    border: 1px solid var(--md-sys-color-outline-variant);
+    background: var(--md-sys-color-surface-container-low);
+  }
+  .md-image-link { display: inline-block; max-width: 100%; text-decoration: none; }
+  .md-image-link:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: 2px; }
+  /* A file that has gone leaves the alt text, which the browser draws as prose:
+     without a size to fill it would otherwise be an empty box. */
+  .md-image:not([src]), .md-image[alt]:-moz-broken { height: auto; }
+
   /* ----------------------------------- maths ------------------------------ */
   /* MathML, drawn by the browser — see web/src/ui/math.ts for why there is no
      library here. What the stylesheet has to do is the part MathML leaves to

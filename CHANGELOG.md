@@ -6,6 +6,7 @@ Entries say what changed and, where it is not obvious, why. Anything worth a par
 
 ## Unreleased
 
+- **Pictures in a message are shown.** A screenshot, a plot, a picture pasted into the box: named as markdown, as an `<img>` tag, or as the `[Pasted image: …]` line the composer writes, it is drawn in the conversation instead of described in it. The panel serves the file itself, and only if it exists, is a picture, and sits inside your home folder, the session's own, or the system temp folder. A remote image is still not fetched, and a tag is rebuilt from its `src` rather than passed through.
 - **Maths in a message is drawn as maths.** TeX between dollar signs — inline or as a display — is rendered to MathML, which the browser draws itself: fractions, matrices, scripts, stretching delimiters, accents, the greek alphabet, `\text`, `\mathbb`, `\underbrace`, sums with their limits. The converter is written for this panel rather than pulled in: KaTeX is 280KB of script and a megabyte of fonts against a panel whose whole assets folder is 156KB, and nothing here should need installing. What it cannot read it hands back as the TeX that was written.
 
 ## 0.2.1 — 2026-08-27

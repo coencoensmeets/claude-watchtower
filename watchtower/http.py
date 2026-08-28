@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import tempfile
 import time
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
@@ -121,7 +122,8 @@ NO_KEY_PAGE = """<!doctype html>
 
 
 
-def _resolve_under(raw: str, cwd: str, repo_root: str) -> tuple[Path | None, str]:
+def _resolve_under(raw: str, cwd: str, repo_root: str,
+                   *, temp: bool = False) -> tuple[Path | None, str]:
     """A path from a message, made absolute and judged — or None and why not.
 
     The two refusals are worth telling apart on screen. "It is not there" is
@@ -134,6 +136,12 @@ def _resolve_under(raw: str, cwd: str, repo_root: str) -> tuple[Path | None, str
     transcript can be about. Everything else on the machine is somebody else's
     business, and a panel that opens any path a message contains is a panel that
     opens whatever a message can be made to contain.
+
+    `temp` adds a fourth: the system temporary folder, which is where a
+    screenshot lands by habit — `/tmp/plot.png` is how a picture usually arrives
+    in a conversation, and a rule that refuses it makes the pictures in messages
+    not work for the commonest case there is. It is granted to /api/file, which
+    reads a picture, and not to /api/editor, which starts a process.
 
     Resolved first, and by the filesystem: `..` cannot climb out of the roots
     afterwards, and neither can a symlink that points out of them.
@@ -150,6 +158,8 @@ def _resolve_under(raw: str, cwd: str, repo_root: str) -> tuple[Path | None, str
     except (OSError, RuntimeError):
         return None, f"Nothing is there now: {raw}"
     roots = [Path(HOME)] + [Path(p) for p in (cwd, repo_root) if p]
+    if temp:
+        roots.append(Path(tempfile.gettempdir()))
     for root in roots:
         try:
             if spot == root.resolve() or root.resolve() in spot.parents:
@@ -158,6 +168,7 @@ def _resolve_under(raw: str, cwd: str, repo_root: str) -> tuple[Path | None, str
             continue
     return None, ("That path is outside your home folder and this session's, "
                   "so the panel will not open it")
+
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -443,6 +454,70 @@ class Handler(BaseHTTPRequestHandler):
             return
         found = read_change(session_id, session["cwd"], (query.get("id") or [""])[0])
         self._json(found, 200 if found["ok"] else 404)
+
+    # What a picture in a conversation may be, and how much of one is worth
+    # sending to a browser. The suffix list is the second half of the fence
+    # around this route — the first is that the path has to resolve inside your
+    # home folder or the session's own, exactly as /api/editor's does.
+    PICTURES = {
+        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".gif": "image/gif", ".webp": "image/webp", ".avif": "image/avif",
+        ".bmp": "image/bmp", ".svg": "image/svg+xml",
+    }
+    PICTURE_MAX = 32 * 1024 * 1024
+
+    @route("GET", "/api/file")
+    def _get_file(self) -> None:
+        """A picture named in a message, so the message can show it.
+
+        The second request in this panel that takes a path rather than a
+        session, and behind the same fence as the first: it must exist, and it
+        must resolve inside your home folder or the session's own. On top of
+        that it must be a picture — the suffix list above — because a route that
+        will hand over any readable file is a route for reading files, and that
+        is not what this is for.
+
+        Not behind SAY_ENABLED, unlike /api/editor. Nothing here acts on the
+        machine: it reads a file the panel is already showing the path of, to
+        the same browser, over the same connection. Holding it to loopback would
+        mean a phone showing a message full of alt text and nothing else.
+
+        `Content-Security-Policy: sandbox` for the SVG case. An SVG loaded
+        through `<img>` cannot run script anyway — every browser disables it —
+        but the header is what makes that true of the URL as well, for anyone
+        who opens the picture in a tab of its own.
+        """
+        query = parse_qs(urlparse(self.path).query)
+        session_id = (query.get("sessionId") or [""])[0]
+        session = self._session_by_id(session_id)
+        entry = kept_rows().get(session_id) or {}
+        cwd = (session or {}).get("cwd") or entry.get("cwd") or ""
+        spot, refused = _resolve_under((query.get("path") or [""])[0], cwd,
+                                       (session or {}).get("repoRoot") or "", temp=True)
+        if spot is None:
+            self._send(404, refused.encode(), "text/plain; charset=utf-8")
+            return
+        kind = self.PICTURES.get(spot.suffix.lower())
+        if not kind or not spot.is_file():
+            self._send(415, b"that is not a picture", "text/plain; charset=utf-8")
+            return
+        try:
+            if spot.stat().st_size > self.PICTURE_MAX:
+                self._send(413, b"that picture is too big to send", "text/plain; charset=utf-8")
+                return
+            body = spot.read_bytes()
+        except OSError:
+            self._send(404, b"could not read it", "text/plain; charset=utf-8")
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", kind)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Content-Security-Policy", "sandbox; default-src 'none'")
+        # A picture in a transcript does not change: the same path is written
+        # once and read on every poll that redraws the message.
+        self.send_header("Cache-Control", "private, max-age=300")
+        self.end_headers()
+        self.wfile.write(body)
 
     @route("GET", "/api/usage")
     def _get_usage(self) -> None:
