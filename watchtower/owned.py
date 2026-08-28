@@ -408,6 +408,10 @@ def owned_rekey(old: str, new: str, held: dict) -> None:
     # Whoever asked for the clear is waiting to be told where the session went,
     # so that the browser can go on looking at it rather than at a row that is
     # not there any more.
+    # So the turn this happened in reports itself as a clear whichever way it
+    # was asked for — the button sets OWNED_CLEARING, and `/clear` typed into
+    # the box does not.
+    held["justCleared"] = True
     moved = held.get("moved")
     if moved:
         moved.set()
@@ -679,14 +683,24 @@ def owned_reader(session_id: str, held: dict) -> None:
             # frames, and nothing can be filed under it until it has.
             if held.get("id") is None and isinstance(frame.get("session_id"), str):
                 owned_name_itself(held, frame["session_id"])
-            # And a session that was cleared comes back as a different one. Only
-            # when the panel asked: a session_id that does not match is otherwise
-            # a frame this reader has no business acting on, and following it
-            # would be the panel changing which conversation a row means on the
-            # strength of something it did not do.
+            # And a session that was cleared comes back as a different one.
+            #
+            # Whenever it changes, not only when the panel asked for it. Gating
+            # this on OWNED_CLEARING looked careful and was a hole: `/clear`
+            # typed into the box goes down the same pipe as a message — for a
+            # session the panel runs it is expanded rather than rewritten, which
+            # is the whole point of that transport — and so does one that was
+            # typed ahead and flushed later. Both cleared the conversation and
+            # left the panel filing under the old id: the row went on showing a
+            # transcript that had stopped growing while the session it named
+            # wrote somewhere else. Measured, not reasoned about.
+            #
+            # There is nothing to be careful of. These frames come off the pipe
+            # of a process the panel started and holds; a new session_id on it
+            # means that process is on a new conversation, however it got there,
+            # and following it is the only reading that keeps the row honest.
             said = frame.get("session_id")
-            if (isinstance(said, str) and held.get("id") and said != held["id"]
-                    and held["id"] in OWNED_CLEARING):
+            if isinstance(said, str) and held.get("id") and said != held["id"]:
                 owned_rekey(held["id"], said, held)
             session_id = held.get("id") or session_id
             if not session_id:
@@ -710,7 +724,8 @@ def owned_reader(session_id: str, held: dict) -> None:
                 cost = frame.get("total_cost_usd")
                 with _OWNED_LOCK:
                     stopped = OWNED_STOPPING.pop(session_id, None) is not None
-                    cleared = OWNED_CLEARING.pop(session_id, None) is not None
+                    cleared = (OWNED_CLEARING.pop(session_id, None) is not None
+                               or held.pop("justCleared", False))
                 # A stopped turn reports itself as an error, and it is not one:
                 # it did what it was told. Said plainly, and not in the red that
                 # the row keeps for a turn that actually went wrong.

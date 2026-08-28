@@ -258,6 +258,40 @@ check("typing something else releases it too — sending is how you say carry on
 check("and what you typed goes in last, which is the order you wrote them in",
       S.owned_queued("q2") == ["what I actually want"], str(S.owned_queued("q2")))
 
+# ------------------------------------------------- clearing a conversation
+# `/clear` does not empty a conversation in place — Claude Code starts a new one
+# and reports a different session_id from the next frame on. The reader has to
+# follow it there, whether the panel asked for the clear through its own route
+# or somebody typed the command into the box, because both go down this pipe.
+for how, ask in (("through the button", True), ("typed into the box", False)):
+    old_id, new_id = f"c-{int(ask)}", f"cleared-{int(ask)}"
+    proc = hold(old_id, says=json.dumps({"type": "system", "subtype": "init",
+                                         "session_id": new_id}) + "\n"
+                             + json.dumps({"type": "result", "subtype": "success",
+                                           "session_id": new_id}) + "\n")
+    S.keep_row({"sessionId": old_id, "name": "the robot one", "cwd": "/tmp",
+                "startedAt": time.time(), "lastSeen": time.time(),
+                "version": None, "kind": "interactive"})
+    if ask:
+        with S._OWNED_LOCK:
+            S.OWNED_CLEARING[old_id] = time.time()
+    S.owned_reader(old_id, proc.held)
+    check(f"a cleared session is followed to its new id, {how}",
+          new_id in S.OWNED_PROCS or proc.held.get("id") == new_id,
+          f"{proc.held.get('id')}")
+    check(f"and its row goes with it, {how}",
+          new_id in S.kept_rows() and old_id not in S.kept_rows(),
+          f"{sorted(k for k in S.kept_rows() if k.startswith(('c-', 'cleared-')))}")
+    check(f"the turn says what it was, {how}",
+          (S.OWNED_LAST.get(new_id) or {}).get("message", "").startswith("Cleared"),
+          str(S.OWNED_LAST.get(new_id)))
+    S.forget_row(new_id)
+    S.forget_row(old_id)
+    owned_now = S.load_owned()
+    for gone in (old_id, new_id):
+        owned_now.pop(gone, None)
+    S.save_owned(owned_now)
+
 # The result of a stopped turn: `is_error` with `error_during_execution`, which is
 # the turn doing what it was told rather than going wrong. Read as an error it
 # painted the row's last-turn line red and said `error_during_execution` at

@@ -732,6 +732,8 @@ So the panel follows it. The held process, the queue, the mode, the row, the nam
 
 It is refused mid-turn and while anything is typed ahead — a queue is for the conversation it was typed into, and delivering it to a session that has just forgotten what it was about is not what waiting for a turn meant.
 
+**Typing `/clear` into the box does the same thing.** It has to: for a session the panel runs, what you type is what goes, so `/clear` reaches the pipe as the command and Claude Code acts on it whether or not the panel was the one asking. So following the session is not conditional on the button — the reader moves the row whenever the id on the pipe changes, however it changed. Gating that on "the panel asked for this" was the first version and it was a hole: the conversation cleared, and the row went on showing a transcript that had stopped growing. The same is true of a `/clear` typed ahead and delivered a turn later.
+
 ### Make interactive
 
 A session running in a terminal cannot have its turns taken, because something else is holding its transcript, and two processes appending to one conversation is the failure this whole area is littered with. **Make interactive** is the one way across: it keeps the row, ends the terminal session, and leaves the same conversation with nobody holding it — which is the state a panel turn needs. It asks first, because it ends a running process.
