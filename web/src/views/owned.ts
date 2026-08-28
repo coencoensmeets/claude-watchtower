@@ -55,6 +55,20 @@ const COMPACT_CAP = 95;
 export const compactPct = (elapsed) => Math.min(
   COMPACT_CAP, Math.round((1 - Math.exp(-Math.max(0, elapsed) / COMPACT_TAU)) * 100));
 
+/* Whether *Clear* is on the table. The same transport question as everything
+   else here: `/clear` over a session's messaging socket is queued with slash
+   commands switched off and arrives as six characters of prose, so it is the
+   terminal's own command for a session in a terminal and the panel says so
+   rather than offering a button that would do nothing. Down a held pipe it is
+   expanded — the session lists `clear` among the commands it takes — and there
+   the panel can offer it.
+
+   Offered whatever the conversation is carrying, unlike Compact: compacting a
+   conversation with room to spare loses something for nothing, while clearing
+   one is what you do when you want to start again, which is as reasonable after
+   two turns as after two hundred. */
+const clearOffer = (session) => runsHere(session) && app.feed.canSend && session.spoken;
+
 function contextBar(session) {
   const ctx = session.context;
   if (!ctx || !ctx.tokens) return "";
@@ -96,6 +110,11 @@ function contextBar(session) {
           data-act="compact" ${running ? "disabled" : ""}
           title="Summarises the conversation so far and carries on from the summary">
           ${ICON.compact} ${running ? "Compacting…" : "Compact"}
+        </button>` : ""}
+      ${clearOffer(session) ? `<button class="button button--text md-state ctx__do" type="button"
+          data-act="clear" ${running ? "disabled" : ""}
+          title="Starts the conversation again, empty, in the same folder — what /clear does at a terminal's own prompt">
+          ${ICON.discard} Clear
         </button>` : ""}
       ${said ? `<span class="ctx__said md-label-small"
         data-bad="${done && done.ok === false ? 1 : 0}">${escapeHtml(said)}</span>` : ""}
