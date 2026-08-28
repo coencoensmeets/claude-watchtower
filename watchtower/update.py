@@ -26,6 +26,14 @@ And a release only ever goes forwards. A HEAD with commits the newest tag does
 not have is ahead of the releases, not behind them, so there is nothing to
 update to.
 
+There are two channels. **Releases** is the above, and the default. **Development**
+follows the tip of the development branch instead, for somebody who wants the
+features that are written but not released yet — the same fetch, the same rules,
+and the same detached checkout, with the branch's newest commit standing where
+the newest tag stands. It is a deliberate choice made in Settings and it is not
+the default, because the tip of a branch is by definition untested against the
+thing everybody else is running.
+
 The reading costs a network fetch, so it is held for hours and read on the clock
 rather than on the poll — the same arrangement as the plan reading next to it in
 the app bar.
@@ -33,6 +41,7 @@ the app bar.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -43,7 +52,7 @@ import time
 from pathlib import Path
 
 from watchtower import build
-from watchtower.config import ROOT
+from watchtower.config import CHANNEL_FILE, DEV_BRANCH, ROOT
 from watchtower.git.read import git_run
 from watchtower.git.write import GIT_NETWORK_TIMEOUT, default_remote, git_said, git_write
 from watchtower.owned import (
@@ -98,6 +107,41 @@ UPDATE_FETCHING = False
 # Set once the restart is committed to, so a second press cannot queue a second
 # one behind it.
 UPDATE_RESTARTING = False
+
+
+# What this install follows. "release" is the tags; "development" is the tip of
+# the development branch.
+CHANNELS = ("release", "development")
+
+
+def read_channel() -> str:
+    """Which line this install follows. Anything unreadable is the safe one."""
+    try:
+        found = json.loads(CHANNEL_FILE.read_text()).get("channel")
+    except (OSError, ValueError, AttributeError):
+        return CHANNELS[0]
+    return found if found in CHANNELS else CHANNELS[0]
+
+
+def write_channel(channel: str) -> tuple[bool, str]:
+    """Follow the other line from now on. The held reading goes with it.
+
+    The reading is about a channel as much as it is about a moment, so keeping
+    it across the switch would answer the next question with the last channel's
+    answer — *you are up to date* about releases, to somebody who has just asked
+    for the development branch.
+    """
+    if channel not in CHANNELS:
+        return False, f"There is no {channel!r} channel"
+    try:
+        CHANNEL_FILE.parent.mkdir(parents=True, exist_ok=True)
+        CHANNEL_FILE.write_text(json.dumps({"channel": channel}, indent=2))
+    except OSError as exc:
+        return False, f"Could not write that down: {exc}"
+    with UPDATE_LOCK:
+        UPDATE_HELD.clear()
+    return True, ("Following the development branch — the next check looks there"
+                  if channel == "development" else "Following the releases again")
 
 
 def release_of(tag: str) -> tuple[int, int, int] | None:
@@ -194,6 +238,81 @@ def commits_between(root: str, base: str, tip: str) -> int:
     if not ok:
         return 0
     return len([line for line in text.splitlines() if line.strip()])
+
+
+def fetch_branch(root: str, branch: str) -> tuple[bool, str]:
+    """Bring one branch down, for the development channel.
+
+    Fetched by name into its remote-tracking ref rather than by fetching
+    everything: the answer needed is "what is on the end of that branch", and a
+    refspec says exactly that. `+` on the front because a branch that was
+    rebased upstream is still the branch to follow — the alternative is a fetch
+    that fails and a panel that says nothing is available when something is.
+    """
+    remote = default_remote(root)
+    if not remote:
+        return False, "This checkout has no remote to look for a development branch on"
+    ok, said = git_write(root, ["fetch", "--quiet", remote,
+                                f"+refs/heads/{branch}:refs/remotes/{remote}/{branch}"],
+                         GIT_NETWORK_TIMEOUT)
+    if ok:
+        return True, ""
+    said = git_said(said)
+    if "couldn't find remote ref" in said.lower() or "not found" in said.lower():
+        return False, f"There is no {branch} branch on {remote} yet"
+    return False, said or f"Could not reach {remote}"
+
+
+def branch_tip(root: str, branch: str) -> dict | None:
+    """The newest commit on the development branch, as a release-shaped entry.
+
+    Shaped like a release on purpose: everything downstream of here — what the
+    dialog draws, what the button carries back, what do_update checks out — then
+    works the same for both channels, and the only thing that differs is where
+    the entry came from.
+    """
+    remote = default_remote(root) or "origin"
+    ok, text = git_run(root, [
+        "for-each-ref", f"refs/remotes/{remote}/{branch}",
+        f"--format=%(objectname){FIELD}%(committerdate:unix){FIELD}%(contents:subject)"])
+    if not ok or not text.strip():
+        return None
+    parts = text.strip().split(FIELD)
+    if len(parts) < 3:
+        return None
+    try:
+        when = float(parts[1])
+    except ValueError:
+        when = 0.0
+    return {"tag": parts[0].strip(), "version": [], "at": when, "sha": parts[0].strip(),
+            "subject": parts[2].strip(), "body": ""}
+
+
+def commits_missing(root: str, tip: str) -> list[dict]:
+    """The commits on the development branch that this checkout does not have.
+
+    The development channel's answer to `releases_missing`, and it is what the
+    dialog lists instead of release notes: on a branch there are no notes, and
+    the commit subjects are what somebody is actually choosing between.
+    """
+    ok, text = git_run(root, [
+        "log", f"HEAD..{tip}", f"--format=%H{FIELD}%cd{FIELD}%s",
+        "--date=unix", f"--max-count={WALK_MAX}"], timeout=15.0)
+    if not ok:
+        return []
+    out = []
+    for line in text.splitlines():
+        parts = line.split(FIELD)
+        if len(parts) < 3:
+            continue
+        try:
+            when = float(parts[1])
+        except ValueError:
+            when = 0.0
+        # Named by its short sha, which is what stands in for a tag on this
+        # channel — see branch_tip.
+        out.append({"tag": parts[0][:9], "at": when, "subject": parts[2].strip(), "body": ""})
+    return out
 
 
 def fetch_releases(root: str) -> tuple[bool, str]:
@@ -301,11 +420,88 @@ def read_update(force: bool = False) -> dict:
 
 
 def survey() -> dict:
-    """One reading: fetch the tags, then work out where that leaves this checkout."""
+    """One reading: fetch, then work out where that leaves this checkout."""
     root = str(ROOT)
     if not shutil.which("git"):
         return {"ok": False, "repo": True, "canUpdate": False, "message": "git is not installed"}
+    if read_channel() == "development":
+        return survey_development(root)
+    return survey_releases(root)
 
+
+def survey_development(root: str) -> dict:
+    """Where the development branch has got to, and whether we can follow it.
+
+    The same shape as a release reading, so the dialog and the button do not
+    need to know which channel they are looking at. What differs is what counts
+    as newer: on a branch it is the tip, and there is no version to compare —
+    a commit either is in this history or is not.
+    """
+    remote = default_remote(root) or "origin"
+    fetched, trouble = fetch_branch(root, DEV_BRANCH)
+    tip = branch_tip(root, DEV_BRANCH)
+    state = head_state(root)
+    if not tip:
+        return {"ok": bool(fetched), "repo": True, "checking": False, "canUpdate": False,
+                "channel": "development", "devBranch": DEV_BRANCH,
+                "current": "", "described": describe(root), "latest": "", "latestAt": 0,
+                "behind": 0, "branch": state["branch"], "detached": state["detached"],
+                "dirty": state["dirty"], "defaultBranch": default_branch(root), "ahead": 0,
+                "why": "", "notes": [], "restart": restart_kind(),
+                "message": trouble or f"There is no {DEV_BRANCH} branch on {remote} to follow"}
+
+    at_tip = state["sha"] == tip["sha"]
+    missing = [] if at_tip else commits_missing(root, tip["sha"])
+    # Ahead of the branch rather than behind it: a checkout with commits the
+    # branch does not have is somebody's own work, not an old copy.
+    ahead = commits_between(root, tip["sha"], "HEAD")
+    blocked = why_not_development(state, ahead)
+    return {
+        "ok": True, "repo": True, "checking": False,
+        "channel": "development", "devBranch": DEV_BRANCH,
+        # On this channel "which release am I on" is "am I on the tip", and the
+        # short sha is what stands in for a version everywhere else.
+        "current": tip["sha"][:9] if at_tip else "",
+        "described": describe(root),
+        "latest": tip["sha"], "latestAt": tip["at"],
+        "behind": len(missing),
+        "branch": state["branch"], "detached": state["detached"], "dirty": state["dirty"],
+        "defaultBranch": default_branch(root), "ahead": ahead,
+        "canUpdate": bool(missing) and not blocked,
+        "why": blocked,
+        "notes": missing[:NOTES_MAX],
+        "restart": restart_kind(),
+        "message": "" if fetched else trouble,
+    }
+
+
+def why_not_development(state: dict, ahead: int) -> str:
+    """The reason the development channel will not move this checkout.
+
+    Shorter than the release one by a rule: there is no "you are on a branch of
+    your own" here, because following a branch means landing detached on its tip
+    like everything else, and somebody who has switched to this channel has said
+    what they want followed. Uncommitted work still stops everything.
+    """
+    if state["dirty"]:
+        return "There is uncommitted work in this checkout, so nothing here will move HEAD"
+    if state["branch"] and state["branch"] not in ("main", "master", DEV_BRANCH):
+        return (f"This checkout is on {state['branch']}, which is somebody's own work — "
+                f"so the panel leaves it alone")
+    if ahead:
+        return (f"This checkout has {ahead} commit{'' if ahead == 1 else 's'} that "
+                f"{DEV_BRANCH} does not, so there is nothing newer to move to")
+    return ""
+
+
+def describe(root: str) -> str:
+    """What to call the version this checkout is on, in a word."""
+    _, described = git_run(root, ["describe", "--tags", "--always", "--dirty"], timeout=15.0)
+    return described.strip()
+
+
+def survey_releases(root: str) -> dict:
+    """One reading of the release channel: the tags, and what they leave us on."""
     fetched, trouble = fetch_releases(root)
     releases = read_tags(root)
     state = head_state(root)
@@ -316,7 +512,6 @@ def survey() -> dict:
     latest = releases[0] if releases else None
     # And what to call the version otherwise: the nearest release with how far
     # past it we are, which is what `git describe` is for.
-    _, described = git_run(root, ["describe", "--tags", "--always", "--dirty"], timeout=15.0)
 
     ahead = commits_between(root, latest["tag"], "HEAD") if latest else 0
     blocked = why_not(state, branch, ahead)
@@ -327,8 +522,10 @@ def survey() -> dict:
         "ok": True,
         "repo": True,
         "checking": False,
+        "channel": "release",
+        "devBranch": DEV_BRANCH,
         "current": at["tag"] if at else "",
-        "described": described.strip(),
+        "described": describe(root),
         "latest": latest["tag"] if latest else "",
         "latestAt": latest["at"] if latest else 0,
         "behind": len(missing),
@@ -460,18 +657,23 @@ def do_update(tag: str) -> tuple[bool, str, bool]:
         return False, state.get("message") or "Could not check for a newer release", False
     if not state.get("canUpdate"):
         return False, state.get("why") or "There is no newer release to move to", False
+    dev = state.get("channel") == "development"
+    named = f"the tip of {state.get('devBranch') or DEV_BRANCH}" if dev else "the newest release"
     wanted = str(tag or "").strip()
     if wanted and wanted != state["latest"]:
-        return False, (f"The newest release is {state['latest']} now, not {wanted} — "
+        return False, (f"{named.capitalize()} is {state['latest'][:9]} now, not {wanted[:9]} — "
                        f"have another look before updating"), False
 
     target = state["latest"]
     # --detach: a release is a commit that was published, and this lands on
     # exactly that. Moving the default branch instead would put the panel on the
-    # tip of main, which is not the thing the button offered.
+    # tip of main, which is not the thing the button offered. The development
+    # channel lands the same way, on the commit the branch is pointing at, so
+    # that following a branch never means being *on* a branch — the next update
+    # is a fresh detach rather than a merge into whatever is checked out.
     ok, said = git_write(str(ROOT), ["switch", "--detach", target])
     if not ok:
-        return False, git_said(said) or f"Could not check {target} out", False
+        return False, git_said(said) or f"Could not check {target[:9]} out", False
 
     with UPDATE_LOCK:
         UPDATE_HELD.clear()
@@ -487,10 +689,11 @@ def do_update(tag: str) -> tuple[bool, str, bool]:
     threading.Timer(RESTART_DELAY, restart_now).start()
     also = (f", stopping {stopping} session{'' if stopping == 1 else 's'} it was running"
             if stopping else "")
+    shown = target[:9] if dev else target
     if not built:
-        return True, (f"On {target} — but its frontend did not build, so the panel restarts on "
+        return True, (f"On {shown} — but its frontend did not build, so the panel restarts on "
                       f"the previous one{also}: {git_said(note)}"), True
-    return True, f"Updated to {target} — restarting the panel on it now{also}", True
+    return True, f"Updated to {shown} — restarting the panel on it now{also}", True
 
 
 def restart_now() -> None:

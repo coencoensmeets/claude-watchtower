@@ -6,6 +6,7 @@ Entries say what changed and, where it is not obvious, why. Anything worth a par
 
 ## Unreleased
 
+- **An update channel, so unreleased features can be tried.** **Panel version** in Settings now picks between **Releases** — the tags, which is the default and what everybody else is running — and **Development**, which follows the tip of the `develop` branch: written and merged, not released yet. The rules do not change with the channel: nothing moves over uncommitted work, nothing takes the browser's word for the target, and the checkout lands detached on the commit it was offered. The choice is remembered outside the checkout, because an update replaces the checkout.
 - **Open in terminal works again.** It read the flag for *the panel is holding this session* as if it meant *a turn is running*, and the button is only drawn for sessions the panel holds — so it was disabled for the whole of a session's life, explaining itself by asking you to wait for a turn that had usually finished minutes ago. It now asks the same question the server does, and says how many typed-ahead messages the hand-back would take with it.
 
 ## 0.2.1 — 2026-08-27
