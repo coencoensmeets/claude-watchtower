@@ -89,7 +89,7 @@ const OWNED_MODE_LABEL = { default: "Manual", auto: "Auto", plan: "Plan", accept
 let FEED = {};
 const ownedFor = (s) => FEED[s.sessionId] || {};
 const ICON = { check: "<svg/>", ask: "<svg/>", play: "<svg/>", stop: "<svg/>", compact: "<svg/>",
-               file: "<svg/>", terminal: "<svg/>" };
+               file: "<svg/>", terminal: "<svg/>", discard: "<svg/>" };
 const ownedAskCard = () => "<ASKCARD>";
 let IMAGES = {};
 const imagesFor = (id) => IMAGES[id] || [];
@@ -100,7 +100,7 @@ const catalog = { get entries() { return CATALOG.entries; },
 `;
 
 const { composer, modeBar, setFeed, setImages, sendBlockedReason, runsHere, queuedStrip,
-        stopButton, terminalAction, attachedStrip, contextBar, terminalOnly, sentAs, knownCommand,
+        stopButton, terminalAction, clearOffer, attachedStrip, contextBar, terminalOnly, sentAs, knownCommand,
         compactPct, drawnStateOf, STATE, STATE_ORDER, setCatalog,
         pathOfUri, pathsOn, dragCarriesFiles, quotePath, insertAtCaret, withImages } = new Function(
   `const app = { feed: { canSend: true }, skew: 0 };
@@ -116,6 +116,7 @@ const { composer, modeBar, setFeed, setImages, sendBlockedReason, runsHere, queu
    ${lift("attachedStrip")}
    ${lift("stopButton")}
    ${lift("terminalAction")}
+   ${liftConst("clearOffer")}
    ${liftConst("STATE")}
    ${liftConst("STATE_ALIAS")}
    ${liftConst("STATE_ORDER")}
@@ -145,6 +146,7 @@ const { composer, modeBar, setFeed, setImages, sendBlockedReason, runsHere, queu
    ${lift("withImages")}
    return { pathOfUri, pathsOn, dragCarriesFiles, quotePath, insertAtCaret, withImages,
             composer, modeBar, runsHere, queuedStrip, stopButton, terminalAction, attachedStrip, contextBar,
+            clearOffer,
             compactPct, drawnStateOf, STATE, STATE_ORDER,
             sendBlockedReason: LIFTED_BLOCKED, setFeed: (f) => { FEED = f; app.feed.owned = f; },
             setImages: (i) => { IMAGES = i; },
@@ -319,6 +321,26 @@ check("and it counts what is typed ahead, since that goes with the hand-back",
     .match(/title="([^"]*)"/) || [])[1]);
 check("a session already in a terminal is not offered it — it is already there",
   terminalAction({ sessionId: "live", cwd: "/tmp/p", alive: true, status: "idle" }) === "");
+
+/* Clearing. The same transport question as the rest of this file: `/clear` is
+   the terminal's own command over a socket and an ordinary one down a held
+   pipe, so the button exists for exactly one of the two. */
+setFeed({ kept: ours });
+const heldSession = { sessionId: "kept", cwd: "/tmp/p", alive: false, status: "stopped", spoken: true };
+check("a session the panel runs is offered Clear", clearOffer(heldSession) === true);
+check("and it is in the context bar beside Compact",
+  contextBar({ ...heldSession, context: { tokens: 200000, window: 1000000, share: 0.2 } })
+    .includes(`data-act="clear"`),
+  contextBar({ ...heldSession, context: { tokens: 200000, window: 1000000, share: 0.2 } }));
+check("offered even with room to spare, unlike Compact — starting again is not about room",
+  contextBar({ ...heldSession, context: { tokens: 1000, window: 1000000, share: 0.001 } })
+    .includes(`data-act="clear"`)
+  && !contextBar({ ...heldSession, context: { tokens: 1000, window: 1000000, share: 0.001 } })
+    .includes(`data-act="compact"`));
+check("a session in a terminal is not — there it is the terminal's own command",
+  clearOffer({ sessionId: "live", cwd: "/tmp/p", alive: true, status: "idle", spoken: true }) === false);
+check("nor is one that has never said anything — there is nothing to clear",
+  clearOffer({ ...heldSession, spoken: false }) === false);
 
 /* Stopping the train of thought. Only a session the panel holds has a channel
    for it — the interrupt goes down the pipe the panel owns — so that is the only

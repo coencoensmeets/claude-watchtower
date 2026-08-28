@@ -6,6 +6,8 @@ Entries say what changed and, where it is not obvious, why. Anything worth a par
 
 ## Unreleased
 
+- **Clear works, on the transport where it can.** A **Clear** button beside *Compact* for a session the panel runs: `/clear` down the held pipe, which expands it, where a session's messaging socket queues it with expansion off and turns it into prose. The catch is that Claude Code does not empty a conversation in place — it starts a new one under a new session id — so the panel follows the session there: the held process, the queue, the mode, the row, and the name you gave it all move together, and the old transcript stays on disk. For a session in a terminal `/clear` is still the terminal's own, and the panel still says so rather than sending something that does nothing.
+
 - **The address on the phone page carries its own copy button.** A copy icon on the right-hand end of the address, in the box the address already sits in, instead of a *Copy the address* button underneath saying what it would copy. It ticks when it has, the way the copy on a code block does.
 
 - **Pictures in a message are shown.** A screenshot, a plot, a picture pasted into the box: named as markdown, as an `<img>` tag, or as the `[Pasted image: …]` line the composer writes, it is drawn in the conversation instead of described in it. The panel serves the file itself, and only if it exists, is a picture, and sits inside your home folder, the session's own, or the system temp folder. A remote image is still not fetched, and a tag is rebuilt from its `src` rather than passed through.

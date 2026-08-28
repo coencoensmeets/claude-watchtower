@@ -37,7 +37,7 @@ from watchtower.input import (
 )
 from watchtower.owned import (
     OWNED_BUSY, OWNED_COMPACT, OWNED_MODES, OWNED_QUEUE, _OWNED_LOCK, answer_from_panel,
-    load_owned, owned_hold, owned_interrupt, owned_new, owned_queued, owned_release,
+    load_owned, owned_clear, owned_hold, owned_interrupt, owned_new, owned_queued, owned_release,
     owned_resume, owned_running, owned_say, owned_set_mode, owned_unqueue, save_owned,
 )
 from watchtower.paste import (DROP_MAX_BYTES, PASTE_MAX_BYTES, POST_MAX_BYTES,
@@ -1056,6 +1056,32 @@ class Handler(BaseHTTPRequestHandler):
         index = int(raw) if isinstance(raw, (int, float)) and not isinstance(raw, bool) else None
         ok, message = owned_unqueue(session_id, index)
         self._json({"ok": ok, "message": message, "queued": owned_queued(session_id)},
+                   200 if ok else 409)
+
+    @route("POST", "/api/owned/clear")
+    def _post_owned_clear(self, payload: dict, session_id: str) -> None:
+        """Start this session's conversation again, empty.
+
+        The same argument as /api/owned/compact, and the same one transport:
+        `/clear` over a session's messaging socket is queued with expansion
+        switched off and arrives as prose, so this is offered for a session the
+        panel holds and refused for one in a terminal — where it is the
+        terminal's own command and always was.
+
+        The answer carries the id the session has *become*. Clearing does not
+        empty a conversation in place: Claude Code starts a new one and reports a
+        new session_id from then on, so the browser is told where to look rather
+        than left watching a row that has moved.
+        """
+        if not config.SAY_ENABLED:
+            self._json({"ok": False, "message": OFF_HERE}, 403)
+            return
+        if STORE.raw(session_id):
+            self._json({"ok": False, "message": "That session is in a terminal, and /clear is the "
+                                                "terminal's own — make it interactive first"}, 409)
+            return
+        ok, message, moved = owned_clear(session_id)
+        self._json({"ok": ok, "message": message, "sessionId": moved},
                    200 if ok else 409)
 
     @route("POST", "/api/owned/resume")

@@ -134,5 +134,118 @@ class QueueHold(unittest.TestCase):
         self.assertEqual(state["queued"], ["first"])
 
 
+class Clearing(unittest.TestCase):
+    """Starting a conversation again, and following it when it changes its name.
+
+    `/clear` does not empty a conversation in place: Claude Code starts a new one
+    and reports a new session id from then on — measured against 2.1.239, which
+    answered a `/clear` turn with a fresh `init` frame under a different id and
+    no memory of what came before. Everything the panel files under the old id
+    has to move with it, which is what these are about.
+    """
+
+    OLD = "old-id"
+    NEW = "new-id"
+
+    def setUp(self) -> None:
+        self.stores = [getattr(owned, name) for name in owned.OWNED_BY_ID]
+        for store in self.stores:
+            kept = dict(store)
+            store.clear()
+            self.addCleanup(lambda s=store, k=kept: (s.clear(), s.update(k)))
+        # The real wait is twenty seconds for a reader thread that does not exist
+        # here. What it waits *for* has a test of its own below.
+        was_wait = owned.CLEAR_WAIT
+        owned.CLEAR_WAIT = 0.05
+        self.addCleanup(setattr, owned, "CLEAR_WAIT", was_wait)
+        self.held = {"proc": Alive(), "mode": "plan", "cwd": "/tmp", "id": self.OLD}
+        owned.OWNED_PROCS[self.OLD] = self.held
+        self.sent: list[dict] = []
+        self._write_was = owned.owned_write
+        owned.owned_write = lambda sid, frame: (self.sent.append(frame) or True)
+        self.addCleanup(setattr, owned, "owned_write", self._write_was)
+        # Nothing here may touch the real rows, names or owned file.
+        self.rows: dict = {}
+        self.names: dict = {}
+        self.owned: dict = {}
+        for name, fake in (
+            ("kept_rows", lambda: self.rows),
+            ("keep_row", lambda entry: self.rows.__setitem__(entry["sessionId"], entry)),
+            ("forget_row", lambda sid: self.rows.pop(sid, None)),
+            ("load_names", lambda: self.names),
+            ("save_names", lambda names: self.names.update(names)),
+            ("load_owned", lambda: self.owned),
+            ("save_owned", lambda o: self.owned.update(o)),
+        ):
+            was = getattr(owned, name)
+            setattr(owned, name, fake)
+            self.addCleanup(setattr, owned, name, was)
+
+    def test_a_clear_goes_down_the_pipe_as_the_command(self) -> None:
+        ok, said, moved = owned.owned_clear(self.OLD)
+        self.assertTrue(ok, said)
+        texts = ["".join(p.get("text", "") for p in f["message"]["content"])
+                 for f in self.sent if f.get("type") == "user"]
+        self.assertEqual(texts, ["/clear"])
+
+    def test_it_is_refused_mid_turn(self) -> None:
+        owned.OWNED_BUSY[self.OLD] = 1.0
+        ok, said, _ = owned.owned_clear(self.OLD)
+        self.assertFalse(ok)
+        self.assertIn("mid-turn", said)
+        self.assertEqual(self.sent, [])
+
+    def test_and_with_something_typed_ahead_waiting(self) -> None:
+        # The queue is for this conversation. Clearing with one behind it would
+        # send it into a session that has just forgotten what it was about.
+        owned.OWNED_QUEUE[self.OLD] = ["and then the tests"]
+        ok, said, _ = owned.owned_clear(self.OLD)
+        self.assertFalse(ok)
+        self.assertEqual(self.sent, [])
+
+    def test_and_on_a_session_the_panel_does_not_hold(self) -> None:
+        ok, said, _ = owned.owned_clear("somebody-elses")
+        self.assertFalse(ok)
+        self.assertIn("not running", said)
+
+    def test_everything_filed_under_the_old_id_follows(self) -> None:
+        owned.OWNED_LAST[self.OLD] = {"ok": True}
+        owned.OWNED_COMPACT[self.OLD] = {"running": False}
+        owned.OWNED_COMMANDS[self.OLD] = {"available": ["clear"]}
+        self.rows[self.OLD] = {"sessionId": self.OLD, "name": "the robot one", "cwd": "/tmp"}
+        self.names[self.OLD] = "the robot one"
+        self.owned[self.OLD] = {"mode": "plan", "here": True}
+        owned.owned_rekey(self.OLD, self.NEW, self.held)
+        for store in (owned.OWNED_PROCS, owned.OWNED_LAST, owned.OWNED_COMPACT, owned.OWNED_COMMANDS):
+            self.assertIn(self.NEW, store)
+            self.assertNotIn(self.OLD, store)
+        self.assertEqual(self.held["id"], self.NEW)
+        self.assertEqual(self.rows[self.NEW]["name"], "the robot one")
+        self.assertEqual(self.rows[self.NEW]["cwd"], "/tmp")
+        self.assertNotIn(self.OLD, self.rows)
+        self.assertEqual(self.names.get(self.NEW), "the robot one")
+        self.assertEqual(self.owned.get(self.NEW), {"mode": "plan", "here": True})
+
+    def test_the_name_you_gave_it_is_not_lost(self) -> None:
+        self.rows[self.OLD] = {"sessionId": self.OLD, "name": "watchtower", "cwd": "/tmp"}
+        self.names[self.OLD] = "watchtower"
+        owned.owned_rekey(self.OLD, self.NEW, self.held)
+        self.assertEqual(self.names.get(self.NEW), "watchtower")
+
+    def test_going_nowhere_moves_nothing(self) -> None:
+        self.rows[self.OLD] = {"sessionId": self.OLD, "name": "x", "cwd": "/tmp"}
+        owned.owned_rekey(self.OLD, self.OLD, self.held)
+        owned.owned_rekey(self.OLD, "", self.held)
+        self.assertIn(self.OLD, self.rows)
+        self.assertIn(self.OLD, owned.OWNED_PROCS)
+
+    def test_whoever_asked_is_told_where_it_went(self) -> None:
+        import threading
+        moved = threading.Event()
+        self.held["moved"] = moved
+        owned.owned_rekey(self.OLD, self.NEW, self.held)
+        self.assertTrue(moved.is_set())
+
+
 if __name__ == "__main__":
     unittest.main()

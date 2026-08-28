@@ -1736,6 +1736,8 @@ function renderDetail(force = false) {
     run("/api/owned/interrupt", session, control(e)));
   detailPane.querySelector("[data-act='compact']")?.addEventListener("click", (e) =>
     compactSession(session, e.currentTarget));
+  detailPane.querySelector("[data-act='clear']")?.addEventListener("click", (e) =>
+    clearSession(session, e.currentTarget));
   // Leaving out a picture that was pasted by mistake. The file it saved stays
   // where it is — the sweep on the next paste is what clears it — and all this
   // drops is the panel's intention to name it.
@@ -2476,6 +2478,35 @@ async function compactSession(session, button) {
   });
   if (!ok) return;
   await run("/api/owned/compact", session, button, "Compacting…");
+}
+
+/* Starting the conversation again, empty. `/clear`, in other words, on the one
+   transport that expands it.
+
+   Two things are worth saying before it happens, and the dialog says both. The
+   session keeps running in the same folder — this is not ending it — and the
+   conversation that was cleared is still on disk, because Claude Code starts a
+   new one rather than emptying the old. Which is also why the panel has to be
+   told where the session went: it comes back under a new id, and the answer
+   carries it so the pane can follow rather than reporting the row as gone. */
+async function clearSession(session, button) {
+  const ctx = session.context;
+  const ok = await askConfirm({
+    headline: "Clear this conversation?",
+    body: `<span class="md-mono">${escapeHtml(session.name)}</span> carries on in the same
+      folder with nothing behind it${ctx ? `, in place of the
+      ${escapeHtml(tokens(ctx.tokens))} tokens it is carrying now` : ""} — the same thing
+      <span class="md-mono">/clear</span> does at a terminal's own prompt. It is not
+      ending the session, and nothing is deleted: the conversation you are reading
+      stays on disk, and the panel simply follows the session into its new one.`,
+    confirmLabel: "Clear it",
+    danger: false,
+  });
+  if (!ok) return;
+  const answer = await run("/api/owned/clear", session, button, "Clearing…");
+  // Cleared, and now called something else. Following it is the difference
+  // between "the conversation started again" and "the session disappeared".
+  if (answer?.ok && answer.sessionId) selectSession(answer.sessionId);
 }
 
 /* Taking a row off the list. The conversation is not what goes — the transcript
