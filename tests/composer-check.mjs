@@ -89,7 +89,7 @@ const OWNED_MODE_LABEL = { default: "Manual", auto: "Auto", plan: "Plan", accept
 let FEED = {};
 const ownedFor = (s) => FEED[s.sessionId] || {};
 const ICON = { check: "<svg/>", ask: "<svg/>", play: "<svg/>", stop: "<svg/>", compact: "<svg/>",
-               file: "<svg/>" };
+               file: "<svg/>", terminal: "<svg/>" };
 const ownedAskCard = () => "<ASKCARD>";
 let IMAGES = {};
 const imagesFor = (id) => IMAGES[id] || [];
@@ -100,7 +100,7 @@ const catalog = { get entries() { return CATALOG.entries; },
 `;
 
 const { composer, modeBar, setFeed, setImages, sendBlockedReason, runsHere, queuedStrip,
-        stopButton, attachedStrip, contextBar, terminalOnly, sentAs, knownCommand,
+        stopButton, terminalAction, attachedStrip, contextBar, terminalOnly, sentAs, knownCommand,
         compactPct, drawnStateOf, STATE, STATE_ORDER, setCatalog,
         pathOfUri, pathsOn, dragCarriesFiles, quotePath, insertAtCaret, withImages } = new Function(
   `const app = { feed: { canSend: true }, skew: 0 };
@@ -115,6 +115,7 @@ const { composer, modeBar, setFeed, setImages, sendBlockedReason, runsHere, queu
    ${lift("queuedStrip")}
    ${lift("attachedStrip")}
    ${lift("stopButton")}
+   ${lift("terminalAction")}
    ${liftConst("STATE")}
    ${liftConst("STATE_ALIAS")}
    ${liftConst("STATE_ORDER")}
@@ -143,7 +144,7 @@ const { composer, modeBar, setFeed, setImages, sendBlockedReason, runsHere, queu
    ${lift("insertAtCaret")}
    ${lift("withImages")}
    return { pathOfUri, pathsOn, dragCarriesFiles, quotePath, insertAtCaret, withImages,
-            composer, modeBar, runsHere, queuedStrip, stopButton, attachedStrip, contextBar,
+            composer, modeBar, runsHere, queuedStrip, stopButton, terminalAction, attachedStrip, contextBar,
             compactPct, drawnStateOf, STATE, STATE_ORDER,
             sendBlockedReason: LIFTED_BLOCKED, setFeed: (f) => { FEED = f; app.feed.owned = f; },
             setImages: (i) => { IMAGES = i; },
@@ -294,6 +295,30 @@ check("and says what typing something else would do, since that is the third way
   /goes in last/.test(held));
 check("a queue nobody stopped is not asking anything",
   !/data-act="resume"/.test(composer({ sessionId: "one", status: "busy" })));
+
+/* Handing a session back to a terminal. The button is offered for a session the
+   panel runs, and refused mid-turn — which is a turn *in flight*, not the panel
+   merely holding the session. Reading the wrong flag disabled it for the whole
+   of a session's life and told you to wait for a turn that had finished. */
+const ours = { mode: "auto", here: true, running: true, busy: false };
+setFeed({ kept: ours });
+const back = terminalAction({ sessionId: "kept", cwd: "/tmp/p", alive: false, status: "stopped" });
+check("a session the panel runs can be handed back to a terminal",
+  back.includes('data-act="terminal"') && !back.includes("disabled"), back);
+check("and the hint says what handing it back does",
+  /lets go of it/.test(back), (back.match(/title="([^"]*)"/) || [])[1]);
+setFeed({ kept: { ...ours, busy: true } });
+const handBack = terminalAction({ sessionId: "kept", cwd: "/tmp/p", alive: false, status: "stopped" });
+check("mid-turn it is refused, and says which turn", handBack.includes("disabled")
+  && /turn from the panel is running/.test(handBack), (handBack.match(/title="([^"]*)"/) || [])[1]);
+setFeed({ kept: { ...ours, queued: ["and then the tests", "and push it"] } });
+check("and it counts what is typed ahead, since that goes with the hand-back",
+  /2 messages waiting behind it go too/.test(
+    terminalAction({ sessionId: "kept", cwd: "/tmp/p", alive: false, status: "stopped" })),
+  (terminalAction({ sessionId: "kept", cwd: "/tmp/p", alive: false, status: "stopped" })
+    .match(/title="([^"]*)"/) || [])[1]);
+check("a session already in a terminal is not offered it — it is already there",
+  terminalAction({ sessionId: "live", cwd: "/tmp/p", alive: true, status: "idle" }) === "");
 
 /* Stopping the train of thought. Only a session the panel holds has a channel
    for it — the interrupt goes down the pipe the panel owns — so that is the only
