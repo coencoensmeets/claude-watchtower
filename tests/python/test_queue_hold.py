@@ -148,7 +148,7 @@ class Clearing(unittest.TestCase):
     NEW = "new-id"
 
     def setUp(self) -> None:
-        self.stores = [getattr(owned, name) for name in owned.OWNED_BY_ID]
+        self.stores = [getattr(owned, name) for name in owned.OWNED_BY_ID] + [owned.OWNED_MOVED]
         for store in self.stores:
             kept = dict(store)
             store.clear()
@@ -238,6 +238,27 @@ class Clearing(unittest.TestCase):
         owned.owned_rekey(self.OLD, "", self.held)
         self.assertIn(self.OLD, self.rows)
         self.assertIn(self.OLD, owned.OWNED_PROCS)
+
+    def test_the_feed_says_where_a_cleared_session_went(self) -> None:
+        # The browser is looking at the old id when it happens, and a row that
+        # vanishes reads as a session that ended rather than one that carried on.
+        owned.owned_rekey(self.OLD, self.NEW, self.held)
+        self.assertEqual(owned.owned_moved().get(self.OLD), self.NEW)
+
+    def test_cleared_twice_still_leads_all_the_way(self) -> None:
+        # Not to the id it had in between: a browser that missed a poll is
+        # holding the first one, and following it should land on the last.
+        owned.owned_rekey(self.OLD, self.NEW, self.held)
+        owned.owned_rekey(self.NEW, "third-id", self.held)
+        self.assertEqual(owned.owned_moved().get(self.OLD), "third-id")
+        self.assertEqual(owned.owned_moved().get(self.NEW), "third-id")
+
+    def test_and_forgets_where_it_went_after_a_while(self) -> None:
+        import time as clock
+        owned.owned_rekey(self.OLD, self.NEW, self.held)
+        with owned._OWNED_LOCK:
+            owned.OWNED_MOVED[self.OLD] = (self.NEW, clock.time() - owned.MOVED_SECONDS - 1)
+        self.assertEqual(owned.owned_moved(), {})
 
     def test_whoever_asked_is_told_where_it_went(self) -> None:
         import threading

@@ -732,6 +732,8 @@ So the panel follows it. The held process, the queue, the mode, the row, the nam
 
 It is refused mid-turn and while anything is typed ahead — a queue is for the conversation it was typed into, and delivering it to a session that has just forgotten what it was about is not what waiting for a turn meant.
 
+**And the browser follows it too.** The row moving is only half the job: the pane is looking at the old id, and a row that vanishes reads as a session that ended rather than one that carried on — the panel used to drop you on whatever was at the top of the list. So the feed carries where a cleared session went (`moved`, old id to new, kept for five minutes), and the selection follows it before falling back to anything else. A session cleared twice leads all the way to where it is now rather than to the id it had in between.
+
 **Typing `/clear` into the box does the same thing.** It has to: for a session the panel runs, what you type is what goes, so `/clear` reaches the pipe as the command and Claude Code acts on it whether or not the panel was the one asking. So following the session is not conditional on the button — the reader moves the row whenever the id on the pipe changes, however it changed. Gating that on "the panel asked for this" was the first version and it was a hole: the conversation cleared, and the row went on showing a transcript that had stopped growing. The same is true of a `/clear` typed ahead and delivered a turn later.
 
 ### Make interactive
@@ -994,7 +996,7 @@ PANEL_URL=http://127.0.0.1:8787 node tests/ui-check.mjs
 
 | Route | Purpose |
 |---|---|
-| `GET /api/state` | Every live session, with status, trace, window match, and the `question` it is standing at if it is standing at one |
+| `GET /api/state` | Every live session, with status, trace, window match, and the `question` it is standing at if it is standing at one , plus `moved`: where a cleared session went, so a browser holding the old id can follow it |
 | `GET /api/transcript` | `?sessionId=…&limit=…` — the recent conversation |
 | `GET /api/change?sessionId=…&id=…` | The whole of one file change, by the tool-use id its preview in the chat carries: the patch as unified text, what it added and removed, and whether it was long enough to be clipped |
 | `GET /api/usage` | `?sessionId=…` — that session's token totals per model, the cost they come to, and the size of its last context |

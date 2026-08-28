@@ -190,6 +190,8 @@ export interface Feed {
   now: number;
   sessions: Session[];
   historySeconds: number;
+  /** Old session id -> the id it has now, for a session that was cleared. */
+  moved?: Record<string, string>;
   canFocus: boolean;
   canSend: boolean;
   canPickFolder?: boolean;

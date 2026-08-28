@@ -666,7 +666,13 @@ function render() {
   const ordered = arrange(app.feed.sessions);
   const visible = app.filter === "all" ? ordered : ordered.filter((s) => stateKeyOf(s.status) === app.filter);
   if (!visible.some((s) => s.sessionId === app.selectedId)) {
-    app.selectedId = visible.length ? visible[0].sessionId : null;
+    // A session that was cleared is not a session that ended: it is the same
+    // conversation carrying on under a new id, and the panel says where it went.
+    // Followed before the fall-back, or clearing the session you are reading
+    // would drop you on somebody else's — which is what it did.
+    const went = (app.feed.moved || {})[app.selectedId];
+    const followed = went && visible.some((s) => s.sessionId === went) ? went : null;
+    app.selectedId = followed || (visible.length ? visible[0].sessionId : null);
     if (app.selectedId) localStorage.setItem("cbu-selected", app.selectedId);
   }
 

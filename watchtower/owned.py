@@ -355,6 +355,23 @@ def answer_from_panel(session_id: str, request_id: str, decision: dict) -> tuple
 OWNED_CLEARING: dict[str, float] = {}
 
 
+# old id -> (new id, when). A cleared session comes back under a different id,
+# and something has to say where it went: the browser is looking at the old one,
+# and a row that vanishes reads as a session that ended. Held for a few minutes,
+# which is far longer than the poll that needs it.
+OWNED_MOVED: dict[str, tuple[str, float]] = {}
+MOVED_SECONDS = 300.0
+
+
+def owned_moved() -> dict[str, str]:
+    """Where recently cleared sessions went, for the feed to carry."""
+    now = time.time()
+    with _OWNED_LOCK:
+        for old in [k for k, (_, when) in OWNED_MOVED.items() if now - when > MOVED_SECONDS]:
+            OWNED_MOVED.pop(old, None)
+        return {old: new for old, (new, _) in OWNED_MOVED.items()}
+
+
 # Everything filed under a session id, so a session that changes its id can be
 # followed rather than lost. Every one of these is keyed the same way, and a
 # clear that moved eight of the nine would be a bug nobody found until the ninth
@@ -408,6 +425,13 @@ def owned_rekey(old: str, new: str, held: dict) -> None:
     # Whoever asked for the clear is waiting to be told where the session went,
     # so that the browser can go on looking at it rather than at a row that is
     # not there any more.
+    with _OWNED_LOCK:
+        OWNED_MOVED[old] = (new, time.time())
+        # A session cleared twice leaves a trail, and the trail has to lead all
+        # the way to where it is now rather than to the id it had in between.
+        for older, (went, when) in list(OWNED_MOVED.items()):
+            if went == old:
+                OWNED_MOVED[older] = (new, when)
     # So the turn this happened in reports itself as a clear whichever way it
     # was asked for — the button sets OWNED_CLEARING, and `/clear` typed into
     # the box does not.

@@ -6,6 +6,7 @@ Entries say what changed and, where it is not obvious, why. Anything worth a par
 
 ## Unreleased
 
+- **And the pane follows a cleared session rather than dropping you elsewhere.** Clearing gives a session a new id, so the row you were reading disappears and the panel used to fall back to whatever was at the top of the list. The feed now carries where it went, and the selection follows.
 - **`/clear` typed into the box works too, and does not strand the panel.** Following a cleared session to its new id was conditional on the panel's own button having asked for it, which left the command you can type doing half the job: the conversation cleared and the row went on showing a transcript that had stopped growing. The reader now follows the session whenever the id on its pipe changes, however it changed.
 - **Clear works, on the transport where it can.** A **Clear** button beside *Compact* for a session the panel runs: `/clear` down the held pipe, which expands it, where a session's messaging socket queues it with expansion off and turns it into prose. The catch is that Claude Code does not empty a conversation in place — it starts a new one under a new session id — so the panel follows the session there: the held process, the queue, the mode, the row, and the name you gave it all move together, and the old transcript stays on disk. For a session in a terminal `/clear` is still the terminal's own, and the panel still says so rather than sending something that does nothing.
 
