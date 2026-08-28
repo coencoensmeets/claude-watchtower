@@ -52,7 +52,7 @@ from watchtower.store import STORE
 from watchtower.transcript import (
     TRANSCRIPT_LIMIT_MAX, has_conversation, read_change, read_transcript,
 )
-from watchtower.update import do_update, read_update, running_here
+from watchtower.update import do_update, read_channel, read_update, write_channel, running_here
 from watchtower.usage import read_usage
 from watchtower.windows import (
     WINDOWS, activate, clean_name, identify_and_pair, load_names, load_pairs, resolve_window,
@@ -505,6 +505,19 @@ class Handler(BaseHTTPRequestHandler):
             return
         ok, message, restarting = do_update(str(payload.get("tag") or ""))
         self._json({"ok": ok, "message": message, "restarting": restarting}, 200 if ok else 409)
+
+    @route("POST", "/api/update/channel")
+    def _post_update_channel(self, payload: dict, session_id: str) -> None:
+        # Which line this install follows. Behind the same gate as the update
+        # itself, and for the same reason: it decides what that button will
+        # check out, so somewhere that cannot press it has no business choosing.
+        if not config.SAY_ENABLED:
+            self._json({"ok": False, "message": "Choosing an update channel is off because the "
+                                                "panel is not bound to loopback"}, 403)
+            return
+        ok, message = write_channel(str(payload.get("channel") or ""))
+        self._json({"ok": ok, "message": message, "channel": read_channel()},
+                   200 if ok else 400)
 
     @route("GET", "/api/git")
     def _get_git(self) -> None:

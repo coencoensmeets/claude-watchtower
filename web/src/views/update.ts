@@ -1,5 +1,7 @@
+import { app } from "../state.js";
 import { detailPane } from "../ui/dom.js";
 import { ago, escapeHtml } from "../ui/format.js";
+import { ICON } from "../ui/icons.js";
 import { showSnackbar } from "../ui/snackbar.js";
 import { changelogMissing, openChangelog } from "./changelog.js";
 
@@ -97,10 +99,25 @@ function paintUpdateChip() {
   updateButton.hidden = !update?.canUpdate;
   if (updateButton.hidden) return;
   updateButton.dataset.state = "ready";
-  updateChipText.textContent = update.latest;
-  updateButton.title = `${update.latest} is out — press to see what changed`;
+  updateChipText.textContent = onDevelopment() ? named(update.latest) : update.latest;
+  updateButton.title = onDevelopment()
+    ? `${devBranch()} has moved on — press to see what changed`
+    : `${update.latest} is out — press to see what changed`;
 }
 
+
+/* Which line this install follows, and the words that go with it. The dialog and
+   the settings section are the same in both channels apart from these: a release
+   has a version and notes, a branch has a commit and its subject line. */
+const onDevelopment = () => update?.channel === "development";
+const devBranch = () => update?.devBranch || "the development branch";
+/* "release" or "commit", for the sentences that name what is being moved to. */
+const thing = (many = false) => (onDevelopment() ? (many ? "commits" : "commit")
+  : (many ? "releases" : "release"));
+/* What is on the other end: the newest release, or the tip of the branch. */
+const newest = () => (onDevelopment() ? `the tip of ${devBranch()}` : "the newest release");
+/* A commit is named by its short sha; a release by its tag. */
+const named = (what) => (onDevelopment() ? String(what || "").slice(0, 9) : String(what || ""));
 
 /* What the panel is on now, said the way somebody would say it: the release, or
    the nearest release and how far past it, or just the commit. */
@@ -136,7 +153,9 @@ function paintUpdateDialog() {
     age.textContent = "";
     return;
   }
-  headline.textContent = update.canUpdate ? `${update.latest} is out` : "About this version";
+  headline.textContent = !update.canUpdate ? "About this version"
+    : onDevelopment() ? `${update.behind} new ${thing(update.behind !== 1)} on ${devBranch()}`
+    : `${update.latest} is out`;
   head.textContent = update.message || update.why || "";
   head.hidden = !head.textContent;
 
@@ -144,8 +163,14 @@ function paintUpdateDialog() {
   body.innerHTML = `
     <dl class="update-facts md-body-medium">
       <dt>On now</dt><dd class="md-mono">${escapeHtml(whereWeAre())}</dd>
-      <dt>Newest release</dt><dd class="md-mono">${escapeHtml(update.latest || "none tagged yet")}</dd>
-      ${update.behind ? `<dt>Behind by</dt><dd>${update.behind} release${update.behind === 1 ? "" : "s"}</dd>` : ""}
+      <dt>${onDevelopment() ? "Tip of " + escapeHtml(devBranch()) : "Newest release"}</dt>
+      <dd class="md-mono">${escapeHtml(named(update.latest) || (onDevelopment()
+        ? "not found on the remote" : "none tagged yet"))}</dd>
+      ${update.behind ? `<dt>Behind by</dt><dd>${update.behind} ${
+        thing(update.behind !== 1)}</dd>` : ""}
+      <dt>Following</dt><dd>${onDevelopment()
+        ? `${escapeHtml(devBranch())} — development, not a release`
+        : "the releases"}</dd>
       <dt>Checkout</dt><dd>${escapeHtml(update.detached
         ? "detached — sitting on a commit rather than a branch"
         : update.branch || "unknown")}${update.dirty ? ", with uncommitted work" : ""}</dd>
@@ -163,8 +188,8 @@ function paintUpdateDialog() {
     </section>` : ""}
     ${update.canUpdate ? runningSays(update.running) : ""}
     ${update.canUpdate ? `<p class="update-warning md-body-small">
-      Updating checks the tag out itself, so the checkout ends up detached at
-      ${escapeHtml(update.latest)} rather than on ${escapeHtml(update.defaultBranch || "a branch")} —
+      Updating checks it out itself, so the checkout ends up detached at
+      ${escapeHtml(named(update.latest))} rather than on ${escapeHtml(update.defaultBranch || "a branch")} —
       <span class="md-mono">git switch ${escapeHtml(update.defaultBranch || "main")}</span> puts it back.
       The panel then rebuilds its frontend and ${update.restart === "systemd"
         ? "asks systemd to restart it" : "restarts itself"}.</p>` : ""}`;
@@ -206,6 +231,7 @@ export function paintUpdateSetting() {
     : update.why ? "held"
     : "current";
   box.dataset.state = state;
+  box.dataset.channel = update?.channel || "release";
   box.innerHTML = `
     <h3 class="section__title md-title-small">Panel version</h3>
     <div class="update-setting">
@@ -215,6 +241,7 @@ export function paintUpdateSetting() {
         <p class="update-setting__says md-label-small">${escapeHtml(saysAbout(state))}</p>
       </div>
       <div class="update-setting__acts">
+        ${channelPicker()}
         ${changelogMissing()
           ? ""
           : `<button class="button button--text md-state" id="changelogOpen">Changelog</button>`}
@@ -225,17 +252,68 @@ export function paintUpdateSetting() {
               checking ? "Checking…" : "Check for updates"}</button>`}
       </div>
     </div>`;
+  for (const button of box.querySelectorAll<HTMLElement>("[data-channel]")) {
+    button.addEventListener("click", () => pickChannel(button.dataset.channel));
+  }
   box.querySelector("#changelogOpen")?.addEventListener("click", () => openChangelog(true));
   box.querySelector("#updateRecheck")?.addEventListener("click", async () => {
     // Forced, so it goes past the server's own six-hour hold: pressing this is
     // somebody asking, which is exactly the case the hold is not for.
     await fetchUpdate(true);
-    if (update?.canUpdate) showSnackbar(`${update.latest} is out`);
-    else if (update?.why) showSnackbar(update.why);
+    if (update?.canUpdate) {
+      showSnackbar(onDevelopment()
+        ? `${update.behind} new ${thing(update.behind !== 1)} on ${devBranch()}`
+        : `${update.latest} is out`);
+    } else if (update?.why) showSnackbar(update.why);
     else if (update?.message) showSnackbar(update.message);
-    else showSnackbar("Already on the newest release");
+    else showSnackbar(onDevelopment() ? `Already on the tip of ${devBranch()}`
+                                      : "Already on the newest release");
   });
   box.querySelector("#updateOpen")?.addEventListener("click", () => openUpdate(true));
+}
+
+/* Which line to follow. Two buttons rather than a switch, because neither of
+   them is the off position: releases and development are both somewhere to be,
+   and a switch would make one of them read as a setting turned on.
+
+   Drawn only where the panel could act on it. Off loopback the update button is
+   refused anyway, and a picker that changes nothing you can then press is worse
+   than no picker. */
+function channelPicker() {
+  if (!app.feed.canSend || !update?.repo) return "";
+  const on = update.channel === "development" ? "development" : "release";
+  const options = [
+    ["release", "Releases", "Tagged versions, which is what everybody else is running"],
+    ["development", "Development",
+     `The tip of ${update.devBranch || "develop"} — features that are written but not released`],
+  ];
+  return `<div class="segmented update-channel" role="group" aria-label="Update channel">
+      ${options.map(([key, label, why]) => `<button class="segmented__item md-state" type="button"
+        data-channel="${key}" aria-pressed="${String(key === on)}"
+        title="${escapeHtml(why)}">${ICON.check}<span>${label}</span></button>`).join("")}
+    </div>`;
+}
+
+async function pickChannel(channel) {
+  if (!channel || channel === (update?.channel || "release")) return;
+  let answer = {};
+  try {
+    const response = await fetch("/api/update/channel", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ channel }),
+    });
+    answer = await response.json().catch(() => ({}));
+  } catch (error) {
+    answer = { ok: false, message: "The panel did not answer" };
+  }
+  showSnackbar(answer.message || "Could not change the channel");
+  if (!answer.ok) return;
+  // The reading is about a channel as much as a moment — the server threw its
+  // held one away — so this asks again rather than repainting the old answer
+  // under a new label.
+  await fetchUpdate(true);
+  paintUpdateSetting();
+  paintUpdateChip();
 }
 
 /* One line under the version saying what the state of it means. */
@@ -246,11 +324,19 @@ function saysAbout(state) {
                       : update?.message || "Nothing read yet";
   }
   if (state === "ready") {
-    return `${update.latest} is out — ${update.behind} release${update.behind === 1 ? "" : "s"} ahead of this one`;
+    return onDevelopment()
+      ? `${devBranch()} is ${update.behind} ${thing(update.behind !== 1)} ahead of this one`
+      : `${update.latest} is out — ${update.behind} release${update.behind === 1 ? "" : "s"} ahead of this one`;
   }
   if (state === "held") return update.why;
   // Up to date. Worth saying which release that is, and when it was cut: "you
   // are on the newest" reads as an assertion, and the date is the evidence.
+  if (onDevelopment()) {
+    return update.latest
+      ? `On the tip of ${devBranch()}${update.latestAt
+          ? `, pushed ${ago(Date.now() / 1000 - update.latestAt)}` : ""}`
+      : `${devBranch()} is not on the remote — nothing to follow`;
+  }
   return update.latest
     ? `${update.latest} is the newest release${update.latestAt
         ? `, cut ${ago(Date.now() / 1000 - update.latestAt)}` : ""}`

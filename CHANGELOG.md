@@ -6,6 +6,8 @@ Entries say what changed and, where it is not obvious, why. Anything worth a par
 
 ## Unreleased
 
+- **An update channel, so unreleased features can be tried.** **Panel version** in Settings now picks between **Releases** — the tags, which is the default and what everybody else is running — and **Development**, which follows the tip of the `develop` branch: written and merged, not released yet. The rules do not change with the channel: nothing moves over uncommitted work, nothing takes the browser's word for the target, and the checkout lands detached on the commit it was offered. The choice is remembered outside the checkout, because an update replaces the checkout.
+
 ## 0.2.1 — 2026-08-27
 
 - **A click on an icon does what the icon says.** Every icon-only control in the panel — the copy button on a code block, the ⋯ on a turn, the buttons in the app bar — is a button with an `<svg>` filling its face, and the delegated hit test insisted the thing clicked was an HTML element. An `<svg>` is not one. So the ring of button around the glyph answered and the middle did not, which reads as a button that works if you hit it just right and is dead if you aim at it. The copy button was the worst of them, being almost entirely glyph.
