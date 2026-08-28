@@ -6,6 +6,8 @@ Entries say what changed and, where it is not obvious, why. Anything worth a par
 
 ## Unreleased
 
+- **Open in terminal works again.** It read the flag for *the panel is holding this session* as if it meant *a turn is running*, and the button is only drawn for sessions the panel holds — so it was disabled for the whole of a session's life, explaining itself by asking you to wait for a turn that had usually finished minutes ago. It now asks the same question the server does, and says how many typed-ahead messages the hand-back would take with it.
+
 ## 0.2.1 — 2026-08-27
 
 - **A click on an icon does what the icon says.** Every icon-only control in the panel — the copy button on a code block, the ⋯ on a turn, the buttons in the app bar — is a button with an `<svg>` filling its face, and the delegated hit test insisted the thing clicked was an HTML element. An `<svg>` is not one. So the ring of button around the glyph answered and the middle did not, which reads as a button that works if you hit it just right and is dead if you aim at it. The copy button was the worst of them, being almost entirely glyph.
