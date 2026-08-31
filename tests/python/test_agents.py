@@ -68,9 +68,6 @@ class SubagentFixture:
         transcript_module.PROJECT_DIR = self.original
         self.tmp.cleanup()
 
-
-class SubagentLayout(SubagentFixture, unittest.TestCase):
-
     def write_agent(self, agent_id, lines, meta=None, age=0.0) -> Path:
         path = self.agents_dir / f"agent-{agent_id}.jsonl"
         path.write_text("".join(line + "\n" for line in lines))
@@ -82,6 +79,9 @@ class SubagentLayout(SubagentFixture, unittest.TestCase):
             when = time.time() - age
             os.utime(path, (when, when))
         return path
+
+
+class SubagentLayout(SubagentFixture, unittest.TestCase):
 
     def test_finds_the_directory_beside_the_transcript(self):
         found = agents.subagent_dir(SESSION, "/home/someone/work")
@@ -157,6 +157,36 @@ class SubagentLayout(SubagentFixture, unittest.TestCase):
         (self.agents_dir / "agent-bad.jsonl").write_text(entry() + "\n")
         found = agents.list_subagents(SESSION, "/home/someone/work")
         self.assertEqual([item["agentId"] for item in found], ["aaa"])
+
+
+class ReadingOne(SubagentFixture, unittest.TestCase):
+    """Opening one subagent's conversation."""
+
+    def test_reads_the_conversation_and_names_the_agent(self):
+        self.write_agent("aaa", [entry(text="I looked around")],
+                         meta={"agentType": "Explore", "model": "haiku"})
+        found = agents.read_subagent(SESSION, "/home/someone/work", "aaa")
+        self.assertTrue(found["ok"])
+        self.assertEqual(found["agentId"], "aaa")
+        self.assertEqual(found["agentType"], "Explore")
+        self.assertEqual(found["model"], "haiku")
+        self.assertEqual(found["state"], "done")
+        self.assertEqual([m["text"] for m in found["messages"]], ["I looked around"])
+
+    def test_an_unknown_agent_is_not_found(self):
+        found = agents.read_subagent(SESSION, "/home/someone/work", "nosuch")
+        self.assertFalse(found["ok"])
+
+    def test_an_id_that_is_not_an_id_is_refused_without_touching_the_disk(self):
+        for bad in ("../../etc/passwd", "a/b", "", "a" * 65, "aaa.jsonl"):
+            with self.subTest(bad=bad):
+                self.assertFalse(
+                    agents.read_subagent(SESSION, "/home/someone/work", bad)["ok"])
+
+    def test_a_session_with_no_subagents_finds_none(self):
+        other = "99999999-2222-3333-4444-555555555555"
+        (self.slug / f"{other}.jsonl").write_text("{}\n")
+        self.assertFalse(agents.read_subagent(other, "/home/someone/work", "aaa")["ok"])
 
 
 if __name__ == "__main__":

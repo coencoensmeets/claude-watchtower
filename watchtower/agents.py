@@ -24,7 +24,7 @@ import re
 import time
 from pathlib import Path
 
-from watchtower.transcript import reverse_lines, transcript_paths
+from watchtower.transcript import parse_transcript, reverse_lines, transcript_paths
 
 # An id off the wire is a path component, and this panel answers to a phone over
 # the network. Anything that is not this shape never reaches the filesystem.
@@ -154,5 +154,44 @@ def list_subagents(session_id: str, cwd: str) -> list[dict]:
 
 
 def read_subagent(session_id: str, cwd: str, agent_id: str, limit: int = 60) -> dict:
-    """One subagent's conversation, whole. Filled in by Task 2."""
-    raise NotImplementedError
+    """One subagent's conversation, whole.
+
+    The same shape /api/transcript returns, with the meta on top — so the panel
+    renders a subagent through the renderer it already has, and the only new part
+    is the header saying whose conversation it is.
+    """
+    missing = {"ok": False, "message": "That subagent is no longer there"}
+    if not AGENT_ID.match(agent_id or ""):
+        return missing
+    folder = subagent_dir(session_id, cwd)
+    if folder is None:
+        return missing
+    path = folder / f"agent-{agent_id}.jsonl"
+    # Resolved and checked rather than trusted: AGENT_ID already refuses a
+    # separator, and this refuses anything that got past it by another route.
+    try:
+        inside = path.resolve().parent == folder.resolve()
+    except OSError:
+        return missing
+    if not inside or not path.is_file():
+        return missing
+    meta_path = folder / f"agent-{agent_id}.meta.json"
+    try:
+        meta = json.loads(meta_path.read_text())
+    except (OSError, ValueError):
+        meta = {}
+    if not isinstance(meta, dict):
+        meta = {}
+    found = parse_transcript(path, limit, sidechain=True)
+    found.update({
+        "ok": True,
+        "sessionId": session_id,
+        "agentId": agent_id,
+        "agentType": str(meta.get("agentType") or "agent")[:60],
+        "description": str(meta.get("description") or "")[:200],
+        "spawnDepth": int(meta.get("spawnDepth") or 1),
+        "state": agent_state(path),
+    })
+    if isinstance(meta.get("model"), str) and meta["model"]:
+        found["model"] = meta["model"][:60]
+    return found
