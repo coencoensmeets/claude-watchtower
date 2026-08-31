@@ -845,19 +845,24 @@ function paintListItem(item, session) {
   // Claude gave a question is written to be a label, and a permission gate is
   // named for the tool it wants.
   const ask = standingAsk(session);
+  // A session that has fanned out reads as one session doing one thing without
+  // this. Only the running ones are worth a word: six finished agents are six
+  // things that already happened.
+  const fanned = session.agents?.running
+    ? `${session.agents.running} agent${session.agents.running === 1 ? "" : "s"}` : "";
   // The badge carries the kind, so the words beside it do not have to repeat it
   // — and it takes the place of the state word, which a standing prompt has
   // already said more precisely.
   const supporting = (ask ? `<span class="session-item__ask md-label-small">${
       ICON[ASK_ICON[ask.kind]]
     }${ASK_WORD[ask.kind]}</span>` : "")
-    + [ask ? ask.label : state.short, session.folder, nested].filter(Boolean)
+    + [ask ? ask.label : state.short, fanned, session.folder, nested].filter(Boolean)
       .map(escapeHtml).join(" · ");
   // `state.short` alongside the raw status, because they are not the same
   // question: a compacting session and a working one share a status, and the row
   // says different words for them.
   const signature = [stateKeyOf(session.status), state.short, session.name, session.folder, host.label,
-                     isSelected, session.pinned, subject, nested, ask?.kind, ask?.label].join(" ");
+                     isSelected, session.pinned, subject, nested, ask?.kind, ask?.label, fanned].join(" ");
   if (item.dataset.signature !== signature) {
     item.dataset.signature = signature;
     item.innerHTML = `
