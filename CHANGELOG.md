@@ -6,6 +6,9 @@ Entries say what changed and, where it is not obvious, why. Anything worth a par
 
 ## Unreleased
 
+- **A session says how many subagents it is running**, and a `Task` row in the conversation opens what that agent did — its own conversation, tools and changes included, drawn the way the session's is. A session that has fanned out six agents used to read as one session doing one thing, and everything those agents did was missing from between the row that sent them and the answer that came back.
+- **A session's spend now includes its subagents.** Each one keeps its own transcript, so the bill was counting only what the session itself said — on a fanned-out session that is a fraction of what was actually paid for.
+
 ## 0.2.1 — 2026-08-27
 
 - **A click on an icon does what the icon says.** Every icon-only control in the panel — the copy button on a code block, the ⋯ on a turn, the buttons in the app bar — is a button with an `<svg>` filling its face, and the delegated hit test insisted the thing clicked was an HTML element. An `<svg>` is not one. So the ring of button around the glyph answered and the middle did not, which reads as a button that works if you hit it just right and is dead if you aim at it. The copy button was the worst of them, being almost entirely glyph.
