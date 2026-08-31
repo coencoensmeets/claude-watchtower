@@ -189,5 +189,33 @@ class ReadingOne(SubagentFixture, unittest.TestCase):
         self.assertFalse(agents.read_subagent(other, "/home/someone/work", "aaa")["ok"])
 
 
+class NamingOnTheToolRow(SubagentFixture, unittest.TestCase):
+    """The Task call that spawned an agent says which agent it spawned."""
+
+    def spawned(self, tool_id) -> str:
+        return json.dumps({
+            "type": "assistant", "timestamp": "2026-08-31T10:00:00Z",
+            "message": {"role": "assistant", "content": [
+                {"type": "tool_use", "id": tool_id, "name": "Agent",
+                 "input": {"description": "Look around", "prompt": "look"}}]},
+        })
+
+    def test_the_row_carries_the_agent_it_spawned(self):
+        self.write_agent("aaa", [entry()], meta={"toolUseId": "toolu_spawn"})
+        (self.slug / f"{SESSION}.jsonl").write_text(self.spawned("toolu_spawn") + "\n")
+        found = transcript_module.read_transcript(
+            SESSION, "/home/someone/work",
+            agents=agents.list_subagents(SESSION, "/home/someone/work"))
+        tool = found["messages"][0]["tools"][0]
+        self.assertEqual(tool["name"], "Agent")
+        self.assertEqual(tool["agent"], {"agentId": "aaa", "agentType": "Explore",
+                                         "state": "done"})
+
+    def test_a_row_that_spawned_nothing_carries_no_agent_key(self):
+        (self.slug / f"{SESSION}.jsonl").write_text(self.spawned("toolu_other") + "\n")
+        found = transcript_module.read_transcript(SESSION, "/home/someone/work")
+        self.assertNotIn("agent", found["messages"][0]["tools"][0])
+
+
 if __name__ == "__main__":
     unittest.main()

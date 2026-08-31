@@ -550,18 +550,24 @@ def read_change(session_id: str, cwd: str, tool_use_id: str) -> dict:
     return {**out, "message": "There is no transcript to read it from"}
 
 
-def read_transcript(session_id: str, cwd: str, limit: int = 60) -> dict:
+def read_transcript(session_id: str, cwd: str, limit: int = 60,
+                    agents: list[dict] | None = None) -> dict:
     """The recent conversation: what you said, what Claude said, what it ran.
 
     Tool results are left out — they are the mechanics of a turn, not the
     conversation — but each tool call is kept so the run reads honestly. Read
     newest-first and stopped as soon as there is a page of it, so a long session
     costs no more than a short one.
+
+    `agents` is this session's subagents, if the caller has them to hand. They
+    are passed in rather than read here because agents.py reads this module, and
+    a module cannot be read by what it reads.
     """
+    spawned = {item["toolUseId"]: item for item in (agents or []) if item.get("toolUseId")}
     for path in transcript_paths(session_id, cwd):
         if not path.exists():
             continue
-        found = parse_transcript(path, limit)
+        found = parse_transcript(path, limit, agents=spawned)
         found["sessionId"] = session_id
         return found
     return {"sessionId": session_id, "title": None, "messages": [],
@@ -703,11 +709,17 @@ def parse_transcript(path: Path, limit: int = 60, sidechain: bool = False,
             elif block_kind == "tool_use":
                 only_results = False
                 made = changes.get(block.get("id") or "")
+                # A Task call is the one tool whose work is somewhere else
+                # entirely. Naming the agent here is what lets the row be
+                # opened; without it the call reads as a prompt and no
+                # result. See watchtower/agents.py.
+                ran = (agents or {}).get(block.get("id") or "")
                 tools.append({"name": block.get("name") or "tool",
                               "detail": tool_detail(block.get("input")),
-                              # Only where there is one: every other tool call
-                              # would otherwise carry a null through every poll.
-                              **({"change": {**made, "id": block["id"]}} if made else {})})
+                              **({"change": {**made, "id": block["id"]}} if made else {}),
+                              **({"agent": {"agentId": ran["agentId"],
+                                            "agentType": ran["agentType"],
+                                            "state": ran["state"]}} if ran else {})})
             elif block_kind == "thinking":
                 only_results = False
             elif block_kind == "tool_result":
