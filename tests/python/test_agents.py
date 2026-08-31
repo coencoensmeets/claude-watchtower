@@ -189,6 +189,58 @@ class ReadingOne(SubagentFixture, unittest.TestCase):
         self.assertFalse(agents.read_subagent(other, "/home/someone/work", "aaa")["ok"])
 
 
+class CountingForTheRow(SubagentFixture, unittest.TestCase):
+    """What the session row is told about subagents."""
+
+    def counted(self):
+        return store.SessionStore()._agents(SESSION, "/home/someone/work", time.time())
+
+    def test_no_subagents_is_absent_not_empty(self):
+        other = "99999999-2222-3333-4444-555555555555"
+        (self.slug / f"{other}.jsonl").write_text("{}\n")
+        self.assertIsNone(
+            store.SessionStore()._agents(other, "/home/someone/work", time.time()))
+
+    def test_counts_the_running_ones_and_all_of_them(self):
+        self.write_agent("live1", [entry(tool=True, stop_reason="tool_use")])
+        self.write_agent("live2", [entry(tool=True, stop_reason="tool_use")])
+        self.write_agent("done1", [entry()])
+        found = self.counted()
+        self.assertEqual(found["running"], 2)
+        self.assertEqual(found["total"], 3)
+
+    def test_newest_names_a_running_agent(self):
+        self.write_agent("live1", [entry(tool=True, stop_reason="tool_use")],
+                         meta={"agentType": "Explore", "description": "Look around"})
+        self.assertEqual(self.counted()["newest"], "Explore: Look around")
+
+    def test_newest_falls_back_to_the_newest_agent_when_none_are_running(self):
+        self.write_agent("done1", [entry()],
+                         meta={"agentType": "Plan", "description": "Draw it up"})
+        found = self.counted()
+        self.assertEqual(found["running"], 0)
+        self.assertEqual(found["newest"], "Plan: Draw it up")
+
+    def test_a_finished_agent_is_not_re_read(self):
+        # A finished file does not reopen, so its verdict is worth remembering.
+        self.write_agent("done1", [entry()])
+        held = store.SessionStore()
+        held._agents(SESSION, "/home/someone/work", time.time())
+        (self.agents_dir / "agent-done1.jsonl").write_text("{ ruined")
+        found = held._agents(SESSION, "/home/someone/work", time.time() + 600)
+        self.assertEqual(found["total"], 1)
+        self.assertEqual(found["running"], 0)
+
+    def test_an_agent_finishing_is_noticed_though_the_folder_did_not_change(self):
+        # Appending to a subagent's file does not touch the folder's mtime, so a
+        # count cached on the folder alone would never move again.
+        self.write_agent("live1", [entry(tool=True, stop_reason="tool_use")])
+        held = store.SessionStore()
+        self.assertEqual(held._agents(SESSION, "/home/someone/work", 1000.0)["running"], 1)
+        self.write_agent("live1", [entry()])
+        self.assertEqual(held._agents(SESSION, "/home/someone/work", 2000.0)["running"], 0)
+
+
 class NamingOnTheToolRow(SubagentFixture, unittest.TestCase):
     """The Task call that spawned an agent says which agent it spawned."""
 

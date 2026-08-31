@@ -19,6 +19,7 @@ import time
 from pathlib import Path
 
 from watchtower import config
+from watchtower.agents import list_subagents, subagent_dir
 from watchtower.config import (
     ACTIVE_STATUSES, CPU_WINDOW, HISTORY_SECONDS, LIVENESS_GRACE, SAMPLE_INTERVAL,
     SESSION_DIR, STATUS_TTL, TRANSCRIPT_WINDOW, WORKING_CPU,
@@ -120,6 +121,12 @@ class SessionStore:
         # session id -> (read at, has it said anything). True is kept for good:
         # a conversation does not become unsaid.
         self._spoken_cache: dict[str, tuple[float, bool]] = {}
+        # The set of subagents, cached on the folder's mtime, and the verdict on
+        # each one, cached by id. They are separate because they go stale for
+        # different reasons — see _agents.
+        self._agents_dir_cache: dict[str, tuple[float, float | None]] = {}
+        self._agents_cache: dict[str, tuple[float, dict | None]] = {}
+        self._agents_done: dict[str, str] = {}
 
     # --- reading
 
@@ -258,6 +265,59 @@ class SessionStore:
         self._question_cache[session_id] = (now, touched, value)
         return value
 
+    def _agents_touched(self, session_id: str, cwd: str, now: float) -> float | None:
+        """When a subagent was last spawned or cleared away."""
+        hit = self._agents_dir_cache.get(session_id)
+        if hit and now - hit[0] < 4:
+            return hit[1]
+        folder = subagent_dir(session_id, cwd)
+        try:
+            at = folder.stat().st_mtime if folder else None
+        except OSError:
+            at = None
+        self._agents_dir_cache[session_id] = (now, at)
+        return at
+
+    def _agents(self, session_id: str, cwd: str, now: float) -> dict | None:
+        """How many subagents this session is running, for its row.
+
+        Two things go stale here at different rates, and caching them together
+        would be wrong in a way that is hard to see. A folder's mtime moves when
+        an entry is created, so it says exactly when a subagent was spawned — but
+        an agent *finishing* only appends to its own file, and leaves the folder
+        untouched. A count held against the folder's mtime would freeze at
+        whatever it read when the last agent started.
+
+        So the folder's mtime gates nothing but the short cache below, and the
+        verdicts are re-read on the same four-second beat as the activity line.
+        What makes that affordable is that `done` is final: a finished agent is
+        remembered as finished and never opened again, so the cost is one tail
+        read per agent still going.
+        """
+        touched = self._agents_touched(session_id, cwd, now)
+        if touched is None:
+            return None
+        hit = self._agents_cache.get(session_id)
+        if hit and now - hit[0] < 4:
+            return hit[1]
+        found = []
+        for item in list_subagents(session_id, cwd):
+            settled = self._agents_done.get(item["agentId"])
+            if settled:
+                item = {**item, "state": settled}
+            elif item["state"] == "done":
+                self._agents_done[item["agentId"]] = "done"
+            found.append(item)
+        value = None
+        if found:
+            running = [item for item in found if item["state"] == "running"]
+            first = (running or found)[0]
+            named = ": ".join(part for part in
+                              (first["agentType"], first["description"]) if part)
+            value = {"running": len(running), "total": len(found), "newest": named}
+        self._agents_cache[session_id] = (now, value)
+        return value
+
     def _burning_cpu(self, pid: int, now: float) -> bool:
         """Is this process actually doing something, judged over a few seconds?"""
         current = cpu_seconds(pid)
@@ -384,6 +444,7 @@ class SessionStore:
             if not alive:
                 status = "offline"
             chain = ancestors(pid) if isinstance(pid, int) else []
+            agents_now = self._agents(session_id, cwd, now) if cwd else None
             session = {
                 "sessionId": session_id,
                 "pid": pid,
@@ -404,6 +465,9 @@ class SessionStore:
                 # cannot. Everything git runs against this root, not the cwd.
                 "repoRoot": self._repo_root(cwd) if cwd else None,
                 "activity": self._activity(session_id, cwd) if cwd else None,
+                # How many subagents it has going. A session that has fanned out
+                # six agents reads as one session doing one thing without this.
+                **({"agents": agents_now} if agents_now else {}),
                 # Whether there is a conversation behind it at all. Taking over a
                 # session that has never spoken carries nothing over, and the
                 # dialog says so rather than pretending otherwise.
@@ -484,6 +548,7 @@ class SessionStore:
             if session_id in live_ids:
                 continue
             cwd = entry.get("cwd") or ""
+            agents_now = self._agents(session_id, cwd, now) if cwd else None
             out.append({
                 "sessionId": session_id,
                 "pid": None,
@@ -513,6 +578,9 @@ class SessionStore:
                 "branch": self._branch(cwd) if cwd else None,
                 "repoRoot": self._repo_root(cwd) if cwd else None,
                 "activity": self._activity(session_id, cwd) if cwd else None,
+                # A stopped session's agents are stopped with it, and the count
+                # reads as whatever its files say, which is the truth.
+                **({"agents": agents_now} if agents_now else {}),
                 "spoken": self._spoken(session_id, cwd, now) if cwd else False,
                 # For a stopped session these are the mode it was last in and
                 # the last thing it was working on.
