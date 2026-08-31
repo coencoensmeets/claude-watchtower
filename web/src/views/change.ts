@@ -159,7 +159,7 @@ export function chatPanel(session) {
   if (chat.agentShown !== null) {
     const full = agentShownFull();
     return agentPanel(full
-      ? `<div class="chat">${conversationRows(full.messages).join("")}</div>` : "");
+      ? `<div class="chat">${conversationRows(full.messages, true).join("")}</div>` : "");
   }
   if (chat.transcriptFor !== session.sessionId || !chat.transcript) {
     return `<p class="chat__note md-body-medium">Reading the conversation…</p>`;
@@ -190,7 +190,7 @@ const toolLines = (tools) => (tools || []).map((tool) => `<span class="tool-line
 /* The conversation itself: every message as a bubble, every tool-only turn as a
    row of activity. Pulled out of the panel because a subagent's conversation
    arrives in the same shape and is drawn by the same code — see views/subagent.ts. */
-export function conversationRows(messages) {
+export function conversationRows(messages, sidechain = false) {
   const rows = [];
   for (const message of messages) {
     // Tool-only turns are activity, not speech — keep them out of bubbles so the
@@ -212,7 +212,11 @@ export function conversationRows(messages) {
     // A message that came in over the socket says so: sent from this composer it
     // reads "you, from here", and sent by another session it carries that
     // session's name — because the receiving Claude was told the same thing.
-    const who = message.role !== "user" ? "claude"
+    // In a subagent's transcript nothing on the user's side is yours: it is the
+    // errand the agent was handed and the results it was fed back. Saying "you"
+    // over those is the one thing in this pane that would be a lie.
+    const who = message.role !== "user" ? (sidechain ? "the agent" : "claude")
+      : sidechain ? "sent to it"
       : message.from === undefined ? "you"
       : message.from ? `${escapeHtml(message.from)} <span class="meta-sep">·</span> another session`
       : "you <span class=\"meta-sep\">·</span> from here";
@@ -220,7 +224,8 @@ export function conversationRows(messages) {
     // back to the session. "another session" is a distinction for the reader
     // here, not for the Claude being quoted at — what it needs is whose words
     // these were, and it only ever wrote its own.
-    const whoPlain = message.role !== "user" ? "claude" : message.from || "you";
+    const whoPlain = message.role !== "user" ? "claude"
+      : sidechain ? "sent to it" : message.from || "you";
     const tools = toolLines(message.tools);
     rows.push(`<div class="msg msg--${message.role === "user" ? "user" : "assistant"}"
         data-who="${escapeHtml(whoPlain)}" data-at="${escapeHtml(clockOf(message.at))}"

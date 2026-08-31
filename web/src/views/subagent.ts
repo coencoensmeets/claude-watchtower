@@ -58,29 +58,37 @@ export function agentBlock(tool) {
    handed in already rendered rather than rendered a second way here. */
 export function agentPanel(body) {
   const full = agentShownFull();
+  const back = `<button class="button button--text md-state agent-panel__back" type="button"
+      data-act="agent-close">${ICON.back}Conversation</button>`;
   if (!full) {
-    return `<div class="agent-panel">
-      <div class="agent-panel__head">
-        <button class="button button--text md-state agent-panel__back" type="button" data-act="agent-close">
-          ${ICON.back}Conversation
-        </button>
-      </div>
+    return `<div class="agent-panel" data-state="unread">
+      <div class="agent-panel__head">${back}</div>
       <p class="chat__note md-body-medium">${agentBusy.has(chat.agentShown)
         ? "Reading what it did…" : "That subagent could not be read."}</p>
     </div>`;
   }
-  const named = [full.agentType, full.model].filter(Boolean).join(" · ");
-  return `<div class="agent-panel">
+  // What it was sent to do is the headline. Its type is how it was staffed —
+  // true, and worth knowing, but not what tells two Explores apart at a glance.
+  const said = [full.agentType, full.model,
+                full.spawnDepth > 1 ? "sent by another agent" : "",
+                full.messages.length === 1 ? "1 message"
+                  : `${full.messages.length} messages`]
+    .filter(Boolean).map(escapeHtml).join(" · ");
+  return `<div class="agent-panel" data-state="${escapeHtml(full.state)}">
       <div class="agent-panel__head">
-        <button class="button button--text md-state agent-panel__back" type="button" data-act="agent-close">
-          ${ICON.back}Conversation
-        </button>
-        <span class="agent-panel__who md-title-small">${escapeHtml(named)}</span>
-        <span class="agent-panel__state md-label-small"
-          data-state="${escapeHtml(full.state)}">${escapeHtml(WORD[full.state] || full.state)}</span>
-        <span class="agent-panel__what md-body-small">${escapeHtml(full.description)}</span>
+        <div class="agent-panel__bar">
+          ${back}
+          <span class="agent-panel__state md-label-small">
+            <span class="agent-panel__lamp" aria-hidden="true"></span>
+            ${escapeHtml(WORD[full.state] || full.state)}</span>
+        </div>
+        <p class="agent-panel__what md-title-small">${escapeHtml(full.description)}</p>
+        <p class="agent-panel__meta md-label-small">${said}</p>
       </div>
-      <div class="agent-panel__body">${body}</div>
+      <div class="agent-panel__body">${body}${full.state === "running"
+        ? `<p class="agent-panel__still md-label-small">
+             <span class="agent-panel__dots" aria-hidden="true"><i></i><i></i><i></i></span>
+             still working — this conversation is still being written</p>` : ""}</div>
     </div>`;
 }
 

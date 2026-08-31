@@ -230,26 +230,117 @@
   .agent[data-state="done"] .agent__state {
     color: var(--md-extended-color-idle-color, var(--md-sys-color-primary)); }
   .agent[data-state="stopped"] .agent__state { opacity: 0.7; }
-  /* Opened, it takes the pane, out to its edges — the same trade a comparison
-     makes, and for the same reason: a conversation wants the width of one. */
-  .agent-panel { display: flex; flex-direction: column; min-height: 100%;
+  /* Opened, it takes the pane — and once it has, everything in it is drawn in
+     the panel's second colour rather than its first.
+
+     That is the whole idea of this view. What is on screen is a conversation
+     that reads exactly like the session's own: same bubbles, same tool rows,
+     same patches. Without a change of colour you lose track of whose words you
+     are reading and start answering an agent that finished ten minutes ago. So
+     the surface, the rail down its edge, and the turns spoken *to* the agent
+     all move to the secondary ramp, and the composer below stays primary — the
+     thing you can still type into is the thing in the panel's first colour. */
+  .agent-panel {
+    display: flex; flex-direction: column; min-height: 100%;
     margin: calc(var(--md-sys-spacing-4) * -1) calc(var(--md-sys-spacing-6) * -1)
-            calc(var(--md-sys-spacing-6) * -1); }
+            calc(var(--md-sys-spacing-6) * -1);
+    /* Deeper than the conversation it stands in front of, not merely a
+       different hue. A scheme built from one seed makes the secondary ramp a
+       quiet sibling of the primary one — on a pink seed the two containers
+       differ by four hex digits — so tone is what carries here and colour only
+       confirms it. This surface sits a step down, and everything on it is
+       lifted back up. */
+    background: color-mix(in srgb, var(--md-sys-color-secondary-container) 62%,
+                          var(--md-sys-color-surface-container-high));
+  }
   .agent-panel__head {
     position: sticky; top: 0; z-index: 3;
-    display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--md-sys-spacing-2);
-    padding: var(--md-sys-spacing-2) var(--md-sys-spacing-4);
-    margin-bottom: var(--md-sys-spacing-2);
-    background: var(--md-sys-color-surface);
-    border-bottom: 1px solid var(--md-sys-color-outline-variant);
+    display: flex; flex-direction: column; gap: 2px;
+    padding: var(--md-sys-spacing-2) var(--md-sys-spacing-4) var(--md-sys-spacing-3);
+    margin-bottom: var(--md-sys-spacing-3);
+    background: var(--md-sys-color-secondary-container);
+    color: var(--md-sys-color-on-secondary-container);
+    border-bottom: 1px solid color-mix(in srgb, var(--md-sys-color-secondary) 45%, transparent);
   }
+  .agent-panel__bar { display: flex; align-items: center; gap: var(--md-sys-spacing-2); }
   .agent-panel__back { flex: none; }
   .agent-panel__back svg { width: 18px; height: 18px; }
-  .agent-panel__who { flex: none; }
-  .agent-panel__state { flex: none; color: var(--md-sys-color-on-surface-variant); }
-  .agent-panel__state[data-state="running"] { color: var(--md-sys-color-primary); }
-  /* What it was asked to do, on its own line once the header runs out of room:
-     it is a sentence, and a sentence squeezed between two labels is unreadable. */
-  .agent-panel__what { flex: 1 1 100%; min-width: 0;
-    color: var(--md-sys-color-on-surface-variant); }
-  .agent-panel__body { padding: 0 var(--md-sys-spacing-4) var(--md-sys-spacing-4); }
+  /* What it was sent to do, as the headline: an agent is an errand, and the
+     errand is what tells two Explores apart. Its type and model are how it was
+     staffed, and they read below in the smaller line. */
+  .agent-panel__what {
+    margin: 0; color: var(--md-sys-color-on-secondary-container);
+    overflow-wrap: anywhere;
+  }
+  .agent-panel__meta { margin: 0; color: var(--md-sys-color-on-surface-variant); }
+  .agent-panel__state {
+    flex: none; margin-inline-start: auto;
+    display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+    padding: 2px var(--md-sys-spacing-3);
+    border-radius: var(--md-sys-shape-corner-full);
+    background: var(--md-sys-color-surface);
+    color: var(--md-sys-color-on-surface-variant);
+  }
+  /* The same lamp as the chip over the composer and the row in the list, on the
+     same beat: one language for "this is still going". */
+  .agent-panel__lamp {
+    width: 8px; height: 8px; border-radius: var(--md-sys-shape-corner-full);
+    background: currentColor;
+  }
+  .agent-panel[data-state="running"] .agent-panel__state {
+    color: var(--md-sys-color-primary);
+    background: color-mix(in srgb, var(--md-sys-color-primary) 12%, var(--md-sys-color-surface));
+  }
+  .agent-panel[data-state="running"] .agent-panel__lamp {
+    animation: lamp-throb 1.6s var(--md-sys-motion-easing-standard) infinite;
+  }
+  .agent-panel[data-state="stopped"] .agent-panel__state { opacity: 0.75; }
+  /* The rail is the signature of this view: one line down the edge of the
+     transcript, in the second colour, running from the header to the last thing
+     the agent said. It is what you see out of the corner of your eye that says
+     you are inside somebody else's thread. */
+  .agent-panel__body {
+    flex: 1 1 auto;
+    padding: 0 var(--md-sys-spacing-4) var(--md-sys-spacing-4) var(--md-sys-spacing-5);
+    border-inline-start: 2px solid color-mix(in srgb, var(--md-sys-color-secondary) 45%, transparent);
+    margin-inline-start: var(--md-sys-spacing-4);
+  }
+  /* The agent's own speech is lifted off the wash; what was said *to* it takes
+     the secondary container, where the session's own conversation takes the
+     primary one. Two conversations, two colours, the same shapes. */
+  .agent-panel .msg--assistant {
+    background: var(--md-sys-color-surface);
+    border-color: color-mix(in srgb, var(--md-sys-color-secondary) 30%, transparent);
+  }
+  /* The turns on the user's side of a subagent's transcript are not yours. They
+     are the errand it was handed and the results it was fed — so they are drawn
+     as a briefing rather than as speech: full width, outlined, and squared off
+     where a bubble would be rounded. Nobody should be able to mistake this pane
+     for one they are talking in. */
+  .agent-panel .msg--user {
+    align-self: stretch; max-width: none;
+    background: color-mix(in srgb, var(--md-sys-color-secondary-container) 45%,
+                          var(--md-sys-color-surface));
+    color: var(--md-sys-color-on-surface);
+    border: 1px dashed color-mix(in srgb, var(--md-sys-color-secondary) 50%, transparent);
+    border-radius: var(--md-sys-shape-corner-small);
+  }
+  .agent-panel .msg--user .msg__who { color: var(--md-sys-color-on-surface-variant); }
+  /* Still being written. A running agent's transcript ends mid-thought, and
+     without this the last tool row reads as the end of the story. */
+  .agent-panel__still {
+    display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+    margin: var(--md-sys-spacing-3) 0 0;
+    color: var(--md-sys-color-primary);
+  }
+  .agent-panel__dots { display: flex; gap: 3px; }
+  .agent-panel__dots i {
+    width: 5px; height: 5px; border-radius: var(--md-sys-shape-corner-full);
+    background: currentColor; opacity: 0.35;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .agent-panel__dots i { animation: agent-dots 1.2s var(--md-sys-motion-easing-standard) infinite; }
+    .agent-panel__dots i:nth-child(2) { animation-delay: 0.15s; }
+    .agent-panel__dots i:nth-child(3) { animation-delay: 0.3s; }
+  }
+  @keyframes agent-dots { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
