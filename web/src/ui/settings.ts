@@ -287,8 +287,16 @@ async function paintReach() {
     return;
   }
   section.hidden = false;
+  // The address with the copy on the end of it, rather than a button underneath
+  // saying what it would copy. The thing being copied is right there, so the
+  // control belongs on it: one row, the address taking the room it needs and
+  // the icon holding the right-hand end.
   const where = reach.address
-    ? `<code class="md-mono reach__url">${escapeHtml(reach.url)}</code>`
+    ? `<div class="reach__line">
+        <code class="md-mono reach__url">${escapeHtml(reach.url)}</code>
+        <button class="icon-button md-state reach__copy" id="copyReach" type="button"
+          title="Copy the address" aria-label="Copy the address">${ICON.copy}</button>
+      </div>`
     : `<span class="md-body-medium">this machine's own address, port
         <code class="md-mono">${reach.port}</code></span>`;
   section.innerHTML = `
@@ -305,11 +313,18 @@ async function paintReach() {
              time, and each phone only needs it once.</p>`
           : `<p class="md-body-small reach__note">This panel is running without a key, so anyone
              who can reach that address can read every conversation on it.</p>`}
-        <button class="button button--text md-state" id="copyReach">Copy the address</button>
       </div>
     </div>`;
-  section.querySelector("#copyReach").addEventListener("click", () => {
-    copyText(reach.url || `${location.origin}/`, "Address copied");
+  // Nothing to copy when there is no address to have copied — the sentence in
+  // its place is about this machine's own network name, which the panel does
+  // not know and cannot put on the clipboard.
+  const copy = section.querySelector<HTMLElement>("#copyReach");
+  copy?.addEventListener("click", () => {
+    if (!copyText(reach.url, "Address copied")) return;
+    // The same tick the copy button on a code block gives: the snackbar is at
+    // the other end of the pane, and the answer belongs where the press was.
+    copy.innerHTML = ICON.check;
+    setTimeout(() => { if (copy.isConnected) copy.innerHTML = ICON.copy; }, 1400);
   });
 }
 

@@ -56,6 +56,20 @@ const COMPACT_CAP = 95;
 export const compactPct = (elapsed) => Math.min(
   COMPACT_CAP, Math.round((1 - Math.exp(-Math.max(0, elapsed) / COMPACT_TAU)) * 100));
 
+/* Whether *Clear* is on the table. The same transport question as everything
+   else here: `/clear` over a session's messaging socket is queued with slash
+   commands switched off and arrives as six characters of prose, so it is the
+   terminal's own command for a session in a terminal and the panel says so
+   rather than offering a button that would do nothing. Down a held pipe it is
+   expanded — the session lists `clear` among the commands it takes — and there
+   the panel can offer it.
+
+   Offered whatever the conversation is carrying, unlike Compact: compacting a
+   conversation with room to spare loses something for nothing, while clearing
+   one is what you do when you want to start again, which is as reasonable after
+   two turns as after two hundred. */
+const clearOffer = (session) => runsHere(session) && app.feed.canSend && session.spoken;
+
 function contextBar(session) {
   const ctx = session.context;
   if (!ctx || !ctx.tokens) return "";
@@ -97,6 +111,11 @@ function contextBar(session) {
           data-act="compact" ${running ? "disabled" : ""}
           title="Summarises the conversation so far and carries on from the summary">
           ${ICON.compact} ${running ? "Compacting…" : "Compact"}
+        </button>` : ""}
+      ${clearOffer(session) ? `<button class="button button--text md-state ctx__do" type="button"
+          data-act="clear" ${running ? "disabled" : ""}
+          title="Starts the conversation again, empty, in the same folder — what /clear does at a terminal's own prompt">
+          ${ICON.discard} Clear
         </button>` : ""}
       ${said ? `<span class="ctx__said md-label-small"
         data-bad="${done && done.ok === false ? 1 : 0}">${escapeHtml(said)}</span>` : ""}
@@ -180,16 +199,34 @@ function foldButton(folded) {
    Not offered mid-turn. The panel refuses it anyway — a terminal opened on a
    transcript a panel turn is halfway through is two processes on one
    conversation — and a disabled button saying so is a better answer than a
-   snackbar after the press. Whatever is typed ahead of the session goes with the
-   hand-back, which is why the hint says so rather than the queue quietly
-   emptying. */
+   snackbar after the press. Mid-turn is the same question the server asks, and
+   the same word for it: `busy`, a turn in flight, rather than `running`, which
+   is only whether the panel holds the session at all.
+
+   Whatever is typed ahead of the session goes with the hand-back, which is why
+   the hint counts it rather than the queue quietly emptying. */
 function terminalAction(session) {
   if (!runsHere(session) || !session.cwd) return "";
-  const running = ownedFor(session).running === true;
-  const can = app.feed.canSend && !running;
-  const why = running ? "wait for this turn to finish"
+  const owned = ownedFor(session);
+  // Mid-turn is `busy`, not `running`. `running` is whether the panel is
+  // holding this session's process at all, which is true of every session this
+  // button is drawn for — the row has to be one the panel runs before it is
+  // offered — so reading it as "a turn is in flight" disabled the button for
+  // the whole of its life and explained it by saying to wait for a turn that
+  // had usually finished minutes ago. `busy` is the flag /api/start itself
+  // refuses on, and the two now say the same thing.
+  const midTurn = owned.busy === true;
+  const can = app.feed.canSend && !midTurn;
+  // What goes with the hand-back. Letting go deliberately clears the queue —
+  // that session is about to be somebody else's — and after a stop the queue is
+  // held rather than dropped precisely so that nothing you typed disappears
+  // without being mentioned. This is the other place it could.
+  const waiting = (owned.queued || []).length;
+  const alsoGoes = waiting === 1 ? ", and the message waiting behind it goes too"
+    : waiting ? `, and the ${waiting} messages waiting behind it go too` : "";
+  const why = midTurn ? "A turn from the panel is running on it — let that finish first"
     : !app.feed.canSend ? "opening a terminal needs the panel on loopback"
-    : `Resume this session in a terminal — the panel lets go of it`;
+    : `Resume this session in a terminal — the panel lets go of it${alsoGoes}`;
   return `<button class="button button--outlined md-state detail-header__terminal" data-act="terminal"
                   ${can ? "" : "disabled"} title="${escapeHtml(why)}">${ICON.terminal} Open in terminal</button>`;
 }

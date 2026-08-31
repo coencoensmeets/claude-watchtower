@@ -27,7 +27,7 @@ from watchtower.config import (
 from watchtower.control import can_pick_folder
 from watchtower.errands import is_own_errand
 from watchtower.git.read import git_branch, git_root
-from watchtower.owned import OWNED_ASK, OWNED_BUSY, owned_running, owned_state
+from watchtower.owned import OWNED_ASK, OWNED_BUSY, owned_running, owned_moved, owned_state
 from watchtower.proc import ancestors, cpu_seconds, proc_gone, proc_name, proc_starttime, session_tty
 from watchtower.rows import kept_rows, refresh_row
 from watchtower.input import session_alive, session_listening
@@ -641,6 +641,9 @@ class SessionStore:
             # Keyed by session rather than folded into each row: only the
             # handful the panel has ever run a turn for have anything to say.
             "owned": owned_state(),
+            # Where a cleared session went. See owned_rekey: clearing gives a
+            # session a new id, and the browser is holding the old one.
+            "moved": owned_moved(),
         }
 
     def forget(self, session_id: str) -> None:

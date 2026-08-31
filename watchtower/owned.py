@@ -25,8 +25,9 @@ from pathlib import Path
 from watchtower.config import MAX_OWNED, OWNED_FILE
 from watchtower.control import top_level_env
 from watchtower.errands import own_errand
-from watchtower.rows import keep_row, kept_rows, load_pinned
+from watchtower.rows import forget_row, keep_row, kept_rows, load_pinned
 from watchtower.transcript import has_conversation
+from watchtower.windows import load_names, save_names
 
 
 # The one thing a terminal keeps to itself is the flags a turn starts under. So
@@ -346,6 +347,152 @@ def answer_from_panel(session_id: str, request_id: str, decision: dict) -> tuple
     return True, "Allowed" if allowed else "Refused"
 
 
+# sessionId -> when it was told to clear. A cleared session comes back under a
+# *different* id — measured against 2.1.239, which answered a `/clear` turn with
+# a fresh `init` frame carrying a new session_id and no memory of what came
+# before — so this is what tells the reader that the id it is about to see is
+# the same conversation carrying on rather than somebody else's frames.
+OWNED_CLEARING: dict[str, float] = {}
+
+
+# old id -> (new id, when). A cleared session comes back under a different id,
+# and something has to say where it went: the browser is looking at the old one,
+# and a row that vanishes reads as a session that ended. Held for a few minutes,
+# which is far longer than the poll that needs it.
+OWNED_MOVED: dict[str, tuple[str, float]] = {}
+MOVED_SECONDS = 300.0
+
+
+def owned_moved() -> dict[str, str]:
+    """Where recently cleared sessions went, for the feed to carry."""
+    now = time.time()
+    with _OWNED_LOCK:
+        for old in [k for k, (_, when) in OWNED_MOVED.items() if now - when > MOVED_SECONDS]:
+            OWNED_MOVED.pop(old, None)
+        return {old: new for old, (new, _) in OWNED_MOVED.items()}
+
+
+# Everything filed under a session id, so a session that changes its id can be
+# followed rather than lost. Every one of these is keyed the same way, and a
+# clear that moved eight of the nine would be a bug nobody found until the ninth
+# mattered — so the list is written down once and walked.
+OWNED_BY_ID = ("OWNED_ASK", "_ASK_ANSWER", "_ASK_EVENTS", "OWNED_BUSY", "OWNED_LAST",
+               "OWNED_QUEUE", "OWNED_HELD", "OWNED_STOPPING", "OWNED_COMPACT",
+               "OWNED_COMMANDS", "OWNED_PROCS", "OWNED_CLEARING")
+
+
+def owned_rekey(old: str, new: str, held: dict) -> None:
+    """Follow a session that has become a different session id.
+
+    `/clear` does not clear a conversation in place: Claude Code starts a new one
+    and reports a new `session_id` from then on. The process is the same process
+    and the folder is the same folder, so from the panel's side this is one
+    session that has changed its name — and everything the panel files under the
+    old name has to move with it, or the row goes on showing a transcript that
+    has stopped growing while the session it names writes somewhere else.
+
+    The old transcript is deliberately left alone. It is the conversation that
+    was cleared; it is still on disk and still resumable, and deleting somebody's
+    history is not what *clear* asked for.
+    """
+    if not old or not new or old == new:
+        return
+    here = globals()
+    with _OWNED_LOCK:
+        for name in OWNED_BY_ID:
+            store = here[name]
+            if old in store:
+                store[new] = store.pop(old)
+        held["id"] = new
+        OWNED_PROCS[new] = held
+    # The row keeps its name, its folder and its place in your order: it is the
+    # same session to look at, and a cleared session sliding to the bottom of the
+    # list under a folder name would read as the old one having gone.
+    rows = kept_rows()
+    was = dict(rows.get(old) or {})
+    if was:
+        keep_row({**was, "sessionId": new, "lastSeen": time.time()})
+        forget_row(old)
+    names = load_names()
+    if names.get(old):
+        names[new] = names[old]
+        names.pop(old, None)
+        save_names(names)
+    owned = load_owned()
+    if old in owned:
+        owned[new] = owned.pop(old)
+        save_owned(owned)
+    # Whoever asked for the clear is waiting to be told where the session went,
+    # so that the browser can go on looking at it rather than at a row that is
+    # not there any more.
+    with _OWNED_LOCK:
+        OWNED_MOVED[old] = (new, time.time())
+        # A session cleared twice leaves a trail, and the trail has to lead all
+        # the way to where it is now rather than to the id it had in between.
+        for older, (went, when) in list(OWNED_MOVED.items()):
+            if went == old:
+                OWNED_MOVED[older] = (new, when)
+    # So the turn this happened in reports itself as a clear whichever way it
+    # was asked for — the button sets OWNED_CLEARING, and `/clear` typed into
+    # the box does not.
+    held["justCleared"] = True
+    moved = held.get("moved")
+    if moved:
+        moved.set()
+
+
+# How long to wait for a cleared session to say what it is called now. It came
+# back inside two seconds when this was measured; the ceiling is for a machine
+# under load, and going over it is not a failure — the poll finds the row a
+# moment later either way.
+CLEAR_WAIT = 20.0
+
+
+def owned_clear(session_id: str) -> tuple[bool, str, str]:
+    """Start the session's conversation again, empty, in the same folder.
+
+    `/clear` down the held pipe, which is the one transport that expands it — a
+    message over a session's own socket is queued with expansion switched off,
+    so the same six characters sent there arrive as prose. See the note on
+    /api/owned/compact, which is the same argument for the same reason.
+
+    What is different from compacting, and the reason this is not one line: the
+    session comes back with a new id. The reader follows it there (see
+    OWNED_CLEARING and owned_rekey) and the answer carries the new id back, so
+    the browser can look at the session it is now rather than the one it was.
+    """
+    with _OWNED_LOCK:
+        held = OWNED_PROCS.get(session_id)
+        busy = session_id in OWNED_BUSY or bool(OWNED_QUEUE.get(session_id))
+        already = session_id in OWNED_CLEARING
+    if not held:
+        return False, "The panel is not running that session", ""
+    if busy:
+        return False, "It is mid-turn — let that finish, then clear it", ""
+    if already:
+        return False, "It is already clearing", ""
+    moved = threading.Event()
+    held["moved"] = moved
+    with _OWNED_LOCK:
+        OWNED_CLEARING[session_id] = time.time()
+        OWNED_BUSY[session_id] = time.time()
+    if not owned_write(session_id, user_turn("/clear")):
+        with _OWNED_LOCK:
+            OWNED_CLEARING.pop(session_id, None)
+            OWNED_BUSY.pop(session_id, None)
+        held.pop("moved", None)
+        return False, "It would not take the clear — the pipe has gone", ""
+    # Waited for, rather than answered straight away: the new id is the useful
+    # half of the answer, and a browser told only "clearing…" would go on showing
+    # a session that no longer exists under that name until the next poll — and
+    # then show it as gone. The wait is short and the fallback is that poll.
+    if moved.wait(CLEAR_WAIT):
+        held.pop("moved", None)
+        return True, "Cleared — the same folder, with nothing behind it", held.get("id") or ""
+    held.pop("moved", None)
+    return True, "Clearing — it is starting the conversation again", ""
+
+
 def owned_name_itself(held: dict, said: str) -> None:
     """Register a session the panel started, the moment it says what it is.
 
@@ -560,6 +707,25 @@ def owned_reader(session_id: str, held: dict) -> None:
             # frames, and nothing can be filed under it until it has.
             if held.get("id") is None and isinstance(frame.get("session_id"), str):
                 owned_name_itself(held, frame["session_id"])
+            # And a session that was cleared comes back as a different one.
+            #
+            # Whenever it changes, not only when the panel asked for it. Gating
+            # this on OWNED_CLEARING looked careful and was a hole: `/clear`
+            # typed into the box goes down the same pipe as a message — for a
+            # session the panel runs it is expanded rather than rewritten, which
+            # is the whole point of that transport — and so does one that was
+            # typed ahead and flushed later. Both cleared the conversation and
+            # left the panel filing under the old id: the row went on showing a
+            # transcript that had stopped growing while the session it named
+            # wrote somewhere else. Measured, not reasoned about.
+            #
+            # There is nothing to be careful of. These frames come off the pipe
+            # of a process the panel started and holds; a new session_id on it
+            # means that process is on a new conversation, however it got there,
+            # and following it is the only reading that keeps the row honest.
+            said = frame.get("session_id")
+            if isinstance(said, str) and held.get("id") and said != held["id"]:
+                owned_rekey(held["id"], said, held)
             session_id = held.get("id") or session_id
             if not session_id:
                 continue
@@ -582,10 +748,17 @@ def owned_reader(session_id: str, held: dict) -> None:
                 cost = frame.get("total_cost_usd")
                 with _OWNED_LOCK:
                     stopped = OWNED_STOPPING.pop(session_id, None) is not None
+                    cleared = (OWNED_CLEARING.pop(session_id, None) is not None
+                               or held.pop("justCleared", False))
                 # A stopped turn reports itself as an error, and it is not one:
                 # it did what it was told. Said plainly, and not in the red that
                 # the row keeps for a turn that actually went wrong.
-                if stopped:
+                if cleared:
+                    # A clear answers with an empty result like any other turn,
+                    # and reporting "the turn finished — $0.0000" for it would be
+                    # the panel narrating its own plumbing.
+                    ok, message = True, "Cleared — nothing behind it now"
+                elif stopped:
                     ok, message = True, "You stopped it"
                 elif frame.get("is_error"):
                     said = frame.get("errors")
@@ -677,6 +850,7 @@ def owned_reader(session_id: str, held: dict) -> None:
                 OWNED_PROCS.pop(session_id, None)
             OWNED_BUSY.pop(session_id, None)
             OWNED_STOPPING.pop(session_id, None)
+            OWNED_CLEARING.pop(session_id, None)
             # A compaction this process did not live to finish. The record stays
             # — how the last one went is worth keeping — but the running flag
             # cannot: nothing is coming to clear it, and the panel draws a

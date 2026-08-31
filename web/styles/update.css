@@ -127,3 +127,16 @@
      renderer demotes every heading by two — a message in a bubble should not
      carry a page title, and this borrows that renderer. */
   .changelog > h3:first-child { display: none; }
+
+  /* The channel picker, in the version section beside the buttons. It wraps to
+     its own line on a narrow pane rather than squeezing the buttons: it is a
+     standing choice, not an action, and it is the first thing to give up the
+     row. */
+  .update-channel { flex: 0 0 auto; margin-inline-end: auto; }
+  .update-setting__acts { flex-wrap: wrap; gap: var(--md-sys-spacing-2); }
+  /* A checkout following the development branch says so where the version is,
+     because "on 3efd7be" is otherwise a version number nobody can place. */
+  #updateSection[data-channel="development"] .update-setting__now::after {
+    content: " · development";
+    color: var(--md-sys-color-tertiary);
+  }

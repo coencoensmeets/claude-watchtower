@@ -200,6 +200,8 @@ export interface Feed {
   now: number;
   sessions: Session[];
   historySeconds: number;
+  /** Old session id -> the id it has now, for a session that was cleared. */
+  moved?: Record<string, string>;
   canFocus: boolean;
   canSend: boolean;
   canPickFolder?: boolean;
@@ -379,6 +381,10 @@ export interface Update {
   defaultBranch?: string;
   ahead?: number;
   canUpdate: boolean;
+  /** Which line this install follows: the releases, or the development branch. */
+  channel?: "release" | "development";
+  /** The branch the development channel follows, for the wording around it. */
+  devBranch?: string;
   /** Why not, when `canUpdate` is false and it is not simply up to date. */
   why?: string;
   notes?: ReleaseNote[];

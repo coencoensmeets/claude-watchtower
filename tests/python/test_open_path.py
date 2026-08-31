@@ -1,9 +1,10 @@
 """Which paths the panel will open, and which it will not.
 
-/api/editor is the one route that takes a path from the browser — it is how a
-path clicked out of a conversation is opened. That makes the fence around it
-worth pinning down: the path must exist, and it must be inside your home folder
-or the session's own. See watchtower.http._resolve_under.
+/api/editor and /api/file are the two routes that take a path from the browser —
+one opens what was clicked out of a conversation, the other serves a picture a
+message names. That makes the fence around them worth pinning down: the path
+must exist, and it must be inside your home folder or the session's own. See
+watchtower.http._resolve_under.
 
     python3 -m unittest discover -s tests/python
 """
@@ -156,12 +157,57 @@ class ResolveUnder(unittest.TestCase):
         self.assertIsNone(self.resolve("web/\x00main.ts"))
         self.assertIsNone(self.resolve("w" * 5000))
 
+    def test_the_temp_folder_is_for_pictures_and_nothing_else(self) -> None:
+        # A screenshot lands in /tmp by habit, so /api/file is allowed to read
+        # one from there. /api/editor is not: it starts a process.
+        import tempfile as tmp
+        shot = Path(tmp.gettempdir()) / "watchtower-test-shot.png"
+        shot.write_bytes(b"\x89PNG\r\n")
+        self.addCleanup(shot.unlink, missing_ok=True)
+        self.assertIsNone(_resolve_under(str(shot), str(self.work), "")[0])
+        self.assertEqual(_resolve_under(str(shot), str(self.work), "", temp=True)[0], shot.resolve())
+
+    def test_the_temp_folder_does_not_open_the_rest_of_the_disk(self) -> None:
+        # Somewhere that is neither home, nor the session, nor temp. /etc is on
+        # every machine this runs on and is nobody's screenshot folder.
+        self.assertIsNone(_resolve_under("/etc/hostname", str(self.work), "", temp=True)[0])
+
     def test_a_tilde_is_the_real_home_not_the_session_folder(self) -> None:
         # expanduser reads the environment's HOME rather than the panel's idea
         # of it, so the two are lined up here before the claim is made.
         os.environ["HOME"] = str(self.home)
         (self.home / "notes.md").write_text("x")
         self.assertEqual(self.resolve("~/notes.md"), (self.home / "notes.md").resolve())
+
+
+class PicturesOnly(unittest.TestCase):
+    """What /api/file will hand over, beyond where it will look for it.
+
+    The path fence is ResolveUnder's business. This is the second half: the
+    route serves pictures, and a route that will hand over any readable file
+    inside your home folder is a route for reading files.
+    """
+
+    def suffixes(self):
+        from watchtower.http import Handler
+        return Handler.PICTURES
+
+    def test_the_kinds_a_message_can_show(self) -> None:
+        for suffix in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"):
+            self.assertIn(suffix, self.suffixes())
+
+    def test_and_the_kinds_it_cannot(self) -> None:
+        for suffix in (".txt", ".py", ".json", ".pdf", ".zip", ".env", ".key", ""):
+            self.assertNotIn(suffix, self.suffixes())
+
+    def test_every_kind_names_an_image_type(self) -> None:
+        for suffix, kind in self.suffixes().items():
+            self.assertTrue(kind.startswith("image/"), f"{suffix} is {kind}")
+
+    def test_there_is_a_ceiling_on_what_is_sent(self) -> None:
+        from watchtower.http import Handler
+        self.assertGreater(Handler.PICTURE_MAX, 1024 * 1024)
+        self.assertLessEqual(Handler.PICTURE_MAX, 64 * 1024 * 1024)
 
 
 if __name__ == "__main__":

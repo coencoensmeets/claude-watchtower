@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import tempfile
 import time
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
@@ -37,7 +38,7 @@ from watchtower.input import (
 )
 from watchtower.owned import (
     OWNED_BUSY, OWNED_COMPACT, OWNED_MODES, OWNED_QUEUE, _OWNED_LOCK, answer_from_panel,
-    load_owned, owned_hold, owned_interrupt, owned_new, owned_queued, owned_release,
+    load_owned, owned_clear, owned_hold, owned_interrupt, owned_new, owned_queued, owned_release,
     owned_resume, owned_running, owned_say, owned_set_mode, owned_unqueue, save_owned,
 )
 from watchtower.paste import (DROP_MAX_BYTES, PASTE_MAX_BYTES, POST_MAX_BYTES,
@@ -53,7 +54,7 @@ from watchtower.store import STORE
 from watchtower.transcript import (
     TRANSCRIPT_LIMIT_MAX, has_conversation, read_change, read_transcript,
 )
-from watchtower.update import do_update, read_update, running_here
+from watchtower.update import do_update, read_channel, read_update, write_channel, running_here
 from watchtower.usage import read_usage
 from watchtower.windows import (
     WINDOWS, activate, clean_name, identify_and_pair, load_names, load_pairs, resolve_window,
@@ -122,7 +123,8 @@ NO_KEY_PAGE = """<!doctype html>
 
 
 
-def _resolve_under(raw: str, cwd: str, repo_root: str) -> tuple[Path | None, str]:
+def _resolve_under(raw: str, cwd: str, repo_root: str,
+                   *, temp: bool = False) -> tuple[Path | None, str]:
     """A path from a message, made absolute and judged — or None and why not.
 
     The two refusals are worth telling apart on screen. "It is not there" is
@@ -135,6 +137,12 @@ def _resolve_under(raw: str, cwd: str, repo_root: str) -> tuple[Path | None, str
     transcript can be about. Everything else on the machine is somebody else's
     business, and a panel that opens any path a message contains is a panel that
     opens whatever a message can be made to contain.
+
+    `temp` adds a fourth: the system temporary folder, which is where a
+    screenshot lands by habit — `/tmp/plot.png` is how a picture usually arrives
+    in a conversation, and a rule that refuses it makes the pictures in messages
+    not work for the commonest case there is. It is granted to /api/file, which
+    reads a picture, and not to /api/editor, which starts a process.
 
     Resolved first, and by the filesystem: `..` cannot climb out of the roots
     afterwards, and neither can a symlink that points out of them.
@@ -151,6 +159,8 @@ def _resolve_under(raw: str, cwd: str, repo_root: str) -> tuple[Path | None, str
     except (OSError, RuntimeError):
         return None, f"Nothing is there now: {raw}"
     roots = [Path(HOME)] + [Path(p) for p in (cwd, repo_root) if p]
+    if temp:
+        roots.append(Path(tempfile.gettempdir()))
     for root in roots:
         try:
             if spot == root.resolve() or root.resolve() in spot.parents:
@@ -159,6 +169,7 @@ def _resolve_under(raw: str, cwd: str, repo_root: str) -> tuple[Path | None, str
             continue
     return None, ("That path is outside your home folder and this session's, "
                   "so the panel will not open it")
+
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -467,6 +478,70 @@ class Handler(BaseHTTPRequestHandler):
                               (query.get("agentId") or [""])[0], limit)
         self._json(found, 200 if found["ok"] else 404)
 
+    # What a picture in a conversation may be, and how much of one is worth
+    # sending to a browser. The suffix list is the second half of the fence
+    # around this route — the first is that the path has to resolve inside your
+    # home folder or the session's own, exactly as /api/editor's does.
+    PICTURES = {
+        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".gif": "image/gif", ".webp": "image/webp", ".avif": "image/avif",
+        ".bmp": "image/bmp", ".svg": "image/svg+xml",
+    }
+    PICTURE_MAX = 32 * 1024 * 1024
+
+    @route("GET", "/api/file")
+    def _get_file(self) -> None:
+        """A picture named in a message, so the message can show it.
+
+        The second request in this panel that takes a path rather than a
+        session, and behind the same fence as the first: it must exist, and it
+        must resolve inside your home folder or the session's own. On top of
+        that it must be a picture — the suffix list above — because a route that
+        will hand over any readable file is a route for reading files, and that
+        is not what this is for.
+
+        Not behind SAY_ENABLED, unlike /api/editor. Nothing here acts on the
+        machine: it reads a file the panel is already showing the path of, to
+        the same browser, over the same connection. Holding it to loopback would
+        mean a phone showing a message full of alt text and nothing else.
+
+        `Content-Security-Policy: sandbox` for the SVG case. An SVG loaded
+        through `<img>` cannot run script anyway — every browser disables it —
+        but the header is what makes that true of the URL as well, for anyone
+        who opens the picture in a tab of its own.
+        """
+        query = parse_qs(urlparse(self.path).query)
+        session_id = (query.get("sessionId") or [""])[0]
+        session = self._session_by_id(session_id)
+        entry = kept_rows().get(session_id) or {}
+        cwd = (session or {}).get("cwd") or entry.get("cwd") or ""
+        spot, refused = _resolve_under((query.get("path") or [""])[0], cwd,
+                                       (session or {}).get("repoRoot") or "", temp=True)
+        if spot is None:
+            self._send(404, refused.encode(), "text/plain; charset=utf-8")
+            return
+        kind = self.PICTURES.get(spot.suffix.lower())
+        if not kind or not spot.is_file():
+            self._send(415, b"that is not a picture", "text/plain; charset=utf-8")
+            return
+        try:
+            if spot.stat().st_size > self.PICTURE_MAX:
+                self._send(413, b"that picture is too big to send", "text/plain; charset=utf-8")
+                return
+            body = spot.read_bytes()
+        except OSError:
+            self._send(404, b"could not read it", "text/plain; charset=utf-8")
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", kind)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Content-Security-Policy", "sandbox; default-src 'none'")
+        # A picture in a transcript does not change: the same path is written
+        # once and read on every poll that redraws the message.
+        self.send_header("Cache-Control", "private, max-age=300")
+        self.end_headers()
+        self.wfile.write(body)
+
     @route("GET", "/api/usage")
     def _get_usage(self) -> None:
         query = parse_qs(urlparse(self.path).query)
@@ -528,6 +603,19 @@ class Handler(BaseHTTPRequestHandler):
             return
         ok, message, restarting = do_update(str(payload.get("tag") or ""))
         self._json({"ok": ok, "message": message, "restarting": restarting}, 200 if ok else 409)
+
+    @route("POST", "/api/update/channel")
+    def _post_update_channel(self, payload: dict, session_id: str) -> None:
+        # Which line this install follows. Behind the same gate as the update
+        # itself, and for the same reason: it decides what that button will
+        # check out, so somewhere that cannot press it has no business choosing.
+        if not config.SAY_ENABLED:
+            self._json({"ok": False, "message": "Choosing an update channel is off because the "
+                                                "panel is not bound to loopback"}, 403)
+            return
+        ok, message = write_channel(str(payload.get("channel") or ""))
+        self._json({"ok": ok, "message": message, "channel": read_channel()},
+                   200 if ok else 400)
 
     @route("GET", "/api/git")
     def _get_git(self) -> None:
@@ -991,6 +1079,32 @@ class Handler(BaseHTTPRequestHandler):
         index = int(raw) if isinstance(raw, (int, float)) and not isinstance(raw, bool) else None
         ok, message = owned_unqueue(session_id, index)
         self._json({"ok": ok, "message": message, "queued": owned_queued(session_id)},
+                   200 if ok else 409)
+
+    @route("POST", "/api/owned/clear")
+    def _post_owned_clear(self, payload: dict, session_id: str) -> None:
+        """Start this session's conversation again, empty.
+
+        The same argument as /api/owned/compact, and the same one transport:
+        `/clear` over a session's messaging socket is queued with expansion
+        switched off and arrives as prose, so this is offered for a session the
+        panel holds and refused for one in a terminal — where it is the
+        terminal's own command and always was.
+
+        The answer carries the id the session has *become*. Clearing does not
+        empty a conversation in place: Claude Code starts a new one and reports a
+        new session_id from then on, so the browser is told where to look rather
+        than left watching a row that has moved.
+        """
+        if not config.SAY_ENABLED:
+            self._json({"ok": False, "message": OFF_HERE}, 403)
+            return
+        if STORE.raw(session_id):
+            self._json({"ok": False, "message": "That session is in a terminal, and /clear is the "
+                                                "terminal's own — make it interactive first"}, 409)
+            return
+        ok, message, moved = owned_clear(session_id)
+        self._json({"ok": ok, "message": message, "sessionId": moved},
                    200 if ok else 409)
 
     @route("POST", "/api/owned/resume")

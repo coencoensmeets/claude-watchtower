@@ -177,6 +177,70 @@
   .tool-line__name { flex: 0 1 auto; overflow-wrap: break-word; font-weight: 700; }
   .tool-line__detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; opacity: 0.85; }
 
+  /* --------------------------------- pictures ------------------------------ */
+  /* A picture a message names, served back by /api/file. Held to a share of the
+     screen rather than drawn at its own size: a screenshot is usually wider and
+     taller than the bubble it is in, and a message that has to be scrolled past
+     is a message nobody reads. The link around it opens the file itself, where
+     the browser's own picture view does the zooming. */
+  .md-image {
+    display: block; max-width: 100%; height: auto;
+    max-height: min(60vh, 460px); object-fit: contain; object-position: left;
+    margin: var(--md-sys-spacing-2) 0;
+    border-radius: var(--md-sys-shape-corner-medium);
+    border: 1px solid var(--md-sys-color-outline-variant);
+    background: var(--md-sys-color-surface-container-low);
+  }
+  .md-image-link { display: inline-block; max-width: 100%; text-decoration: none; }
+  .md-image-link:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: 2px; }
+  /* A file that has gone leaves the alt text, which the browser draws as prose:
+     without a size to fill it would otherwise be an empty box. */
+  .md-image:not([src]), .md-image[alt]:-moz-broken { height: auto; }
+
+  /* ----------------------------------- maths ------------------------------ */
+  /* MathML, drawn by the browser — see web/src/ui/math.ts for why there is no
+     library here. What the stylesheet has to do is the part MathML leaves to
+     the page: where a display sits, and what happens when one is wider than a
+     phone. */
+  .md-math-block {
+    /* Wider than the bubble is the normal case for a matrix, and the answer is
+       to scroll the equation rather than the conversation: without this a
+       single wide display makes the whole panel scroll sideways. */
+    overflow-x: auto; overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+    margin: var(--md-sys-spacing-3) 0;
+    text-align: center;
+  }
+  /* A maths font if the machine has one, and the failure is graceful: MathML
+     builds a tall bracket out of the pieces a maths font carries for it, and
+     with none installed the browser draws a full-stop-sized one beside a
+     three-row matrix. The list is the fonts that actually ship with something:
+     macOS has Cambria Math through Office and STIX through TeX, most Linux
+     distributions have DejaVu Math TeX Gyre or Noto Sans Math, Windows has
+     Cambria Math outright. `serif` last, because the panel's own Roboto has no
+     maths tables at all and a serif fallback is closer to what an equation is
+     meant to look like. */
+  math {
+    font-family: "Latin Modern Math", "STIX Two Math", "XITS Math", "Cambria Math",
+                 "DejaVu Math TeX Gyre", "Noto Sans Math", "TeX Gyre Termes Math", serif;
+    font-size: 1.05em;
+  }
+  math[display="block"] { font-size: 1.15em; }
+  /* `\text{(holding }` ends in a space on purpose — it is the gap before the
+     symbol that follows — and the page would otherwise collapse it away, as it
+     collapses every other run of whitespace in HTML. */
+  math mtext { white-space: pre-wrap; }
+  /* MathML Core has no `menclose`, so `\boxed{…}` is a border here. */
+  .md-math .boxed {
+    padding: 3px 8px;
+    border: 1px solid color-mix(in srgb, currentColor 45%, transparent);
+    border-radius: var(--md-sys-shape-corner-small);
+  }
+  /* A fragment this renderer could not read is shown as what was written,
+     which is a code span like any other — but marked, so it is findable. */
+  .md-math-raw { opacity: 0.9; }
+
   /* ------------------------------- paths in the chat ----------------------- */
   /* A path in a message opens in the editor. Underlined the way a link is, but
      dotted rather than solid and in the text's own colour: there are a dozen of
