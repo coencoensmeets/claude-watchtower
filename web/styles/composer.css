@@ -54,7 +54,80 @@
      something is sent. */
   /* The composer is a row; the bar is a row of its own above it, so the box
      wraps only when there is a bar to wrap for. */
-  .composer:has(.owned-bar), .composer:has(.queued), .composer:has(.attached) { flex-wrap: wrap; }
+  .composer:has(.owned-bar), .composer:has(.queued), .composer:has(.attached),
+  .composer:has(.agent-dock) { flex-wrap: wrap; }
+  /* The agents a session has out, on the edge of the pane nearest your hands.
+
+     A running subagent is the one thing a session is doing that the
+     conversation cannot show you — the row that started it is however far back
+     you have scrolled — so the ones still out sit over the box instead, and
+     each chip opens what it stands for.
+
+     It scrolls sideways rather than wrapping. Wrapping would push the box you
+     are typing in down the screen every time an agent starts, which is the one
+     thing a composer must never do.  */
+  .agent-dock {
+    flex: 1 0 100%; display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+    min-width: 0; margin-bottom: var(--md-sys-spacing-1);
+  }
+  .agent-dock__head { flex: none; color: var(--md-sys-color-primary); }
+  .agent-dock__chips {
+    flex: 1 1 auto; min-width: 0; display: flex; gap: var(--md-sys-spacing-2);
+    overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+    /* The last chip fades out at the edge rather than being cut, which is what
+       says there is more of it off to the right. */
+    -webkit-mask-image: linear-gradient(to right, #000 92%, transparent);
+    mask-image: linear-gradient(to right, #000 92%, transparent);
+    padding-block: 2px;
+  }
+  .agent-dock__chips::-webkit-scrollbar { display: none; }
+  /* The chip itself: the panel's own quiet container, tinted with the working
+     colour rather than filled with it. Six of these at full strength over the
+     composer would shout louder than the conversation they belong to. */
+  .agent-chip {
+    flex: none; max-width: min(34ch, 100%);
+    display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+    padding: var(--md-sys-spacing-1) var(--md-sys-spacing-3);
+    border-radius: var(--md-sys-shape-corner-full);
+    border: 1px solid color-mix(in srgb, var(--md-sys-color-primary) 30%, transparent);
+    background: color-mix(in srgb, var(--md-sys-color-primary) 8%, var(--md-sys-color-surface));
+    color: var(--md-sys-color-on-surface); cursor: pointer;
+    text-align: left; min-height: 32px;
+    transition: background 120ms var(--md-sys-motion-easing-standard),
+                border-color 120ms var(--md-sys-motion-easing-standard);
+  }
+  .agent-chip:hover {
+    background: color-mix(in srgb, var(--md-sys-color-primary) 14%, var(--md-sys-color-surface));
+    border-color: color-mix(in srgb, var(--md-sys-color-primary) 55%, transparent);
+  }
+  .agent-chip:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: 2px; }
+  /* The same lamp the list uses for a working session, throbbing on the same
+     beat: one session working and one agent working should not be two different
+     languages. */
+  .agent-chip__lamp {
+    flex: none; width: 8px; height: 8px; border-radius: var(--md-sys-shape-corner-full);
+    background: var(--md-sys-color-primary);
+    animation: lamp-throb 1.6s var(--md-sys-motion-easing-standard) infinite;
+  }
+  .agent-chip__type { flex: none; color: var(--md-sys-color-primary); }
+  /* What it was asked to do, which is the part that tells two Explores apart.
+     It gives up its width first: the type and the lamp are what make the chip
+     findable, and half a sentence still says which one this is. */
+  .agent-chip__what {
+    flex: 0 1 auto; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    color: var(--md-sys-color-on-surface-variant);
+  }
+  /* Arriving is worth a moment — an agent starting is news — and leaving is
+     not: the chip goes when the agent is back, and the row closing up quietly
+     is the whole announcement that needs making. */
+  @media (prefers-reduced-motion: no-preference) {
+    .agent-chip { animation: agent-chip-in 220ms var(--md-sys-motion-easing-emphasized) both; }
+  }
+  @keyframes agent-chip-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: none; }
+  }
   /* What was typed while it was answering, waiting its turn above the box it was
      typed in. Read-only apart from the one thing worth doing to it: taking it
      back before the session gets to it. */

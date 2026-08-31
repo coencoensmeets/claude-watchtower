@@ -119,7 +119,14 @@ export interface Session {
   window: WindowMatch | null;
   /** How many subagents this session has going, absent when it has none.
       `newest` names one: its type and what it was asked to do. */
-  agents?: { running: number; total: number; newest: string };
+  agents?: {
+    running: number;
+    total: number;
+    newest: string;
+    /** The running ones by name, for the strip over the composer.
+        Absent when none are running; never more than a handful. */
+    live?: { agentId: string; agentType: string; description: string }[];
+  };
 }
 
 /** What the panel is running for a session, keyed by session id in the feed.

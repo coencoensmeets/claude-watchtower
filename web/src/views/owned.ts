@@ -10,6 +10,7 @@ import { imagesFor } from "../ui/images.js";
 import { showSnackbar } from "../ui/snackbar.js";
 import { headerActions, sendBlockedReason, traceFor } from "./chat.js";
 import { plan } from "./plan.js";
+import { agentDock } from "./subagent.js";
 
 /* The mode a session the panel runs is in, as the one row of chips that changes
    what it may do. No tick on the chosen one: the fill says it, and a tick beside
@@ -540,7 +541,7 @@ export function composer(session) {
     // The queue outlives the prompt standing in front of it, so it is still
     // shown here: what you typed ahead goes in after the turn this prompt is
     // holding up, and that is exactly when you might want it back.
-    return `<div class="composer composer--asking">${queuedStrip(session)}${attachedStrip(session)}${ownedAskCard(session, owned.ask)}</div>`;
+    return `<div class="composer composer--asking">${agentDock(session)}${queuedStrip(session)}${attachedStrip(session)}${ownedAskCard(session, owned.ask)}</div>`;
   }
   // Alive, but with nothing to send *to* this second: it is up without a
   // messaging socket, or its socket is still opening. The box stays either way —
@@ -577,6 +578,7 @@ export function composer(session) {
     : wayIn(session);
   return `<div class="composer">
       <div class="cmdbar" id="cmdBar" hidden></div>
+      ${agentDock(session)}
       ${queuedStrip(session)}
       ${attachedStrip(session)}
       <div class="composer-grip" id="composerGrip" role="separator" aria-orientation="horizontal"

@@ -100,7 +100,7 @@ const catalog = { get entries() { return CATALOG.entries; },
 `;
 
 const { composer, modeBar, setFeed, setImages, sendBlockedReason, runsHere, queuedStrip,
-        stopButton, attachedStrip, contextBar, terminalOnly, sentAs, knownCommand,
+        stopButton, attachedStrip, agentDock, contextBar, terminalOnly, sentAs, knownCommand,
         compactPct, drawnStateOf, STATE, STATE_ORDER, setCatalog,
         pathOfUri, pathsOn, dragCarriesFiles, quotePath, insertAtCaret, withImages } = new Function(
   `const app = { feed: { canSend: true }, skew: 0 };
@@ -114,6 +114,7 @@ const { composer, modeBar, setFeed, setImages, sendBlockedReason, runsHere, queu
    ${lift("modeBar")}
    ${lift("queuedStrip")}
    ${lift("attachedStrip")}
+   ${lift("agentDock")}
    ${lift("stopButton")}
    ${liftConst("STATE")}
    ${liftConst("STATE_ALIAS")}
@@ -143,7 +144,8 @@ const { composer, modeBar, setFeed, setImages, sendBlockedReason, runsHere, queu
    ${lift("insertAtCaret")}
    ${lift("withImages")}
    return { pathOfUri, pathsOn, dragCarriesFiles, quotePath, insertAtCaret, withImages,
-            composer, modeBar, runsHere, queuedStrip, stopButton, attachedStrip, contextBar,
+            composer, modeBar, runsHere, queuedStrip, stopButton, attachedStrip, agentDock,
+            contextBar,
             compactPct, drawnStateOf, STATE, STATE_ORDER,
             sendBlockedReason: LIFTED_BLOCKED, setFeed: (f) => { FEED = f; app.feed.owned = f; },
             setImages: (i) => { IMAGES = i; },
@@ -160,7 +162,7 @@ const CALLED = [
   "pickMode", "runsHere", "wayIn", "modeBar", "composer", "ownedAskCard", "sendAskAnswer",
   "askPicksFor", "ownedFor", "sendBlockedReason", "openAdoptDialog", "openNewMenu",
   "newSessionFolders", "pickNewFolder", "drawnStateOf", "sendMessage", "detailHeader", "queuedStrip",
-  "stopButton", "showSnackbar", "attachedStrip", "imagesFor", "attachPicture", "picturesOn",
+  "stopButton", "showSnackbar", "attachedStrip", "agentDock", "imagesFor", "attachPicture", "picturesOn",
   "dropImage", "withImages", "imagesStamp", "clearImages", "setSayImages", "readAsBase64",
   "contextBar", "compactSession", "compactPct", "tokens", "terminalOnly", "knownCommand", "cmdMatches",
   "headerActions", "menuItemsFor", "openMenu",
@@ -356,6 +358,39 @@ check("one that did not save says why rather than pretending",
 setImages({ kept: [{ id: "shot1", url: 'blob:"><b>x</b>', path: "<b>p</b>", name: "<b>p</b>" }] });
 check("what came off the clipboard is escaped where it is drawn",
   !attachedStrip({ sessionId: "kept" }).includes("<b>"));
+/* The agents a session has out, over the box you type in. They are the one
+   thing a working session is doing that the conversation cannot show you, so
+   they get a strip of their own — and each chip has to carry the id that opens
+   what it stands for, or it is decoration. */
+const OUT = [{ agentId: "a1", agentType: "Explore", description: "Find the rows" },
+             { agentId: "a2", agentType: "general-purpose", description: "Read the changelog" }];
+const fanned = composer({ sessionId: "kept", status: "busy",
+                          agents: { running: 2, total: 5, newest: "x", live: OUT } });
+check("the agents a session has out are named over the box",
+  (fanned.match(/class="agent-chip /g) || []).length === 2);
+check("and each chip opens the agent it stands for",
+  fanned.includes(`data-act="subagent"`) && fanned.includes(`data-id="a1"`)
+  && fanned.includes(`data-id="a2"`));
+check("the head counts them", /2 agents out/.test(fanned));
+check("one of them is not two", /1 agent out/.test(
+  composer({ sessionId: "kept", status: "busy",
+             agents: { running: 1, total: 1, newest: "x", live: [OUT[0]] } })));
+/* Past the cap the chips are a sample and the count is the truth, so the head
+   is the server's count rather than the number of chips drawn. */
+check("the head says how many are out, not how many fitted",
+  /9 agents out/.test(composer({ sessionId: "kept", status: "busy",
+    agents: { running: 9, total: 9, newest: "x", live: OUT } })));
+/* A session with none is a session with no strip: an empty rail over the box
+   would cost a line of the pane to say nothing. */
+check("a session running none has no strip at all",
+  !composer({ sessionId: "kept", status: "idle" }).includes("agent-dock"));
+check("nor when the agents it ran have all reported back",
+  !composer({ sessionId: "kept", status: "idle",
+              agents: { running: 0, total: 3, newest: "x" } }).includes("agent-dock"));
+check("what an agent was asked to do cannot break the strip",
+  !agentDock({ agents: { running: 1, live: [
+    { agentId: "a3", agentType: "Explore", description: "<b>hi</b>" }] } }).includes("<b>"));
+
 /* A drop that carried no path — out of Chrome's downloads, say — is saved the
    way a paste is and waits in the same strip. It has no picture to show for
    itself and it knows its name from the start, which is the whole of the

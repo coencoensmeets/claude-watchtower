@@ -21,8 +21,8 @@ from pathlib import Path
 from watchtower import config
 from watchtower.agents import list_subagents, subagent_dir
 from watchtower.config import (
-    ACTIVE_STATUSES, CPU_WINDOW, HISTORY_SECONDS, LIVENESS_GRACE, SAMPLE_INTERVAL,
-    SESSION_DIR, STATUS_TTL, TRANSCRIPT_WINDOW, WORKING_CPU,
+    ACTIVE_STATUSES, AGENT_DOCK_MAX, CPU_WINDOW, HISTORY_SECONDS, LIVENESS_GRACE,
+    SAMPLE_INTERVAL, SESSION_DIR, STATUS_TTL, TRANSCRIPT_WINDOW, WORKING_CPU,
 )
 from watchtower.control import can_pick_folder
 from watchtower.errands import is_own_errand
@@ -315,6 +315,16 @@ class SessionStore:
             named = ": ".join(part for part in
                               (first["agentType"], first["description"]) if part)
             value = {"running": len(running), "total": len(found), "newest": named}
+            # Enough to draw the strip over the composer and open what a chip
+            # stands for. Only the running ones: a finished agent is reachable
+            # from the tool row that started it, and a session that has fanned
+            # out twenty would otherwise bury the box you are typing in. Absent
+            # rather than empty, so it does not travel on every poll.
+            if running:
+                value["live"] = [{"agentId": item["agentId"],
+                                  "agentType": item["agentType"],
+                                  "description": item["description"]}
+                                 for item in running[:AGENT_DOCK_MAX]]
         self._agents_cache[session_id] = (now, value)
         return value
 

@@ -7,6 +7,7 @@ Entries say what changed and, where it is not obvious, why. Anything worth a par
 ## Unreleased
 
 - **A session says how many subagents it is running**, and a `Task` row in the conversation opens what that agent did — its own conversation, tools and changes included, drawn the way the session's is. A session that has fanned out six agents used to read as one session doing one thing, and everything those agents did was missing from between the row that sent them and the answer that came back.
+- **The agents a session has out are named over the box you type in**, one chip each, and a chip opens what that agent is doing. A running subagent is the one thing a working session is doing that the conversation cannot show you: the row that started it is however far back you have scrolled.
 - **A session's spend now includes its subagents.** Each one keeps its own transcript, so the bill was counting only what the session itself said — on a fanned-out session that is a fraction of what was actually paid for.
 
 ## 0.2.1 — 2026-08-27

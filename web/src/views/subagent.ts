@@ -84,6 +84,37 @@ export function agentPanel(body) {
     </div>`;
 }
 
+/* The agents a session has out right now, over the box you type in.
+
+   A running subagent is the one thing the session is doing that the
+   conversation cannot show you: the Task row that started it is however far
+   back you have scrolled, and what the agent is doing is in a file of its own.
+   So the ones still out get a strip of their own, at the edge of the pane
+   nearest your hands, and each chip opens what it stands for.
+
+   Only the running ones, and only ever a few. A finished agent is reachable
+   from the row that started it, and a session that has fanned out twenty would
+   otherwise bury the composer under them — see AGENT_DOCK_MAX. */
+export function agentDock(session) {
+  const live = session.agents?.live || [];
+  if (!live.length) return "";
+  const chips = live.map((agent) => `<button class="agent-chip md-state" type="button"
+      data-act="subagent" data-id="${escapeHtml(agent.agentId)}"
+      title="${escapeHtml(agent.description || agent.agentType)} — read what it is doing">
+      <span class="agent-chip__lamp" aria-hidden="true"></span>
+      <span class="agent-chip__type md-label-small md-mono">${escapeHtml(agent.agentType)}</span>
+      <span class="agent-chip__what md-label-small">${escapeHtml(agent.description)}</span>
+    </button>`).join("");
+  // The head counts what is out, which is not always what is drawn: past the
+  // cap the chips are a sample, and the count is the truth.
+  const running = session.agents?.running || live.length;
+  return `<div class="agent-dock" data-count="${live.length}">
+      <span class="agent-dock__head md-label-small">${running === 1
+        ? "1 agent out" : `${running} agents out`}</span>
+      <div class="agent-dock__chips">${chips}</div>
+    </div>`;
+}
+
 /* Opening one, and handing the conversation back afterwards. The scroll
    positions are handled the way a change handles them, and for the same reason:
    the pane is one scroller, so taking it over inherits wherever the conversation

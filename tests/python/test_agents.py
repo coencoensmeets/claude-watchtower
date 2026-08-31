@@ -231,6 +231,31 @@ class CountingForTheRow(SubagentFixture, unittest.TestCase):
         self.assertEqual(found["total"], 1)
         self.assertEqual(found["running"], 0)
 
+    def test_the_running_ones_are_named_for_the_dock(self):
+        # The strip over the composer opens an agent by id, so the row carries
+        # enough to draw a chip and enough to open what it stands for.
+        self.write_agent("live1", [entry(tool=True, stop_reason="tool_use")],
+                         meta={"agentType": "Explore", "description": "Look around"})
+        found = self.counted()
+        self.assertEqual(found["live"], [{"agentId": "live1", "agentType": "Explore",
+                                          "description": "Look around"}])
+
+    def test_a_finished_agent_is_not_in_the_dock(self):
+        # It is still reachable from the tool row that started it. The dock is
+        # for what you cannot otherwise see.
+        self.write_agent("done1", [entry()])
+        self.assertNotIn("live", self.counted())
+
+    def test_the_dock_holds_no_more_than_six(self):
+        # A session that has fanned out twenty is a wall of chips over the box
+        # you were trying to type in, and the count beside it already says
+        # twenty.
+        for n in range(8):
+            self.write_agent(f"live{n}", [entry(tool=True, stop_reason="tool_use")])
+        found = self.counted()
+        self.assertEqual(found["running"], 8)
+        self.assertEqual(len(found["live"]), 6)
+
     def test_an_agent_finishing_is_noticed_though_the_folder_did_not_change(self):
         # Appending to a subagent's file does not touch the folder's mtime, so a
         # count cached on the folder alone would never move again.

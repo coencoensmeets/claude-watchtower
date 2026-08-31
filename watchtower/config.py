@@ -82,6 +82,12 @@ OWNED_FILE = HOME / ".config" / "claude-watchtower" / "owned.json"
 MAX_OWNED = 200
 
 
+# How many running subagents the strip over the composer names one by one. Past
+# a handful it is a wall of chips over the box you were typing in, and the count
+# on the row already says how many there are.
+AGENT_DOCK_MAX = 6
+
+
 # How long a state trace remembers, and how often we sample.
 HISTORY_SECONDS = 30 * 60
 

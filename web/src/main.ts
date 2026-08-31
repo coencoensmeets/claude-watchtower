@@ -1520,6 +1520,11 @@ function renderDetail(force = false) {
               chat.changeShown ?? "", changeBusy.has(chat.changeShown) ? "reading" : "",
               // And which subagent is being read, which replaces it just as wholly.
               chat.agentShown ?? "", agentBusy.has(chat.agentShown) ? "reading" : "",
+              // And which agents are out, since the strip over the composer names
+              // them: a count alone would not repaint when one is swapped for
+              // another between two polls.
+              (session.agents?.live || []).map((a) => a.agentId).join(","),
+              session.agents?.running ?? "",
               // Not the count alone: dropping the first of two and typing a
               // third leaves the count where it was and the list different.
               (o.queued || []).join("\u0000").slice(0, 200)].join("/"); })(),
