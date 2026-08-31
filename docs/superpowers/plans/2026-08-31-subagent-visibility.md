@@ -17,6 +17,12 @@
 - **Commit messages** are a sentence in the imperative describing the change from the user's side, no `feat:`/`fix:` prefixes and no scope tags. Match the log: `A click on an icon does what the icon says`, `Keep what was typed ahead when the turn is stopped`, `Open a path written into the conversation`.
 - **Tests:** `python3 -m unittest discover -s tests/python` from the repo root. Every Python test file starts with `sys.path.insert(0, str(Path(__file__).resolve().parents[2]))` before importing `watchtower`.
 - **After any Python change, restart the panel.** A running `server.py` picks up `dist/` rebuilds but never Python edits.
+- **The panel's port is not fixed.** `config.SERVE_PORT` is 0 until `main()` decides it. Read the port off the running process rather than assuming one:
+  ```bash
+  PORT=$(ss -tlnp 2>/dev/null | grep -oP '(?<=:)\d+(?=\s+0\.0\.0\.0:\*\s+users:\(\("python3")' | head -1)
+  ```
+  At the time of writing it was 8867. Every `curl` step below uses `$PORT`.
+- **A panel may already be running, and it is the user's.** Restart it with the same command it was started with (`python3 server.py`, no arguments) so it comes back on the same port, and leave it running when you are done — do not leave the user's panel down.
 - **After any TypeScript change, run `node tools/build.mjs`.** The server serves `dist/`, not `web/src/`.
 - **Comment style:** this codebase explains *why*, in prose, at the point of decision. Match it. Do not add comments that restate the code.
 - **Optional payload fields are absent, not null.** A field that does not apply is omitted so it does not travel on every poll. `ToolCall.change` is the precedent.
@@ -929,23 +935,18 @@ Note `list_subagents` re-reads the state of finished agents before `_agents_done
 
 - [ ] **Step 5: Add the field at both payload sites**
 
-At `store.py:406`, after `"activity"`:
-
-```python
-                # How many subagents it has going. A session that has fanned out
-                # six agents reads as one session doing one thing without this.
-                **({"agents": found} if cwd and (found := self._agents(session_id, cwd, now)) else {}),
-```
-
-`:=` inside a `**{}` is too clever for this codebase. Use a local instead: before the dict literal is built, in the same scope, add
+Read it once before the dict literal is built, in the same scope, so the literal
+stays readable:
 
 ```python
             agents_now = self._agents(session_id, cwd, now) if cwd else None
 ```
 
-and then inside the literal:
+Then inside the literal at `store.py:406`, after `"activity"`:
 
 ```python
+                # How many subagents it has going. A session that has fanned out
+                # six agents reads as one session doing one thing without this.
                 **({"agents": agents_now} if agents_now else {}),
 ```
 
@@ -962,7 +963,7 @@ Expected: PASS.
 pkill -f 'python3 .*server.py' || true
 python3 server.py &
 sleep 3
-curl -s localhost:8787/api/state | python3 -c "
+curl -s localhost:$PORT/api/state | python3 -c "
 import json, sys
 for s in json.load(sys.stdin)['sessions']:
     if s.get('agents'):
@@ -1043,11 +1044,11 @@ Make it:
 pkill -f 'python3 .*server.py' || true
 python3 server.py &
 sleep 3
-SID=$(curl -s localhost:8787/api/state | python3 -c "
+SID=$(curl -s localhost:$PORT/api/state | python3 -c "
 import json,sys
 print(next((s['sessionId'] for s in json.load(sys.stdin)['sessions'] if s.get('agents')), ''))")
 echo "session with agents: ${SID:-none}"
-curl -s "localhost:8787/api/subagent?sessionId=$SID&agentId=nosuch" | head -c 300; echo
+curl -s "localhost:$PORT/api/subagent?sessionId=$SID&agentId=nosuch" | head -c 300; echo
 ```
 Expected: `{"ok": false, "message": "That subagent is no longer there"}` with a 404. If `$SID` is empty no session is fanned out; the malformed-id case still exercises the route and must 404 rather than trace back.
 
@@ -1056,12 +1057,12 @@ Expected: `{"ok": false, "message": "That subagent is no longer there"}` with a 
 Only if `$SID` was found above:
 
 ```bash
-AID=$(curl -s "localhost:8787/api/transcript?sessionId=$SID&limit=60" | python3 -c "
+AID=$(curl -s "localhost:$PORT/api/transcript?sessionId=$SID&limit=60" | python3 -c "
 import json,sys
 for m in json.load(sys.stdin)['messages']:
     for t in m.get('tools') or []:
         if t.get('agent'): print(t['agent']['agentId']); break")
-curl -s "localhost:8787/api/subagent?sessionId=$SID&agentId=$AID" | python3 -c "
+curl -s "localhost:$PORT/api/subagent?sessionId=$SID&agentId=$AID" | python3 -c "
 import json,sys
 d=json.load(sys.stdin)
 print(d['agentType'], '|', d['description'], '|', d['state'], '|', len(d['messages']), 'messages')"
@@ -1117,51 +1118,61 @@ class SubagentSpend(unittest.TestCase):
         transcript_module.PROJECT_DIR = self.original
         self.tmp.cleanup()
 
+    def write(self, path: Path, *lines: str) -> None:
+        """Transcript lines, newline-terminated.
+
+        `turn()` returns a line without one — see how the other classes in this
+        file write — and scan_usage remembers its progress against the path in a
+        module global, so the entry goes when the file does.
+        """
+        path.write_text("".join(line + "\n" for line in lines))
+        self.addCleanup(usage.USAGE_SCANS.pop, str(path), None)
+
     def test_a_subagents_spend_lands_in_the_agent_bucket(self):
-        (self.slug / f"{self.session}.jsonl").write_text(
-            turn(request_id="main-1", input_tokens=100, output_tokens=10))
-        (self.agents_dir / "agent-aaa.jsonl").write_text(
-            turn(request_id="side-1", sidechain=True, input_tokens=70, output_tokens=7))
+        self.write(self.slug / f"{self.session}.jsonl",
+                   turn(request_id="main-1", input_tokens=100, output_tokens=10))
+        self.write(self.agents_dir / "agent-aaa.jsonl",
+                   turn(request_id="side-1", sidechain=True, input_tokens=70, output_tokens=7))
         found = usage.read_usage(self.session, "/home/someone/work")
         self.assertEqual([row["model"] for row in found["models"]], ["claude-opus-5"])
         self.assertEqual(sum(row["input"] for row in found["agentModels"]), 70)
         self.assertEqual(found["totals"]["input"], 170)
 
     def test_two_subagents_are_added_together(self):
-        (self.slug / f"{self.session}.jsonl").write_text(
-            turn(request_id="main-1", input_tokens=100))
-        (self.agents_dir / "agent-aaa.jsonl").write_text(
-            turn(request_id="side-1", sidechain=True, input_tokens=70))
-        (self.agents_dir / "agent-bbb.jsonl").write_text(
-            turn(request_id="side-2", sidechain=True, input_tokens=30))
+        self.write(self.slug / f"{self.session}.jsonl",
+                   turn(request_id="main-1", input_tokens=100))
+        self.write(self.agents_dir / "agent-aaa.jsonl",
+                   turn(request_id="side-1", sidechain=True, input_tokens=70))
+        self.write(self.agents_dir / "agent-bbb.jsonl",
+                   turn(request_id="side-2", sidechain=True, input_tokens=30))
         found = usage.read_usage(self.session, "/home/someone/work")
         self.assertEqual(sum(row["input"] for row in found["agentModels"]), 100)
 
     def test_a_subagent_does_not_move_the_context_reading(self):
         # Context is what the *session* is carrying. A subagent's window is not
         # the session's, and reading one here would make the header lie.
-        (self.slug / f"{self.session}.jsonl").write_text(
-            turn(request_id="main-1", input_tokens=100))
-        (self.agents_dir / "agent-aaa.jsonl").write_text(
-            turn(request_id="side-1", sidechain=True, input_tokens=999_999))
+        self.write(self.slug / f"{self.session}.jsonl",
+                   turn(request_id="main-1", input_tokens=100))
+        self.write(self.agents_dir / "agent-aaa.jsonl",
+                   turn(request_id="side-1", sidechain=True, input_tokens=999_999))
         found = usage.read_usage(self.session, "/home/someone/work")
         self.assertEqual(found["context"], 100)
 
     def test_reading_twice_does_not_double_the_bill(self):
         # scan_usage keeps its progress in a module-level cache. Merging into
         # that dict rather than a copy of it would grow the total on every poll.
-        (self.slug / f"{self.session}.jsonl").write_text(
-            turn(request_id="main-1", input_tokens=100))
-        (self.agents_dir / "agent-aaa.jsonl").write_text(
-            turn(request_id="side-1", sidechain=True, input_tokens=70))
+        self.write(self.slug / f"{self.session}.jsonl",
+                   turn(request_id="main-1", input_tokens=100))
+        self.write(self.agents_dir / "agent-aaa.jsonl",
+                   turn(request_id="side-1", sidechain=True, input_tokens=70))
         first = usage.read_usage(self.session, "/home/someone/work")
         second = usage.read_usage(self.session, "/home/someone/work")
         self.assertEqual(first["totals"]["input"], second["totals"]["input"])
         self.assertEqual(second["totals"]["input"], 170)
 
     def test_a_session_with_no_subagents_is_unchanged(self):
-        (self.slug / f"{self.session}.jsonl").write_text(
-            turn(request_id="main-1", input_tokens=100))
+        self.write(self.slug / f"{self.session}.jsonl",
+                   turn(request_id="main-1", input_tokens=100))
         found = usage.read_usage(self.session, "/home/someone/work")
         self.assertEqual(found["agentModels"], [])
         self.assertEqual(found["totals"]["input"], 100)
@@ -1222,10 +1233,10 @@ Expected: PASS. The existing usage tests are characterisation tests; if one move
 pkill -f 'python3 .*server.py' || true
 python3 server.py &
 sleep 3
-SID=$(curl -s localhost:8787/api/state | python3 -c "
+SID=$(curl -s localhost:$PORT/api/state | python3 -c "
 import json,sys
 print(next((s['sessionId'] for s in json.load(sys.stdin)['sessions'] if s.get('agents')), ''))")
-curl -s "localhost:8787/api/usage?sessionId=$SID" | python3 -c "
+curl -s "localhost:$PORT/api/usage?sessionId=$SID" | python3 -c "
 import json,sys
 d=json.load(sys.stdin)
 print('session:', sum(r['input'] for r in d['models']))
@@ -1595,8 +1606,8 @@ Before calling this done, all of it, in order:
 - [ ] `node tools/build.mjs` — clean.
 - [ ] `python3 tests/fixtures.py` — a row shows an agent count, and the drill-in opens.
 - [ ] On a real session running two `Explore` agents: the row counts them, the count falls to nothing when they finish without a page reload, and each agent's conversation opens from its tool row.
-- [ ] `curl -s "localhost:8787/api/usage?sessionId=$SID"` — `agentModels` is non-empty for a session that has run subagents.
-- [ ] `curl -s "localhost:8787/api/subagent?sessionId=$SID&agentId=../../etc/passwd"` — 404, no traceback in the server log.
+- [ ] `curl -s "localhost:$PORT/api/usage?sessionId=$SID"` — `agentModels` is non-empty for a session that has run subagents.
+- [ ] `curl -s "localhost:$PORT/api/subagent?sessionId=$SID&agentId=../../etc/passwd"` — 404, no traceback in the server log.
 - [ ] `git log --oneline develop..HEAD` — nine or so commits, each a sentence in the imperative, none prefixed `feat:`.
 
 ## Out of scope
