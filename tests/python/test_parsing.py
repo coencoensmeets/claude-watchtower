@@ -11,7 +11,9 @@ Standard library only, in keeping with the rest of the project.
 
 from __future__ import annotations
 
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -537,6 +539,42 @@ class UnitFromCgroup(unittest.TestCase):
     def test_nothing_readable_is_no_unit(self):
         for text in ("", "\n", "0::/", "0::/init.scope"):
             self.assertEqual(update.unit_from_cgroup(text), "", repr(text))
+
+
+class SidechainParsing(unittest.TestCase):
+    """A sidechain file is a conversation when it is the one being read."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.path = Path(self.tmp.name) / "agent-aaa.jsonl"
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def write(self, *entries) -> None:
+        self.path.write_text("".join(json.dumps(item) + "\n" for item in entries))
+
+    def said(self, text, sidechain=True) -> dict:
+        return {"type": "assistant", "isSidechain": sidechain,
+                "timestamp": "2026-08-31T10:00:00Z",
+                "message": {"role": "assistant",
+                            "content": [{"type": "text", "text": text}]}}
+
+    def test_a_sidechain_read_as_one_keeps_its_messages(self):
+        self.write(self.said("I looked around"))
+        found = transcript.parse_transcript(self.path, sidechain=True)
+        self.assertEqual([m["text"] for m in found["messages"]], ["I looked around"])
+
+    def test_the_same_file_read_as_a_session_keeps_nothing(self):
+        self.write(self.said("I looked around"))
+        found = transcript.parse_transcript(self.path, sidechain=False)
+        self.assertEqual(found["messages"], [])
+
+    def test_a_plain_entry_is_kept_either_way(self):
+        self.write(self.said("plain", sidechain=False))
+        for flag in (True, False):
+            found = transcript.parse_transcript(self.path, sidechain=flag)
+            self.assertEqual([m["text"] for m in found["messages"]], ["plain"])
 
 
 if __name__ == "__main__":

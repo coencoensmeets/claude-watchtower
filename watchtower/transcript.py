@@ -561,168 +561,185 @@ def read_transcript(session_id: str, cwd: str, limit: int = 60) -> dict:
     for path in transcript_paths(session_id, cwd):
         if not path.exists():
             continue
-        title = None
-        entries: list[dict] = []
-        sent: dict[str, dict] = {}
-        # toolUseId -> the change that tool made. The walk is newest-first, so a
-        # result is always read before the call that caused it, which is what
-        # makes this a plain lookup rather than a second pass.
-        changes: dict[str, dict] = {}
-        more = False
-        seen = 0
+        found = parse_transcript(path, limit)
+        found["sessionId"] = session_id
+        return found
+    return {"sessionId": session_id, "title": None, "messages": [],
+            "truncated": False, "path": None}
 
-        def keep(came: dict, at: object) -> None:
-            """Show a socket message once, under the name of whoever sent it.
 
-            The same message is written down twice — going on the queue and
-            coming off it — and only one of the two still carries the sender's
-            name, which is not always the one read first.
-            """
-            already = sent.get(came["text"])
-            if already is not None:
-                if came["from"] and not already["from"]:
-                    already["from"] = came["from"]
-                return
-            shown = {"role": "user", "at": at, "text": came["text"][:4000],
-                     "tools": [], "from": came["from"] or ""}
-            sent[came["text"]] = shown
-            entries.append(shown)
-        # A bigger ask reads further back: the byte cap is what usually ends the
-        # walk on a long transcript, not the message count.
-        for line in reverse_lines(path, cap=max(3_000_000, limit * 50_000)):
-            line = line.strip()
-            if not line.startswith("{"):
-                continue
-            seen += 1
-            # A page of conversation is enough; the title is worth a little more
-            # reading, since it rides in a block of its own.
-            if len(entries) >= limit and (title is not None or seen > TITLE_PATIENCE):
-                more = True
-                break
-            try:
-                entry = json.loads(line)
-            except ValueError:
-                continue
-            kind = entry.get("type")
-            if kind == "ai-title" and entry.get("aiTitle"):
-                if title is None:
-                    title = str(entry["aiTitle"])[:120]
-                continue
-            # Where a message sent over the socket is written down: on the queue,
-            # once going on and once coming off. The one going on is the message.
-            if kind == "queue-operation":
-                if entry.get("operation") != "enqueue":
-                    continue
-                queued = str(entry.get("content") or "").strip()
-                # A peer names itself with an envelope; this panel sends the text
-                # bare, and bare is then indistinguishable from what it is — a
-                # message. Only the tagged plumbing (task notifications and the
-                # like) is left out.
-                came = unwrap_sent(queued)
-                if came is None and queued and not queued.startswith("<"):
-                    came = {"text": queued, "from": None}
-                if came and came["text"]:
-                    keep(came, entry.get("timestamp"))
-                continue
-            if kind in SKIP_ENTRY_TYPES or kind not in ("user", "assistant"):
-                continue
-            if entry.get("isSidechain"):
-                continue
-            # What a tool did to a file, written down on the result. Read before
-            # the tool_result turn is skipped as mechanics, because this is the
-            # one part of it that is not mechanics: it is the change itself.
-            if isinstance(entry.get("toolUseResult"), dict):
-                made = change_of(entry["toolUseResult"])
-                said = tool_result_id(entry.get("message"))
-                if made and said:
-                    changes[said] = made
-            # A message that came in over the socket is written down as meta —
-            # it was not typed at this terminal. It is still the conversation.
-            origin = entry.get("origin")
-            from_peer = isinstance(origin, dict) and origin.get("kind") == "peer"
-            if entry.get("isMeta") and not from_peer:
-                continue
-            message = entry.get("message")
-            if not isinstance(message, dict):
-                continue
-            content = message.get("content")
-            at = entry.get("timestamp")
+def parse_transcript(path: Path, limit: int = 60, sidechain: bool = False,
+                     agents: dict[str, dict] | None = None) -> dict:
+    """One transcript file, read as a conversation.
 
-            if isinstance(content, str):
-                text = content.strip()
-                # A message delivered rather than queued arrives wrapped; the
-                # same message must not be shown twice.
-                came = unwrap_sent(text)
-                if came is None and from_peer and text:
-                    came = {"text": text, "from": None}
-                if came:
-                    if came["text"]:
-                        keep(came, at)
-                elif text and not text.startswith("<"):
-                    shown = {"role": kind, "at": at, "text": text[:4000], "tools": []}
-                    # A turn the panel ran is written down twice — once as the
-                    # prompt going on the queue, once as the message itself —
-                    # so a message typed here is registered against the queue
-                    # the same way a delivered one is, and whichever is read
-                    # second is dropped rather than shown again.
-                    if kind == "user":
-                        sent.setdefault(text, shown)
-                    entries.append(shown)
-                continue
-            if not isinstance(content, list):
-                continue
+    `sidechain` says which kind of file this is. A session's own transcript holds
+    no sidechain entries any more — Claude Code gives each subagent a file of its
+    own — but the ones it does hold are another conversation's, and skipping them
+    is what keeps a session's transcript the session's. Read a subagent's file
+    with the flag set and the same skip would empty it, since every line in it is
+    a sidechain.
+    """
+    title = None
+    entries: list[dict] = []
+    sent: dict[str, dict] = {}
+    # toolUseId -> the change that tool made. The walk is newest-first, so a
+    # result is always read before the call that caused it, which is what
+    # makes this a plain lookup rather than a second pass.
+    changes: dict[str, dict] = {}
+    more = False
+    seen = 0
 
-            texts, tools, only_results, answered = [], [], True, []
-            for block in content:
-                if not isinstance(block, dict):
-                    continue
-                block_kind = block.get("type")
-                if block_kind == "text":
-                    only_results = False
-                    text = (block.get("text") or "").strip()
-                    if text:
-                        texts.append(text)
-                elif block_kind == "tool_use":
-                    only_results = False
-                    made = changes.get(block.get("id") or "")
-                    tools.append({"name": block.get("name") or "tool",
-                                  "detail": tool_detail(block.get("input")),
-                                  # Only where there is one: every other tool call
-                                  # would otherwise carry a null through every poll.
-                                  **({"change": {**made, "id": block["id"]}} if made else {})})
-                elif block_kind == "thinking":
-                    only_results = False
-                elif block_kind == "tool_result":
-                    # An answer to a question is written down here and nowhere
-                    # else: the question is a tool call, so what you picked is
-                    # its result. It is the one tool_result worth showing —
-                    # without it the conversation reads as Claude asking
-                    # something and then carrying on for no visible reason.
-                    answered += answers_in(block.get("content"))
-            if answered:
-                entries.append({"role": "user", "at": at, "tools": [],
-                                "text": "\n".join(answered)[:4000], "from": "answered here"})
+    def keep(came: dict, at: object) -> None:
+        """Show a socket message once, under the name of whoever sent it.
+
+        The same message is written down twice — going on the queue and
+        coming off it — and only one of the two still carries the sender's
+        name, which is not always the one read first.
+        """
+        already = sent.get(came["text"])
+        if already is not None:
+            if came["from"] and not already["from"]:
+                already["from"] = came["from"]
+            return
+        shown = {"role": "user", "at": at, "text": came["text"][:4000],
+                 "tools": [], "from": came["from"] or ""}
+        sent[came["text"]] = shown
+        entries.append(shown)
+    # A bigger ask reads further back: the byte cap is what usually ends the
+    # walk on a long transcript, not the message count.
+    for line in reverse_lines(path, cap=max(3_000_000, limit * 50_000)):
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        seen += 1
+        # A page of conversation is enough; the title is worth a little more
+        # reading, since it rides in a block of its own.
+        if len(entries) >= limit and (title is not None or seen > TITLE_PATIENCE):
+            more = True
+            break
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        kind = entry.get("type")
+        if kind == "ai-title" and entry.get("aiTitle"):
+            if title is None:
+                title = str(entry["aiTitle"])[:120]
+            continue
+        # Where a message sent over the socket is written down: on the queue,
+        # once going on and once coming off. The one going on is the message.
+        if kind == "queue-operation":
+            if entry.get("operation") != "enqueue":
                 continue
-            if only_results:
-                continue  # a pure tool_result turn
-            if texts or tools:
-                shown = {
-                    "role": kind, "at": at,
-                    "text": "\n\n".join(texts)[:4000],
-                    "tools": tools[:12],
-                }
-                # Same as above, for a user turn whose content arrived as blocks.
-                if kind == "user" and texts and not tools:
-                    sent.setdefault("\n\n".join(texts), shown)
+            queued = str(entry.get("content") or "").strip()
+            # A peer names itself with an envelope; this panel sends the text
+            # bare, and bare is then indistinguishable from what it is — a
+            # message. Only the tagged plumbing (task notifications and the
+            # like) is left out.
+            came = unwrap_sent(queued)
+            if came is None and queued and not queued.startswith("<"):
+                came = {"text": queued, "from": None}
+            if came and came["text"]:
+                keep(came, entry.get("timestamp"))
+            continue
+        if kind in SKIP_ENTRY_TYPES or kind not in ("user", "assistant"):
+            continue
+        if entry.get("isSidechain") and not sidechain:
+            continue
+        # What a tool did to a file, written down on the result. Read before
+        # the tool_result turn is skipped as mechanics, because this is the
+        # one part of it that is not mechanics: it is the change itself.
+        if isinstance(entry.get("toolUseResult"), dict):
+            made = change_of(entry["toolUseResult"])
+            said = tool_result_id(entry.get("message"))
+            if made and said:
+                changes[said] = made
+        # A message that came in over the socket is written down as meta —
+        # it was not typed at this terminal. It is still the conversation.
+        origin = entry.get("origin")
+        from_peer = isinstance(origin, dict) and origin.get("kind") == "peer"
+        if entry.get("isMeta") and not from_peer:
+            continue
+        message = entry.get("message")
+        if not isinstance(message, dict):
+            continue
+        content = message.get("content")
+        at = entry.get("timestamp")
+
+        if isinstance(content, str):
+            text = content.strip()
+            # A message delivered rather than queued arrives wrapped; the
+            # same message must not be shown twice.
+            came = unwrap_sent(text)
+            if came is None and from_peer and text:
+                came = {"text": text, "from": None}
+            if came:
+                if came["text"]:
+                    keep(came, at)
+            elif text and not text.startswith("<"):
+                shown = {"role": kind, "at": at, "text": text[:4000], "tools": []}
+                # A turn the panel ran is written down twice — once as the
+                # prompt going on the queue, once as the message itself —
+                # so a message typed here is registered against the queue
+                # the same way a delivered one is, and whichever is read
+                # second is dropped rather than shown again.
+                if kind == "user":
+                    sent.setdefault(text, shown)
                 entries.append(shown)
+            continue
+        if not isinstance(content, list):
+            continue
 
-        # Read newest-first, so put it back the way it was said.
-        entries.reverse()
-        return {
-            "sessionId": session_id,
-            "title": title,
-            "messages": entries[-max(1, min(limit, TRANSCRIPT_LIMIT_MAX)):],
-            "truncated": more or len(entries) > limit,
-            "path": str(path),
-        }
-    return {"sessionId": session_id, "title": None, "messages": [], "truncated": False, "path": None}
+        texts, tools, only_results, answered = [], [], True, []
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            block_kind = block.get("type")
+            if block_kind == "text":
+                only_results = False
+                text = (block.get("text") or "").strip()
+                if text:
+                    texts.append(text)
+            elif block_kind == "tool_use":
+                only_results = False
+                made = changes.get(block.get("id") or "")
+                tools.append({"name": block.get("name") or "tool",
+                              "detail": tool_detail(block.get("input")),
+                              # Only where there is one: every other tool call
+                              # would otherwise carry a null through every poll.
+                              **({"change": {**made, "id": block["id"]}} if made else {})})
+            elif block_kind == "thinking":
+                only_results = False
+            elif block_kind == "tool_result":
+                # An answer to a question is written down here and nowhere
+                # else: the question is a tool call, so what you picked is
+                # its result. It is the one tool_result worth showing —
+                # without it the conversation reads as Claude asking
+                # something and then carrying on for no visible reason.
+                answered += answers_in(block.get("content"))
+        if answered:
+            entries.append({"role": "user", "at": at, "tools": [],
+                            "text": "\n".join(answered)[:4000], "from": "answered here"})
+            continue
+        if only_results:
+            continue  # a pure tool_result turn
+        if texts or tools:
+            shown = {
+                "role": kind, "at": at,
+                "text": "\n\n".join(texts)[:4000],
+                "tools": tools[:12],
+            }
+            # Same as above, for a user turn whose content arrived as blocks.
+            if kind == "user" and texts and not tools:
+                sent.setdefault("\n\n".join(texts), shown)
+            entries.append(shown)
+
+    # Read newest-first, so put it back the way it was said.
+    entries.reverse()
+    return {
+        "sessionId": "",
+        "title": title,
+        "messages": entries[-max(1, min(limit, TRANSCRIPT_LIMIT_MAX)):],
+        "truncated": more or len(entries) > limit,
+        "path": str(path),
+    }
