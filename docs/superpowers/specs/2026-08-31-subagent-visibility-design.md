@@ -138,14 +138,27 @@ poll. This is the rule `ToolCall.change` already follows.
 ### Caching
 
 A new `SessionStore._agents(session_id, cwd, now)`, following `_question`
-(`store.py:243`) and gated on the **subagents directory's** mtime rather than the
-transcript's: that directory changes only when a subagent is spawned or finishes,
-so the common case is a `stat()` and a cache hit. Inside it, a subagent resolved
-as done is cached as done permanently — a finished file does not reopen. A
-session with six finished subagents and one running therefore costs one `stat()`
-and one `tail_bytes` per poll.
+(`store.py:243`). It caches at two levels, because one level is provably wrong:
 
-`_transcript_touched`'s shape is reused rather than a second idiom invented.
+**The set** of subagents is cached on the subagents directory's mtime. A
+directory's mtime moves when an entry is created or removed, so spawning a
+subagent invalidates the set and nothing else does. Cost in the steady state: one
+`stat()`.
+
+**The state** of each subagent is *not* cached on that mtime. Appending to a
+subagent's `.jsonl`, and its finishing, both leave the directory's mtime
+untouched — gating state on it would freeze the count at whatever it read when
+the last agent was spawned. So state is re-resolved behind a 4-second TTL, the
+same window `_activity` uses, and only for agents not already resolved. A `done`
+verdict is memoised per `agentId` for the life of the process, since a finished
+file does not reopen.
+
+A session with six finished subagents and one running therefore costs one
+`stat()` and one `tail_bytes` per poll, and a session with none costs one failed
+`stat()`.
+
+`_transcript_touched`'s shape is reused for the directory `stat()` rather than a
+second idiom invented.
 
 ### The drill-in: `GET /api/subagent`
 
@@ -232,13 +245,20 @@ subagent entries already carry `isSidechain: true`, so they route themselves int
 the `agents` bucket with no change to the counting. What is missing is the call.
 
 In `read_usage` (`usage.py:223`), after the main path is scanned, scan each
-`subagents/*.jsonl` and merge their `agents` buckets into the main scan's. Merging
-per-model counters needs a small helper; `context` needs no guard, because the
-existing `if not side` already refuses to take a context reading from a sidechain.
+`subagents/*.jsonl` and merge their `agents` buckets into the main scan's.
+Merging per-model counters needs a small helper. `context` needs no guard,
+because the existing `if not side` already refuses to take a context reading from
+a sidechain.
 
-The usage view then reports what a fanned-out session actually cost. Nothing in
-`views/usage.ts` changes: the `agents` bucket it already renders simply stops
-being empty.
+One trap: `held` is the live dict `scan_usage` keeps in `USAGE_SCANS` for
+incremental reads. Merging into it would double-count on the next call and
+corrupt every later read. The merge must build a copy of the `agents` bucket —
+`{name: dict(counters) for ...}` — and leave `held` alone.
+
+`read_usage` already returns `held["agents"]` as `agentModels`, and
+`views/usage.ts` already renders it, so the bucket simply stops being empty.
+
+The usage view then reports what a fanned-out session actually cost.
 
 ## Testing
 
