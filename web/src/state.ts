@@ -104,6 +104,9 @@ export const chat = {
   chatLimit: CHAT_PAGE,
   chatGrew: false,
   changeShown: null,   // toolUseId, or null for the conversation
+  /* The subagent whose conversation is standing in front of the chat, by
+     agentId. Null when the conversation itself is showing. */
+  agentShown: null,
   chatReturn: 0,       // the scroll position to hand back
 };
 

@@ -206,3 +206,50 @@
     background: color-mix(in srgb, var(--md-sys-color-primary) 14%, transparent);
   }
 
+
+  /* ------------------------------- a subagent ------------------------------ */
+  /* A Task call on a tool row, folded: who was sent, and whether they are back.
+     Shaped like the folded change above it — same bar, same gaps, same quiet
+     colour — because they are the same gesture in the same place: a line in the
+     conversation that opens into the thing it stands for. */
+  .agent { margin: var(--md-sys-spacing-1) 0 var(--md-sys-spacing-2); }
+  .agent__bar {
+    display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+    width: 100%; border: 0; background: none; cursor: pointer; text-align: left;
+    padding: var(--md-sys-spacing-1) var(--md-sys-spacing-2);
+    border-radius: var(--md-sys-shape-corner-small);
+    color: var(--md-sys-color-on-surface-variant);
+  }
+  .agent__type { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; color: var(--md-sys-color-on-surface); }
+  .agent__state { flex: none; }
+  .agent__hint { flex: 1 1 auto; text-align: right; opacity: 0.85; }
+  /* The state in the colours the list already uses for a session in the same
+     one, so an agent that is working reads as working across the whole panel. */
+  .agent[data-state="running"] .agent__state { color: var(--md-sys-color-primary); }
+  .agent[data-state="done"] .agent__state {
+    color: var(--md-extended-color-idle-color, var(--md-sys-color-primary)); }
+  .agent[data-state="stopped"] .agent__state { opacity: 0.7; }
+  /* Opened, it takes the pane, out to its edges — the same trade a comparison
+     makes, and for the same reason: a conversation wants the width of one. */
+  .agent-panel { display: flex; flex-direction: column; min-height: 100%;
+    margin: calc(var(--md-sys-spacing-4) * -1) calc(var(--md-sys-spacing-6) * -1)
+            calc(var(--md-sys-spacing-6) * -1); }
+  .agent-panel__head {
+    position: sticky; top: 0; z-index: 3;
+    display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--md-sys-spacing-2);
+    padding: var(--md-sys-spacing-2) var(--md-sys-spacing-4);
+    margin-bottom: var(--md-sys-spacing-2);
+    background: var(--md-sys-color-surface);
+    border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  }
+  .agent-panel__back { flex: none; }
+  .agent-panel__back svg { width: 18px; height: 18px; }
+  .agent-panel__who { flex: none; }
+  .agent-panel__state { flex: none; color: var(--md-sys-color-on-surface-variant); }
+  .agent-panel__state[data-state="running"] { color: var(--md-sys-color-primary); }
+  /* What it was asked to do, on its own line once the header runs out of room:
+     it is a sentence, and a sentence squeezed between two labels is unreadable. */
+  .agent-panel__what { flex: 1 1 100%; min-width: 0;
+    color: var(--md-sys-color-on-surface-variant); }
+  .agent-panel__body { padding: 0 var(--md-sys-spacing-4) var(--md-sys-spacing-4); }
