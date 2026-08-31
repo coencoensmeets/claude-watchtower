@@ -19,6 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from watchtower import usage  # noqa: E402
+from watchtower import transcript as transcript_module  # noqa: E402
 
 
 def turn(request_id="req-1", model="claude-opus-5", sidechain=False,
@@ -259,3 +260,88 @@ class ScanUsage(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SubagentSpend(unittest.TestCase):
+    """A fanned-out session's real bill.
+
+    Subagents have their own transcripts, so the session's file says nothing
+    about what they cost. read_usage has to go and look.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        # Rebound on the transcript module, not on config: usage.py reads paths
+        # through transcript.transcript_paths, and that function reads the name
+        # transcript.py copied out of config at import time.
+        self.original = transcript_module.PROJECT_DIR
+        transcript_module.PROJECT_DIR = self.root
+        self.slug = self.root / "-home-someone-work"
+        self.slug.mkdir()
+        self.session = "11111111-2222-3333-4444-555555555555"
+        self.agents_dir = self.slug / self.session / "subagents"
+        self.agents_dir.mkdir(parents=True)
+
+    def tearDown(self) -> None:
+        transcript_module.PROJECT_DIR = self.original
+        self.tmp.cleanup()
+
+    def write(self, path: Path, *lines: str) -> None:
+        """Transcript lines, newline-terminated.
+
+        `turn()` returns a line without one — see how the other classes in this
+        file write — and scan_usage remembers its progress against the path in a
+        module global, so the entry goes when the file does.
+        """
+        path.write_text("".join(line + "\n" for line in lines))
+        self.addCleanup(usage.USAGE_SCANS.pop, str(path), None)
+
+    def test_a_subagents_spend_lands_in_the_agent_bucket(self):
+        self.write(self.slug / f"{self.session}.jsonl",
+                   turn(request_id="main-1", input_tokens=100, output_tokens=10))
+        self.write(self.agents_dir / "agent-aaa.jsonl",
+                   turn(request_id="side-1", sidechain=True, input_tokens=70, output_tokens=7))
+        found = usage.read_usage(self.session, "/home/someone/work")
+        self.assertEqual([row["model"] for row in found["models"]], ["claude-opus-5"])
+        self.assertEqual(sum(row["input"] for row in found["agentModels"]), 70)
+        self.assertEqual(found["totals"]["input"], 170)
+
+    def test_two_subagents_are_added_together(self):
+        self.write(self.slug / f"{self.session}.jsonl",
+                   turn(request_id="main-1", input_tokens=100))
+        self.write(self.agents_dir / "agent-aaa.jsonl",
+                   turn(request_id="side-1", sidechain=True, input_tokens=70))
+        self.write(self.agents_dir / "agent-bbb.jsonl",
+                   turn(request_id="side-2", sidechain=True, input_tokens=30))
+        found = usage.read_usage(self.session, "/home/someone/work")
+        self.assertEqual(sum(row["input"] for row in found["agentModels"]), 100)
+
+    def test_a_subagent_does_not_move_the_context_reading(self):
+        # Context is what the *session* is carrying. A subagent's window is not
+        # the session's, and reading one here would make the header lie.
+        self.write(self.slug / f"{self.session}.jsonl",
+                   turn(request_id="main-1", input_tokens=100))
+        self.write(self.agents_dir / "agent-aaa.jsonl",
+                   turn(request_id="side-1", sidechain=True, input_tokens=999_999))
+        found = usage.read_usage(self.session, "/home/someone/work")
+        self.assertEqual(found["context"], 100)
+
+    def test_reading_twice_does_not_double_the_bill(self):
+        # scan_usage keeps its progress in a module-level cache. Merging into
+        # that dict rather than a copy of it would grow the total on every poll.
+        self.write(self.slug / f"{self.session}.jsonl",
+                   turn(request_id="main-1", input_tokens=100))
+        self.write(self.agents_dir / "agent-aaa.jsonl",
+                   turn(request_id="side-1", sidechain=True, input_tokens=70))
+        first = usage.read_usage(self.session, "/home/someone/work")
+        second = usage.read_usage(self.session, "/home/someone/work")
+        self.assertEqual(first["totals"]["input"], second["totals"]["input"])
+        self.assertEqual(second["totals"]["input"], 170)
+
+    def test_a_session_with_no_subagents_is_unchanged(self):
+        self.write(self.slug / f"{self.session}.jsonl",
+                   turn(request_id="main-1", input_tokens=100))
+        found = usage.read_usage(self.session, "/home/someone/work")
+        self.assertEqual(found["agentModels"], [])
+        self.assertEqual(found["totals"]["input"], 100)
