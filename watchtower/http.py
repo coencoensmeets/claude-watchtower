@@ -25,6 +25,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from watchtower import config
+from watchtower.agents import list_subagents, read_subagent
 from watchtower.catalog import read_catalog
 from watchtower.config import HOME, ROOT, STATIC_DIR
 from watchtower.control import new_session, open_editor, pick_folder, show_folder, start_session
@@ -428,7 +429,10 @@ class Handler(BaseHTTPRequestHandler):
             limit = max(1, min(TRANSCRIPT_LIMIT_MAX, int((query.get("limit") or ["60"])[0])))
         except ValueError:
             limit = 60
-        self._json(read_transcript(session_id, session["cwd"], limit))
+        # The subagents are read here rather than in the transcript reader: that
+        # module is what agents.py reads, so it cannot read agents.py back.
+        self._json(read_transcript(session_id, session["cwd"], limit,
+                                   agents=list_subagents(session_id, session["cwd"])))
 
     @route("GET", "/api/change")
     def _get_change(self) -> None:
@@ -442,6 +446,25 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": False, "message": "That session is no longer running"}, 404)
             return
         found = read_change(session_id, session["cwd"], (query.get("id") or [""])[0])
+        self._json(found, 200 if found["ok"] else 404)
+
+    @route("GET", "/api/subagent")
+    def _get_subagent(self) -> None:
+        # One subagent's conversation, for a tool row in the chat that was
+        # tapped. The same shape as /api/transcript, because a subagent's
+        # conversation is a conversation and the panel already draws those.
+        query = parse_qs(urlparse(self.path).query)
+        session_id = (query.get("sessionId") or [""])[0]
+        session = self._session_by_id(session_id)
+        if not session:
+            self._json({"ok": False, "message": "That session is no longer running"}, 404)
+            return
+        try:
+            limit = max(1, min(TRANSCRIPT_LIMIT_MAX, int((query.get("limit") or ["60"])[0])))
+        except ValueError:
+            limit = 60
+        found = read_subagent(session_id, session["cwd"],
+                              (query.get("agentId") or [""])[0], limit)
         self._json(found, 200 if found["ok"] else 404)
 
     @route("GET", "/api/usage")
