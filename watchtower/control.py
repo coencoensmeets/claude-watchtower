@@ -13,6 +13,7 @@ from a process rather than from the browser.
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -106,8 +107,45 @@ def interactive_argv(command: list[str]) -> list[str]:
     return [shell, "-i", "-c", f"{line}; exec {shlex.quote(shell)} -i"]
 
 
-def start_session(entry: dict) -> tuple[bool, str]:
-    """Open a terminal running `claude --resume <id>` in the session's folder."""
+# What is left of a session's name once it is a Remote Control name: the thing
+# you will pick this session out by in a list on your phone, so it keeps the
+# letters and loses everything that would need quoting.
+UNNAMEABLE = re.compile(r"[^A-Za-z0-9._-]+")
+MAX_REMOTE_NAME = 60
+
+
+def remote_name(entry: dict) -> str:
+    """What to call this session in Remote Control, out of what the panel calls it.
+
+    Always a name, never nothing. `--remote-control` takes its name optionally,
+    and an optional value followed by another flag is the kind of argument that
+    parses differently on somebody else's version — so the panel supplies one and
+    the question does not arise. The fallback is the folder, then the id, because
+    a list of sessions all called the same thing is not a list.
+    """
+    for candidate in (entry.get("name"), os.path.basename(str(entry.get("cwd") or "")),
+                      str(entry.get("sessionId") or "")[:8]):
+        cleaned = UNNAMEABLE.sub("-", str(candidate or "")).strip("-.")[:MAX_REMOTE_NAME]
+        if cleaned:
+            return cleaned
+    return "watchtower"
+
+
+def start_session(entry: dict, remote: bool = False) -> tuple[bool, str]:
+    """Open a terminal running `claude --resume <id>` in the session's folder.
+
+    `remote` adds `--remote-control`, which is the only way this panel can give a
+    session Remote Control at all. Remote Control needs an interactive session —
+    the CLI says so in as many words — and the sessions the panel runs itself are
+    `claude --print` down a pipe, which is the opposite of one. Typing
+    `/remote-control` at one of those is answered by Claude Code with *not
+    available in this environment*, and no amount of panel-side plumbing changes
+    that: what changes it is a terminal, which is what this already opens.
+
+    So the two flags go together here rather than anywhere else, and they do
+    combine — `claude --resume <id> --remote-control <name>` comes up as an
+    ordinary interactive session, checked under a pty rather than assumed.
+    """
     session_id = str(entry.get("sessionId") or "")
     cwd = entry.get("cwd") or str(HOME)
     if not session_id:
@@ -117,7 +155,11 @@ def start_session(entry: dict) -> tuple[bool, str]:
     claude = shutil.which("claude")
     if not claude:
         return False, "Cannot find the claude command on PATH"
-    argv = terminal_argv([claude, "--resume", session_id], cwd)
+    called = remote_name(entry) if remote else ""
+    command = [claude, "--resume", session_id]
+    if remote:
+        command += ["--remote-control", called]
+    argv = terminal_argv(command, cwd)
     if not argv:
         return False, "No terminal found to start it in — set CLAUDE_WATCHTOWER_TERMINAL"
     try:
@@ -128,6 +170,8 @@ def start_session(entry: dict) -> tuple[bool, str]:
         )
     except OSError as exc:
         return False, f"Could not start it: {exc}"
+    if remote:
+        return True, f"Starting it up with Remote Control, as {called}…"
     return True, "Starting it up…"
 
 

@@ -1242,7 +1242,13 @@ class Handler(BaseHTTPRequestHandler):
         if STORE.raw(session_id):
             self._json({"ok": False, "message": "That session is already running"}, 409)
             return
-        ok, message = start_session(entry)
+        # With Remote Control, when that is what was asked for. It is the same
+        # hand-back either way — the panel lets go, a terminal picks the session
+        # up — and the flag only rides along because Remote Control cannot be
+        # switched on any other way: it needs an interactive session, and the
+        # terminal this opens is the only interactive session the panel has to
+        # offer. See control.start_session.
+        ok, message = start_session(entry, remote=bool(payload.get("remoteControl")))
         text = str(payload.get("text") or "").strip()
         if ok and text:
             # It cannot hear us yet, and the terminal is already opening — so the
