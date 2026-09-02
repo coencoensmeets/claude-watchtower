@@ -62,6 +62,10 @@ export const ICON = {
   // A prompt and a line, the shape every desktop puts on a terminal — the way
   // back out of the panel, beside the way into the editor.
   terminal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="16" rx="3"/><path d="m7 10 2.5 2L7 14M12.5 14.5H17"/></svg>',
+  // A handset with a signal coming off it: the session is in a terminal here,
+  // and reachable from the phone in your pocket. Beside the plain terminal
+  // icon, which opens the same window without that second half.
+  remoteControl: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2.5" width="11" height="19" rx="2.5"/><path d="M8.5 18.5h2"/><path d="M18 8.5a5 5 0 0 1 0 7M20.5 6a8.5 8.5 0 0 1 0 12"/></svg>',
   // Two stars, the mark every editor now uses for "a model did this".
   sparkle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3.5 11.7 8 16 9.8 11.7 11.5 10 16l-1.7-4.5L4 9.8 8.3 8z"/><path d="m17.5 15 .8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></svg>',
   // Two chevrons pointing at each other: squeezed inwards from both ends, which

@@ -239,7 +239,33 @@ function terminalAction(session) {
     : !app.feed.canSend ? "opening a terminal needs the panel on loopback"
     : `Resume this session in a terminal — the panel lets go of it${alsoGoes}`;
   return `<button class="button button--outlined md-state detail-header__terminal" data-act="terminal"
-                  ${can ? "" : "disabled"} title="${escapeHtml(why)}">${ICON.terminal} Open in terminal</button>`;
+                  ${can ? "" : "disabled"} title="${escapeHtml(why)}">${ICON.terminal} Open in terminal</button>
+          ${remoteAction(can, why, alsoGoes)}`;
+}
+
+/* The same hand-back, with Remote Control switched on.
+
+   Its own button rather than a checkbox on the one above, because it is a
+   different thing to have decided: opening a terminal is local and reversible,
+   and Remote Control registers the session with your Anthropic account so that
+   it can be driven from somewhere else. That is not a setting to inherit by
+   accident from the last time you pressed the neighbouring button.
+
+   It is here at all because this is the only place it can be. Remote Control
+   needs an interactive session — Claude Code answers `/remote-control` with *not
+   available in this environment* down a `--print` pipe, which is what every
+   session the panel runs itself is — so the panel cannot switch it on for a
+   session it holds. What it can do is hand the session to a terminal with
+   `--remote-control`, which is this. See control.start_session.
+
+   Drawn under the same conditions and refused for the same reasons as its
+   neighbour: it goes through /api/start, so a turn in flight blocks it too. */
+function remoteAction(can, why, alsoGoes) {
+  const reason = can
+    ? `Resume this session in a terminal with Remote Control, so it can be driven from your phone — the panel lets go of it${alsoGoes}`
+    : why;
+  return `<button class="button button--outlined md-state detail-header__remote" data-act="remote"
+                  ${can ? "" : "disabled"} title="${escapeHtml(reason)}">${ICON.remoteControl} Remote Control</button>`;
 }
 
 /* Opening the session's folder in VS Code. Offered whatever state the session is
