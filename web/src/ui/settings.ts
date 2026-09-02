@@ -197,6 +197,9 @@ function settingsPage() {
             class="switch__says md-label-small">A button on every session with a
             folder, opening it in your editor</span></span>
         </label>
+        <!-- Whether *Open in terminal* can work at all, filled by paintTerminal
+             below and hidden on a machine where it can. -->
+        <div class="settings-notice" id="terminalHint" hidden></div>
       </section>
       <!-- The way in from a phone. Hidden until the server says it is serving
            the network at all, and filled by paintReach below: the address it
@@ -228,6 +231,7 @@ export function paintSettings() {
   renderNotify();
   paintUpdateSetting();
   paintReach();
+  paintTerminal();
   const themeToggle = detailPane.querySelector<HTMLInputElement>("#themeToggle");
   themeToggle.addEventListener("change", () => {
     app.settings.dark = themeToggle.checked;
@@ -247,6 +251,71 @@ export function paintSettings() {
     app.settings = { ...app.settings, seed: DEFAULT_SEED,
       dark: matchMedia("(prefers-color-scheme: dark)").matches, contrast: "standard" };
     persist(); applyScheme(); renderSwatches(); renderContrast(); showSnackbar("Colours reset");
+  });
+}
+
+/* ==========================================================================
+   Open in terminal — whether this machine can, and what to type if it cannot.
+
+   The button on a session already says why it is disabled, but only in a
+   tooltip and only once a row is open, and neither of the things it needs is
+   about the row: a terminal to open, and `claude` on the PATH the panel would
+   open it with. So the answer is drawn here, once, beside the other setting
+   that decides what a session's header offers.
+
+   The line to copy is a package manager's, guessed by the server from the
+   manager it can find — see control.install_line. It is offered the way the
+   phone address is: the command itself in the box with the copy on the end of
+   it, because a button saying *Copy the install command* hides the one thing
+   worth reading.
+   ========================================================================== */
+async function paintTerminal() {
+  const box = detailPane.querySelector<HTMLElement>("#terminalHint");
+  if (!box) return;
+  let terminal;
+  try {
+    const response = await fetch("/api/terminal", { cache: "no-store" });
+    terminal = await response.json();
+  } catch (error) {
+    return;                       // the poll will say the panel is unreachable
+  }
+  // The pane may have moved on while that was in flight, and a machine that can
+  // do it has nothing to say about it.
+  if (!box.isConnected || terminal?.can) return;
+  box.hidden = false;
+  box.dataset.state = "missing";
+  // Three ways to be unable, and they want different sentences: an override
+  // pointing at nothing is a typo to fix rather than a package to install, and a
+  // missing `claude` is almost always a PATH the panel was started with rather
+  // than an uninstalled CLI — it is running the sessions this panel is showing.
+  const said = terminal.override && !terminal.terminal
+    ? `<p class="md-body-medium"><b>Open in terminal</b> cannot work here.
+        <code class="md-mono">CLAUDE_WATCHTOWER_TERMINAL</code> names
+        <code class="md-mono">${escapeHtml(terminal.named)}</code>, which is not on the panel's
+        PATH. Point it at a terminal that is, or unset it to let the panel look for one.</p>`
+    : !terminal.terminal
+    ? `<p class="md-body-medium"><b>Open in terminal</b> cannot work here: this machine has none
+        of the terminals the panel knows how to open — Ghostty, WezTerm, kitty, Alacritty,
+        Konsole, GNOME Terminal, Xfce Terminal, <code class="md-mono">x-terminal-emulator</code>
+        or xterm. Install one, or set <code class="md-mono">CLAUDE_WATCHTOWER_TERMINAL</code> to
+        the one you have and the flag that takes a command.</p>`
+    : `<p class="md-body-medium"><b>Open in terminal</b> cannot work here: the panel cannot find
+        <code class="md-mono">claude</code> on its own PATH. It is on yours — it is running the
+        sessions on this list — so this is usually a panel started by systemd or a launcher,
+        which does not read your shell's profile. Give the unit the PATH, or an absolute
+        <code class="md-mono">ExecStart</code> environment that has it.</p>`;
+  box.innerHTML = said + (terminal.install
+    ? `<div class="reach__line">
+        <code class="md-mono reach__url">${escapeHtml(terminal.install)}</code>
+        <button class="icon-button md-state reach__copy" id="copyInstall" type="button"
+          title="Copy the command" aria-label="Copy the command">${ICON.copy}</button>
+      </div>`
+    : "");
+  const copy = box.querySelector<HTMLElement>("#copyInstall");
+  copy?.addEventListener("click", () => {
+    if (!copyText(terminal.install, "Command copied")) return;
+    copy.innerHTML = ICON.check;
+    setTimeout(() => { if (copy.isConnected) copy.innerHTML = ICON.copy; }, 1400);
   });
 }
 
