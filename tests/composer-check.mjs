@@ -315,6 +315,17 @@ setFeed({ kept: { ...ours, busy: true } });
 const handBack = terminalAction({ sessionId: "kept", cwd: "/tmp/p", alive: false, status: "stopped" });
 check("mid-turn it is refused, and says which turn", handBack.includes("disabled")
   && /turn from the panel is running/.test(handBack), (handBack.match(/title="([^"]*)"/) || [])[1]);
+/* Parked on a permission ask. `busy` stays up — the turn really is in flight —
+   so the button is refused exactly as mid-turn, but the sentence cannot be the
+   mid-turn one: that turn ends when the ask is answered and never on its own,
+   so "let that finish first" is advice that never comes true. */
+setFeed({ kept: { ...ours, busy: true, ask: { asks: true, at: 1 } } });
+const onAsk = terminalAction({ sessionId: "kept", cwd: "/tmp/p", alive: false, status: "waiting" });
+check("parked on an ask it is still refused", onAsk.includes("disabled"), onAsk);
+check("but it names the answer as the way out, not waiting",
+  /waiting on a permission answer/.test(onAsk) && !/let that finish first/.test(onAsk),
+  (onAsk.match(/title="([^"]*)"/) || [])[1]);
+
 setFeed({ kept: { ...ours, queued: ["and then the tests", "and push it"] } });
 check("and it counts what is typed ahead, since that goes with the hand-back",
   /2 messages waiting behind it go too/.test(

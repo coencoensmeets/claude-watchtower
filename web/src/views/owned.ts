@@ -203,6 +203,13 @@ function foldButton(folded) {
    the same word for it: `busy`, a turn in flight, rather than `running`, which
    is only whether the panel holds the session at all.
 
+   A session parked on a permission ask is mid-turn too — the turn is genuinely
+   still in flight, `busy` stays up, and letting go of the pipe would abandon a
+   prompt nobody else can answer. But it is not going to finish on its own, so
+   telling somebody to wait for it is advice that never comes true: the only
+   thing that ends that turn is the answer they are being asked for. Same
+   refusal, different sentence, naming the two ways out — answer it, or stop it.
+
    Whatever is typed ahead of the session goes with the hand-back, which is why
    the hint counts it rather than the queue quietly emptying. */
 function terminalAction(session) {
@@ -216,6 +223,9 @@ function terminalAction(session) {
   // had usually finished minutes ago. `busy` is the flag /api/start itself
   // refuses on, and the two now say the same thing.
   const midTurn = owned.busy === true;
+  // Standing on a prompt, which is a turn in flight that has stopped moving.
+  // The row already says `waiting` for this, and the reason has to as well.
+  const onAsk = midTurn && !!owned.ask;
   const can = app.feed.canSend && !midTurn;
   // What goes with the hand-back. Letting go deliberately clears the queue —
   // that session is about to be somebody else's — and after a stop the queue is
@@ -224,7 +234,8 @@ function terminalAction(session) {
   const waiting = (owned.queued || []).length;
   const alsoGoes = waiting === 1 ? ", and the message waiting behind it goes too"
     : waiting ? `, and the ${waiting} messages waiting behind it go too` : "";
-  const why = midTurn ? "A turn from the panel is running on it — let that finish first"
+  const why = onAsk ? "It is waiting on a permission answer — answer it, or stop the turn, first"
+    : midTurn ? "A turn from the panel is running on it — let that finish first"
     : !app.feed.canSend ? "opening a terminal needs the panel on loopback"
     : `Resume this session in a terminal — the panel lets go of it${alsoGoes}`;
   return `<button class="button button--outlined md-state detail-header__terminal" data-act="terminal"

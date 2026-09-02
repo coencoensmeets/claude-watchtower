@@ -37,9 +37,10 @@ from watchtower.input import (
     deliver_later, end_process, is_loopback, say_to_session, session_listening,
 )
 from watchtower.owned import (
-    OWNED_BUSY, OWNED_COMPACT, OWNED_MODES, OWNED_QUEUE, _OWNED_LOCK, answer_from_panel,
-    load_owned, owned_clear, owned_hold, owned_interrupt, owned_new, owned_queued, owned_release,
-    owned_resume, owned_running, owned_say, owned_set_mode, owned_unqueue, save_owned,
+    OWNED_ASK, OWNED_BUSY, OWNED_COMPACT, OWNED_MODES, OWNED_QUEUE, _OWNED_LOCK,
+    answer_from_panel, load_owned, owned_clear, owned_hold, owned_interrupt, owned_new,
+    owned_queued, owned_release, owned_resume, owned_running, owned_say, owned_set_mode,
+    owned_unqueue, save_owned,
 )
 from watchtower.paste import (DROP_MAX_BYTES, PASTE_MAX_BYTES, POST_MAX_BYTES,
                               save_dropped_file, save_pasted_image)
@@ -1220,9 +1221,17 @@ class Handler(BaseHTTPRequestHandler):
         # possible route. Every path that starts a process on a session asks this.
         with _OWNED_LOCK:
             mid_turn = session_id in OWNED_BUSY
+            # Standing on a prompt is mid-turn as well, and refused on the same
+            # grounds — but that turn ends when the ask is answered and never on
+            # its own, so it cannot be told to wait for it. Same word as the
+            # button, which is where this is read from.
+            on_ask = mid_turn and session_id in OWNED_ASK
         if mid_turn:
-            self._json({"ok": False, "message": "A turn from the panel is running on it — "
-                                                "let it finish first"}, 409)
+            self._json({"ok": False,
+                        "message": "It is waiting on a permission answer — answer it, or stop "
+                                   "the turn, first" if on_ask else
+                                   "A turn from the panel is running on it — let it finish first"},
+                       409)
             return
         # Handing it back is the one thing that legitimately takes the transcript
         # off the panel, so it lets go rather than refusing.
