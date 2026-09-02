@@ -97,17 +97,32 @@
   }
   .reach__said { flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column;
     align-items: flex-start; gap: var(--md-sys-spacing-2); }
-  .reach__url {
-    display: block; max-width: 100%; overflow-wrap: anywhere;
-    padding: var(--md-sys-spacing-2) var(--md-sys-spacing-3);
+  /* The address and the copy on one line, in the tint the address used to carry
+     on its own: the button is part of the thing it acts on rather than a
+     separate control underneath saying what it would do. */
+  .reach__line {
+    display: flex; align-items: center; gap: var(--md-sys-spacing-1);
+    max-width: 100%; padding: 2px 2px 2px var(--md-sys-spacing-3);
     border-radius: var(--md-sys-shape-corner-extra-small);
     background: var(--md-sys-color-surface-container-high);
   }
+  .reach__url {
+    flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere;
+    padding-block: var(--md-sys-spacing-2);
+  }
+  /* Kept at the icon button's own size rather than shrunk to the line: this is
+     the one control in the section and a 36px target on a phone is a miss. */
+  .reach__copy { flex: none; color: var(--md-sys-color-on-surface-variant); }
+  .reach__copy svg { width: 20px; height: 20px; }
   .reach__note { color: var(--md-sys-color-on-surface-variant); max-width: 46ch; }
   /* Not small print: it is the reason none of the switches above will do
      anything, so it is drawn as the obstacle it is and carries the one button
      that clears it. */
-  .notify-permission {
+  /* .settings-notice is the same block for a setting the machine cannot honour
+     — a missing terminal — drawn in the error tint for the same reason the
+     denied notification state is: it is a dead end until something outside the
+     panel changes, not a step the panel can take for you. */
+  .notify-permission, .settings-notice {
     display: flex; flex-direction: column; align-items: flex-start;
     gap: var(--md-sys-spacing-3);
     margin-top: var(--md-sys-spacing-5);
@@ -116,11 +131,17 @@
     background: var(--md-sys-color-surface-container-high);
   }
   /* Blocked or unsupported is a dead end rather than a step, and says so. */
-  .notify-permission[data-state="denied"], .notify-permission[data-state="unsupported"] {
+  .notify-permission[data-state="denied"], .notify-permission[data-state="unsupported"],
+  .settings-notice[data-state="missing"] {
     background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container);
   }
-  .notify-permission p { margin: 0; }
-  .notify-permission[hidden] { display: none; }
+  .notify-permission p, .settings-notice p { margin: 0; }
+  .notify-permission[hidden], .settings-notice[hidden] { display: none; }
+  /* The copy line inside a notice sits on the notice's own surface, which the
+     error tint has already darkened — the phone section's tint would vanish
+     into it. */
+  .settings-notice .reach__line { background: color-mix(in srgb, currentColor 12%, transparent); }
+  .settings-notice .reach__copy { color: inherit; }
   /* A sample of the notification the switch turns on, drawn as the small card
      it will arrive as. Showing the thing itself says more than a sentence
      describing when it fires, and it is the only place in the panel where you

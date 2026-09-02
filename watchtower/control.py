@@ -13,6 +13,7 @@ from a process rather than from the browser.
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -90,6 +91,73 @@ def terminal_argv(command: list[str], cwd: str) -> list[str] | None:
     return None
 
 
+# How a machine with no terminal on it gets one, per package manager. xterm
+# because it is in the list above, is packaged under that name everywhere, and
+# installs without dragging a desktop in behind it — not because it is the one
+# to live in. Any terminal on the list will do, and one already installed under
+# a name the list does not know is what CLAUDE_WATCHTOWER_TERMINAL is for.
+INSTALLERS = (
+    ("apt", "sudo apt install xterm"),
+    ("dnf", "sudo dnf install xterm"),
+    ("pacman", "sudo pacman -S xterm"),
+    ("zypper", "sudo zypper install xterm"),
+    ("apk", "sudo apk add xterm"),
+    ("brew", "brew install --cask ghostty"),
+)
+
+
+def install_line() -> str:
+    """One line that puts a terminal on this machine, or nothing if we cannot say.
+
+    Guessed from the package manager rather than from the distribution: the
+    manager is the thing the command has to match, and it is the thing that can
+    be looked for rather than parsed out of a file. Nothing is better than a
+    wrong guess here — a command that does not exist reads as the panel not
+    knowing what machine it is on, which is exactly what it would mean.
+    """
+    for manager, line in INSTALLERS:
+        if shutil.which(manager):
+            return line
+    return ""
+
+
+def terminal_report() -> dict:
+    """Whether *Open in terminal* can work at all, and what is missing if not.
+
+    The buttons on a session say why they are disabled, but only once there is a
+    session to look at and only in a tooltip — and the two things this needs are
+    the same answer for every session and neither is about the session. So the
+    settings page asks this instead: which terminal the panel would open, that
+    `claude` is on the PATH it would open it with, and, when there is no
+    terminal, the line that gets one.
+
+    Read now rather than at startup because both answers can change under a
+    running panel — a terminal installed while it is up, or a PATH that came
+    from a systemd unit rather than from a shell.
+    """
+    override = (os.environ.get("CLAUDE_WATCHTOWER_TERMINAL")
+                or os.environ.get("CLAUDE_BUSY_UI_TERMINAL") or "")
+    named = override.split()[0] if override.split() else ""
+    # The same choice terminal_argv makes, and it has to stay the same choice:
+    # an override names the terminal outright and the list is not consulted.
+    found = (named if named and shutil.which(named) else "") if override \
+        else next((name for name, _ in TERMINALS if shutil.which(name)), "")
+    claude = shutil.which("claude") or ""
+    # Not "ok": in every other answer here that is *the request worked*, and this
+    # one is a question about the machine rather than about the request.
+    return {
+        "can": bool(found and claude),
+        "terminal": found,
+        "override": override,
+        "named": named,
+        "claude": claude,
+        # Nothing to install when the panel was told which terminal to open and
+        # cannot find it: the machine may well have a terminal already, and the
+        # thing to fix is the variable naming the wrong one.
+        "install": "" if found or override else install_line(),
+    }
+
+
 def interactive_argv(command: list[str]) -> list[str]:
     """`command` run by an interactive shell that stays behind when it exits.
 
@@ -106,8 +174,45 @@ def interactive_argv(command: list[str]) -> list[str]:
     return [shell, "-i", "-c", f"{line}; exec {shlex.quote(shell)} -i"]
 
 
-def start_session(entry: dict) -> tuple[bool, str]:
-    """Open a terminal running `claude --resume <id>` in the session's folder."""
+# What is left of a session's name once it is a Remote Control name: the thing
+# you will pick this session out by in a list on your phone, so it keeps the
+# letters and loses everything that would need quoting.
+UNNAMEABLE = re.compile(r"[^A-Za-z0-9._-]+")
+MAX_REMOTE_NAME = 60
+
+
+def remote_name(entry: dict) -> str:
+    """What to call this session in Remote Control, out of what the panel calls it.
+
+    Always a name, never nothing. `--remote-control` takes its name optionally,
+    and an optional value followed by another flag is the kind of argument that
+    parses differently on somebody else's version — so the panel supplies one and
+    the question does not arise. The fallback is the folder, then the id, because
+    a list of sessions all called the same thing is not a list.
+    """
+    for candidate in (entry.get("name"), os.path.basename(str(entry.get("cwd") or "")),
+                      str(entry.get("sessionId") or "")[:8]):
+        cleaned = UNNAMEABLE.sub("-", str(candidate or "")).strip("-.")[:MAX_REMOTE_NAME]
+        if cleaned:
+            return cleaned
+    return "watchtower"
+
+
+def start_session(entry: dict, remote: bool = False) -> tuple[bool, str]:
+    """Open a terminal running `claude --resume <id>` in the session's folder.
+
+    `remote` adds `--remote-control`, which is the only way this panel can give a
+    session Remote Control at all. Remote Control needs an interactive session —
+    the CLI says so in as many words — and the sessions the panel runs itself are
+    `claude --print` down a pipe, which is the opposite of one. Typing
+    `/remote-control` at one of those is answered by Claude Code with *not
+    available in this environment*, and no amount of panel-side plumbing changes
+    that: what changes it is a terminal, which is what this already opens.
+
+    So the two flags go together here rather than anywhere else, and they do
+    combine — `claude --resume <id> --remote-control <name>` comes up as an
+    ordinary interactive session, checked under a pty rather than assumed.
+    """
     session_id = str(entry.get("sessionId") or "")
     cwd = entry.get("cwd") or str(HOME)
     if not session_id:
@@ -117,7 +222,11 @@ def start_session(entry: dict) -> tuple[bool, str]:
     claude = shutil.which("claude")
     if not claude:
         return False, "Cannot find the claude command on PATH"
-    argv = terminal_argv([claude, "--resume", session_id], cwd)
+    called = remote_name(entry) if remote else ""
+    command = [claude, "--resume", session_id]
+    if remote:
+        command += ["--remote-control", called]
+    argv = terminal_argv(command, cwd)
     if not argv:
         return False, "No terminal found to start it in — set CLAUDE_WATCHTOWER_TERMINAL"
     try:
@@ -128,6 +237,8 @@ def start_session(entry: dict) -> tuple[bool, str]:
         )
     except OSError as exc:
         return False, f"Could not start it: {exc}"
+    if remote:
+        return True, f"Starting it up with Remote Control, as {called}…"
     return True, "Starting it up…"
 
 

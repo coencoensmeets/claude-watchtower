@@ -8,6 +8,7 @@ import { ICON } from "../ui/icons.js";
 import { linkPaths, renderMarkdown } from "../ui/markdown.js";
 import { showSnackbar } from "../ui/snackbar.js";
 import { diffBody, sideBySide } from "./git.js";
+import { agentBlock, agentPanel, agentShownFull } from "./subagent.js";
 import { messageKey } from "./owned.js";
 
                // the scroll position to hand back
@@ -153,6 +154,13 @@ export function chatPanel(session) {
   // was opened from a transcript that was: a poll landing mid-read must not
   // replace the comparison with *Reading the conversation…*
   if (chat.changeShown !== null) return changePanel(session);
+  // And so does a subagent's conversation, for the same reason: it is a
+  // conversation, and a conversation wants the pane a conversation gets.
+  if (chat.agentShown !== null) {
+    const full = agentShownFull();
+    return agentPanel(full
+      ? `<div class="chat">${conversationRows(full.messages, true).join("")}</div>` : "");
+  }
   if (chat.transcriptFor !== session.sessionId || !chat.transcript) {
     return `<p class="chat__note md-body-medium">Reading the conversation…</p>`;
   }
@@ -171,11 +179,20 @@ export function chatPanel(session) {
           ? ` <button class="button button--text md-state chat__more" data-act="more">show ${CHAT_PAGE} more</button>`
           : " — as far back as this panel reads"}</p>`]
     : [];
-  const toolLines = (tools) => (tools || []).map((tool) => `<span class="tool-line md-mono md-body-small">
-      <span class="tool-line__name">${escapeHtml(tool.name)}</span>
-      <span class="tool-line__detail">${linkPaths(escapeHtml(tool.detail || ""))}</span></span>${changeBlock(tool)}`).join("");
+  rows.push(...conversationRows(chat.transcript.messages));
+  return `<div class="chat">${rows.join("")}</div>`;
+}
 
-  for (const message of chat.transcript.messages) {
+const toolLines = (tools) => (tools || []).map((tool) => `<span class="tool-line md-mono md-body-small">
+      <span class="tool-line__name">${escapeHtml(tool.name)}</span>
+      <span class="tool-line__detail">${linkPaths(escapeHtml(tool.detail || ""))}</span></span>${changeBlock(tool)}${agentBlock(tool)}`).join("");
+
+/* The conversation itself: every message as a bubble, every tool-only turn as a
+   row of activity. Pulled out of the panel because a subagent's conversation
+   arrives in the same shape and is drawn by the same code — see views/subagent.ts. */
+export function conversationRows(messages, sidechain = false) {
+  const rows = [];
+  for (const message of messages) {
     // Tool-only turns are activity, not speech — keep them out of bubbles so the
     // actual conversation stays readable.
     if (!message.text && (message.tools || []).length) {
@@ -195,7 +212,11 @@ export function chatPanel(session) {
     // A message that came in over the socket says so: sent from this composer it
     // reads "you, from here", and sent by another session it carries that
     // session's name — because the receiving Claude was told the same thing.
-    const who = message.role !== "user" ? "claude"
+    // In a subagent's transcript nothing on the user's side is yours: it is the
+    // errand the agent was handed and the results it was fed back. Saying "you"
+    // over those is the one thing in this pane that would be a lie.
+    const who = message.role !== "user" ? (sidechain ? "the agent" : "claude")
+      : sidechain ? "sent to it"
       : message.from === undefined ? "you"
       : message.from ? `${escapeHtml(message.from)} <span class="meta-sep">·</span> another session`
       : "you <span class=\"meta-sep\">·</span> from here";
@@ -203,7 +224,8 @@ export function chatPanel(session) {
     // back to the session. "another session" is a distinction for the reader
     // here, not for the Claude being quoted at — what it needs is whose words
     // these were, and it only ever wrote its own.
-    const whoPlain = message.role !== "user" ? "claude" : message.from || "you";
+    const whoPlain = message.role !== "user" ? "claude"
+      : sidechain ? "sent to it" : message.from || "you";
     const tools = toolLines(message.tools);
     rows.push(`<div class="msg msg--${message.role === "user" ? "user" : "assistant"}"
         data-who="${escapeHtml(whoPlain)}" data-at="${escapeHtml(clockOf(message.at))}"
@@ -213,5 +235,5 @@ export function chatPanel(session) {
         ${tools ? `<div class="msg__tools">${tools}</div>` : ""}
       </div>`);
   }
-  return `<div class="chat">${rows.join("")}</div>`;
+  return rows;
 }

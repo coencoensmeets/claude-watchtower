@@ -27,6 +27,7 @@ import { copyText } from "./ui/clipboard.js";
 import { showSnackbar } from "./ui/snackbar.js";
 import { CONTRAST_LEVELS, MAX_CUSTOM_CHROMA, NOTIFY_KINDS, STATE_BASE_HUES, SYS_ROLES, customRoles, firstFreeHue, kebab } from "./ui/theme.js";
 import { changeBusy, chatPanel, hideChange, showChange } from "./views/change.js";
+import { agentBusy, hideAgent, refreshAgent, showAgent } from "./views/subagent.js";
 import { IDENTIFY_NOTE, commentIsOpen, markCommented, paintTrace, questionCard, renderRail, startRename, wireTrace } from "./views/chat.js";
 import { closeDiff, fetchGit, gitPanel, gitStamp, historyPanel, wireGit } from "./views/git.js";
 import { askPicksFor, compactPct, composer, detailHeader, ownedFor, pickMode, runsHere, sendAskAnswer } from "./views/owned.js";
@@ -414,6 +415,7 @@ async function poll() {
     announce(data.sessions);
     render();
     if (app.selectedId && (chat.transcriptFor !== app.selectedId || app.tab === "chat")) fetchTranscript();
+    if (app.selectedId && app.tab === "chat" && chat.agentShown !== null) refreshAgent(selected());
     if (app.selectedId && isGitTab(app.tab)) fetchGit();
     if (app.selectedId && app.tab === "usage") fetchUsage();
   } catch (error) {
@@ -666,7 +668,13 @@ function render() {
   const ordered = arrange(app.feed.sessions);
   const visible = app.filter === "all" ? ordered : ordered.filter((s) => stateKeyOf(s.status) === app.filter);
   if (!visible.some((s) => s.sessionId === app.selectedId)) {
-    app.selectedId = visible.length ? visible[0].sessionId : null;
+    // A session that was cleared is not a session that ended: it is the same
+    // conversation carrying on under a new id, and the panel says where it went.
+    // Followed before the fall-back, or clearing the session you are reading
+    // would drop you on somebody else's — which is what it did.
+    const went = (app.feed.moved || {})[app.selectedId];
+    const followed = went && visible.some((s) => s.sessionId === went) ? went : null;
+    app.selectedId = followed || (visible.length ? visible[0].sessionId : null);
     if (app.selectedId) localStorage.setItem("cbu-selected", app.selectedId);
   }
 
@@ -845,19 +853,24 @@ function paintListItem(item, session) {
   // Claude gave a question is written to be a label, and a permission gate is
   // named for the tool it wants.
   const ask = standingAsk(session);
+  // A session that has fanned out reads as one session doing one thing without
+  // this. Only the running ones are worth a word: six finished agents are six
+  // things that already happened.
+  const fanned = session.agents?.running
+    ? `${session.agents.running} agent${session.agents.running === 1 ? "" : "s"}` : "";
   // The badge carries the kind, so the words beside it do not have to repeat it
   // — and it takes the place of the state word, which a standing prompt has
   // already said more precisely.
   const supporting = (ask ? `<span class="session-item__ask md-label-small">${
       ICON[ASK_ICON[ask.kind]]
     }${ASK_WORD[ask.kind]}</span>` : "")
-    + [ask ? ask.label : state.short, session.folder, nested].filter(Boolean)
+    + [ask ? ask.label : state.short, fanned, session.folder, nested].filter(Boolean)
       .map(escapeHtml).join(" · ");
   // `state.short` alongside the raw status, because they are not the same
   // question: a compacting session and a working one share a status, and the row
   // says different words for them.
   const signature = [stateKeyOf(session.status), state.short, session.name, session.folder, host.label,
-                     isSelected, session.pinned, subject, nested, ask?.kind, ask?.label].join(" ");
+                     isSelected, session.pinned, subject, nested, ask?.kind, ask?.label, fanned].join(" ");
   if (item.dataset.signature !== signature) {
     item.dataset.signature = signature;
     item.innerHTML = `
@@ -914,6 +927,8 @@ export function selectSession(id) {
   // to the next session's pane. The patch itself stays cached under its own id,
   // which is unique — coming back and opening it again costs nothing.
   chat.changeShown = null;
+  // The same for a subagent: it belongs to the conversation that sent it.
+  chat.agentShown = null;
   chat.chatReturn = 0;
   repo.git = null;
   repo.gitFor = null;
@@ -926,7 +941,7 @@ export function selectSession(id) {
 
 function setTab(next) {
   // The tab says *Conversation*, so that is what it shows when you press it.
-  if (next === "chat") chat.changeShown = null;
+  if (next === "chat") { chat.changeShown = null; chat.agentShown = null; }
   app.tab = next;
   localStorage.setItem("cbu-tab", next);
   renderDetail(true);
@@ -1509,6 +1524,13 @@ function renderDetail(force = false) {
               // Which change is being read whole, if any: the pane draws
               // something else entirely while one is.
               chat.changeShown ?? "", changeBusy.has(chat.changeShown) ? "reading" : "",
+              // And which subagent is being read, which replaces it just as wholly.
+              chat.agentShown ?? "", agentBusy.has(chat.agentShown) ? "reading" : "",
+              // And which agents are out, since the strip over the composer names
+              // them: a count alone would not repaint when one is swapped for
+              // another between two polls.
+              (session.agents?.live || []).map((a) => a.agentId).join(","),
+              session.agents?.running ?? "",
               // Not the count alone: dropping the first of two and typing a
               // third leaves the count where it was and the list different.
               (o.queued || []).join("\u0000").slice(0, 200)].join("/"); })(),
@@ -1609,7 +1631,7 @@ function renderDetail(force = false) {
           : app.tab === "usage" ? usagePanel(session)
           : aboutPanel(session, host)}
       </div>
-      ${app.tab === "chat" && chat.changeShown === null ? `<div class="jump-dock">
+      ${app.tab === "chat" && chat.changeShown === null && chat.agentShown === null ? `<div class="jump-dock">
           <button class="jump-bottom md-state" id="jumpBottom" title="Jump to latest" aria-label="Jump to latest" data-open="false" tabindex="-1" hidden>${ICON.toBottom}</button>
           <button class="jump-last md-state md-label-large" id="jumpLast" data-open="false" tabindex="-1" hidden>${ICON.up}Last request</button>
         </div>
@@ -1648,6 +1670,12 @@ function renderDetail(force = false) {
   // terminal. The pane repaints off the next poll, by which point the row is a
   // terminal session again and offers Make interactive instead.
   detailPane.querySelector("[data-act='terminal']")?.addEventListener("click", (e) => run("/api/start", session, control(e)));
+  // The same hand-back with Remote Control switched on. It is the only way the
+  // panel can give a session Remote Control: that needs an interactive session,
+  // and a session the panel runs is `claude --print` down a pipe, where
+  // /remote-control is answered with "not available in this environment".
+  detailPane.querySelector("[data-act='remote']")?.addEventListener("click", (e) =>
+    run("/api/start", session, control(e), null, { remoteControl: true }));
   detailPane.querySelector("#stickyToggle")?.addEventListener("change", (event) =>
     run("/api/sticky", session, control(event), null,
         { pinned: control<HTMLInputElement>(event).checked }));
@@ -1736,6 +1764,8 @@ function renderDetail(force = false) {
     run("/api/owned/interrupt", session, control(e)));
   detailPane.querySelector("[data-act='compact']")?.addEventListener("click", (e) =>
     compactSession(session, e.currentTarget));
+  detailPane.querySelector("[data-act='clear']")?.addEventListener("click", (e) =>
+    clearSession(session, e.currentTarget));
   // Leaving out a picture that was pasted by mistake. The file it saved stays
   // where it is — the sweep on the next paste is what clears it — and all this
   // drops is the panel's intention to name it.
@@ -1819,6 +1849,16 @@ function renderDetail(force = false) {
     });
   }
   detailPane.querySelector("[data-act='change-close']")?.addEventListener("click", hideChange);
+  // The same for a subagent, on the row that started it: the whole bar is the
+  // target, and a selection wins over it for the reason it does on a change.
+  for (const opener of detailPane.querySelectorAll<HTMLElement>("[data-act='subagent']")) {
+    opener.addEventListener("click", (event) => {
+      if (String(window.getSelection?.() ?? "")) return;
+      event.preventDefault();
+      showAgent(opener.dataset.id, session);
+    });
+  }
+  detailPane.querySelector("[data-act='agent-close']")?.addEventListener("click", hideAgent);
 
   const chatAfter = detailPane.querySelector("#chatScroll");
   if (chatAfter && app.tab === "chat" && chatFromBottom !== null) {
@@ -1831,7 +1871,7 @@ function renderDetail(force = false) {
   }
   // Nothing to jump to the bottom of while a comparison has the pane: the dock
   // is about the conversation, and the conversation is not what is on screen.
-  if (chatAfter && app.tab === "chat" && chat.changeShown === null) wireJumpDock(chatAfter);
+  if (chatAfter && app.tab === "chat" && chat.changeShown === null && chat.agentShown === null) wireJumpDock(chatAfter);
   wireHeaderFold(chatAfter);
 
   // Fade the panel in when it is showing something genuinely different — another
@@ -2220,6 +2260,15 @@ export function sentAs(text, session) {
 function cmdNote(asked, session) {
   if (!asked.name) return "";
   const typed = `/${asked.name} ${asked.args}`.trim();
+  // The one command with a real answer rather than a refusal. Claude Code turns
+  // /remote-control down in a session the panel runs — Remote Control wants an
+  // interactive session and this one is `claude --print` down a pipe — and
+  // "does not list a /remote-control" is true but reads as *this cannot be
+  // done*, when in fact the panel has a button for it two inches away.
+  if (asked.name.toLowerCase() === "remote-control" && session && runsHere(session)) {
+    return `Remote Control needs a session in a terminal, and this one runs down the panel's
+      pipe. <b>Remote Control</b> in the header hands it to a terminal with that switched on.`;
+  }
   if (terminalOnly(asked.name, session)) {
     return `<span class="md-mono">/${escapeHtml(asked.name)}</span> only works at this session's
       own prompt — the terminal keeps that one to itself.`;
@@ -2478,6 +2527,35 @@ async function compactSession(session, button) {
   await run("/api/owned/compact", session, button, "Compacting…");
 }
 
+/* Starting the conversation again, empty. `/clear`, in other words, on the one
+   transport that expands it.
+
+   Two things are worth saying before it happens, and the dialog says both. The
+   session keeps running in the same folder — this is not ending it — and the
+   conversation that was cleared is still on disk, because Claude Code starts a
+   new one rather than emptying the old. Which is also why the panel has to be
+   told where the session went: it comes back under a new id, and the answer
+   carries it so the pane can follow rather than reporting the row as gone. */
+async function clearSession(session, button) {
+  const ctx = session.context;
+  const ok = await askConfirm({
+    headline: "Clear this conversation?",
+    body: `<span class="md-mono">${escapeHtml(session.name)}</span> carries on in the same
+      folder with nothing behind it${ctx ? `, in place of the
+      ${escapeHtml(tokens(ctx.tokens))} tokens it is carrying now` : ""} — the same thing
+      <span class="md-mono">/clear</span> does at a terminal's own prompt. It is not
+      ending the session, and nothing is deleted: the conversation you are reading
+      stays on disk, and the panel simply follows the session into its new one.`,
+    confirmLabel: "Clear it",
+    danger: false,
+  });
+  if (!ok) return;
+  const answer = await run("/api/owned/clear", session, button, "Clearing…");
+  // Cleared, and now called something else. Following it is the difference
+  // between "the conversation started again" and "the session disappeared".
+  if (answer?.ok && answer.sessionId) selectSession(answer.sessionId);
+}
+
 /* Taking a row off the list. The conversation is not what goes — the transcript
    is Claude Code's and stays where it is, so this is the row and nothing else,
    which is why it asks in one line rather than spelling out a loss. A session
@@ -2554,6 +2632,7 @@ document.addEventListener("keydown", (event) => {
   // A comparison standing in front of the conversation is the nearest thing to
   // modal in the pane, and Escape is how you come back out of it.
   else if (hideChange()) { /* the conversation is back */ }
+  else if (hideAgent()) { /* and so is it out of a subagent's */ }
   // Nothing modal is open, so Escape drops whatever rows are picked.
   else clearPicked();
 });

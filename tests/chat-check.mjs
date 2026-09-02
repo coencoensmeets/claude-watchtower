@@ -201,6 +201,10 @@ const { linkPaths, renderMarkdown, editor } = new Function(`
   ${liftConst("TRAILING")}
   ${liftConst("SUFFIX")}
   ${liftConst("BARE_RE")}
+  ${liftConst("MATH_RE")}
+  // Maths is drawn by its own module and checked in math-check.mjs; here it
+  // only has to exist, so that a message carrying some still renders.
+  const renderMath = (tex) => "<math>" + escapeHtml(tex) + "</math>";
   const ICON = { copy: "<svg/>" };
   ${liftConst("copyButton")}
   ${lift("safeUrl")}

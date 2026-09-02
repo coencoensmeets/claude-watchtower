@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -75,6 +76,65 @@ BURN = (
 )
 
 
+def slug_of(cwd: str) -> str:
+    """The folder Claude Code keeps a transcript in, named after the cwd."""
+    return "-" + re.sub(r"[^A-Za-z0-9]+", "-", cwd.lstrip("/"))
+
+
+def write_transcript(project_dir: Path, session_id: str) -> None:
+    """A conversation with an Agent call in it, so the drill-in is reachable.
+
+    The tool-use id matches the meta written beside the running subagent below:
+    that is the whole join, and without it the tool row is a row like any other.
+    """
+    project_dir.mkdir(parents=True, exist_ok=True)
+    lines = [
+        {"type": "user", "message": {"role": "user",
+                                     "content": [{"type": "text", "text": "Look into the rows."}]}},
+        {"type": "assistant", "message": {"role": "assistant", "stop_reason": "tool_use",
+                                          "content": [
+             {"type": "tool_use", "id": "toolu_a1111111111111111", "name": "Task",
+              "input": {"subagent_type": "Explore",
+                        "description": "Find where the rows are painted"}},
+             {"type": "tool_use", "id": "toolu_a2222222222222222", "name": "Task",
+              "input": {"subagent_type": "general-purpose",
+                        "description": "Summarise the changelog"}}]}},
+    ]
+    (project_dir / f"{session_id}.jsonl").write_text(
+        "".join(json.dumps(line) + "\n" for line in lines))
+
+
+def write_subagents(project_dir: Path, session_id: str) -> None:
+    """One running agent and one finished, so the row badge and the drill-in
+    have something to show.
+
+    The running one is left mid-tool with a fresh mtime, which is what
+    agents.agent_state reads as running — see AGENT_IDLE_SECONDS. It will go
+    quiet and read as stopped a couple of minutes in, which is correct and worth
+    knowing when a fixture panel is left open.
+    """
+    folder = project_dir / session_id / "subagents"
+    folder.mkdir(parents=True, exist_ok=True)
+    agents = [
+        ("a1111111111111111", "Explore", "Find where the rows are painted",
+         [{"type": "assistant", "isSidechain": True,
+           "message": {"role": "assistant", "stop_reason": "tool_use",
+                       "content": [{"type": "tool_use", "id": "toolu_f1", "name": "Grep",
+                                    "input": {"pattern": "paintListItem"}}]}}]),
+        ("a2222222222222222", "general-purpose", "Summarise the changelog",
+         [{"type": "assistant", "isSidechain": True,
+           "message": {"role": "assistant", "stop_reason": "end_turn",
+                       "content": [{"type": "text",
+                                    "text": "The changelog covers eight releases."}]}}]),
+    ]
+    for agent_id, kind, what, lines in agents:
+        (folder / f"agent-{agent_id}.meta.json").write_text(json.dumps({
+            "agentType": kind, "description": what,
+            "toolUseId": f"toolu_{agent_id}", "spawnDepth": 1, "model": "sonnet"}))
+        (folder / f"agent-{agent_id}.jsonl").write_text(
+            "".join(json.dumps(line) + "\n" for line in lines))
+
+
 def proc_start(pid: int) -> str | None:
     """Field 22 of /proc/<pid>/stat — the same identity check the panel makes."""
     try:
@@ -104,6 +164,8 @@ def main() -> int:
     session_dir.mkdir(parents=True, exist_ok=True)
 
     children: list[subprocess.Popen] = []
+    # What was written outside the fixture directory, to take away again.
+    planted: list[Path] = []
     now = time.time()
     for fixture in FIXTURES:
         # The panel reads liveness from CPU and transcript growth. A fixture
@@ -132,6 +194,17 @@ def main() -> int:
         if fixture.get("entrypoint"):
             data["entrypoint"] = fixture["entrypoint"]
         (session_dir / f"{session_id}.json").write_text(json.dumps(data, indent=2))
+        # The first fixture — the working one — is given a conversation with two
+        # Agent calls in it and the subagents to match, so the row's agent count
+        # and the drill-in behind it have something to show. It goes where
+        # Claude Code would have written it: the panel reads transcripts out of
+        # your home folder and takes no override for it, so this is written
+        # there and taken away again on the way out.
+        if fixture is FIXTURES[0]:
+            project_dir = Path.home() / ".claude" / "projects" / slug_of(args.cwd)
+            write_transcript(project_dir, session_id)
+            write_subagents(project_dir, session_id)
+            planted += [project_dir / f"{session_id}.jsonl", project_dir / session_id]
         # Backdate the file too: it is the last resort for judging freshness.
         stamp = now - fixture["age"]
         os.utime(session_dir / f"{session_id}.json", (stamp, stamp))
@@ -153,6 +226,11 @@ def main() -> int:
                 child.kill()
         if made_dir:
             shutil.rmtree(session_dir, ignore_errors=True)
+        for path in planted:
+            if path.is_dir():
+                shutil.rmtree(path, ignore_errors=True)
+            else:
+                path.unlink(missing_ok=True)
         print("\nfixtures taken down")
         sys.exit(0)
 

@@ -177,6 +177,70 @@
   .tool-line__name { flex: 0 1 auto; overflow-wrap: break-word; font-weight: 700; }
   .tool-line__detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; opacity: 0.85; }
 
+  /* --------------------------------- pictures ------------------------------ */
+  /* A picture a message names, served back by /api/file. Held to a share of the
+     screen rather than drawn at its own size: a screenshot is usually wider and
+     taller than the bubble it is in, and a message that has to be scrolled past
+     is a message nobody reads. The link around it opens the file itself, where
+     the browser's own picture view does the zooming. */
+  .md-image {
+    display: block; max-width: 100%; height: auto;
+    max-height: min(60vh, 460px); object-fit: contain; object-position: left;
+    margin: var(--md-sys-spacing-2) 0;
+    border-radius: var(--md-sys-shape-corner-medium);
+    border: 1px solid var(--md-sys-color-outline-variant);
+    background: var(--md-sys-color-surface-container-low);
+  }
+  .md-image-link { display: inline-block; max-width: 100%; text-decoration: none; }
+  .md-image-link:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: 2px; }
+  /* A file that has gone leaves the alt text, which the browser draws as prose:
+     without a size to fill it would otherwise be an empty box. */
+  .md-image:not([src]), .md-image[alt]:-moz-broken { height: auto; }
+
+  /* ----------------------------------- maths ------------------------------ */
+  /* MathML, drawn by the browser — see web/src/ui/math.ts for why there is no
+     library here. What the stylesheet has to do is the part MathML leaves to
+     the page: where a display sits, and what happens when one is wider than a
+     phone. */
+  .md-math-block {
+    /* Wider than the bubble is the normal case for a matrix, and the answer is
+       to scroll the equation rather than the conversation: without this a
+       single wide display makes the whole panel scroll sideways. */
+    overflow-x: auto; overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+    margin: var(--md-sys-spacing-3) 0;
+    text-align: center;
+  }
+  /* A maths font if the machine has one, and the failure is graceful: MathML
+     builds a tall bracket out of the pieces a maths font carries for it, and
+     with none installed the browser draws a full-stop-sized one beside a
+     three-row matrix. The list is the fonts that actually ship with something:
+     macOS has Cambria Math through Office and STIX through TeX, most Linux
+     distributions have DejaVu Math TeX Gyre or Noto Sans Math, Windows has
+     Cambria Math outright. `serif` last, because the panel's own Roboto has no
+     maths tables at all and a serif fallback is closer to what an equation is
+     meant to look like. */
+  math {
+    font-family: "Latin Modern Math", "STIX Two Math", "XITS Math", "Cambria Math",
+                 "DejaVu Math TeX Gyre", "Noto Sans Math", "TeX Gyre Termes Math", serif;
+    font-size: 1.05em;
+  }
+  math[display="block"] { font-size: 1.15em; }
+  /* `\text{(holding }` ends in a space on purpose — it is the gap before the
+     symbol that follows — and the page would otherwise collapse it away, as it
+     collapses every other run of whitespace in HTML. */
+  math mtext { white-space: pre-wrap; }
+  /* MathML Core has no `menclose`, so `\boxed{…}` is a border here. */
+  .md-math .boxed {
+    padding: 3px 8px;
+    border: 1px solid color-mix(in srgb, currentColor 45%, transparent);
+    border-radius: var(--md-sys-shape-corner-small);
+  }
+  /* A fragment this renderer could not read is shown as what was written,
+     which is a code span like any other — but marked, so it is findable. */
+  .md-math-raw { opacity: 0.9; }
+
   /* ------------------------------- paths in the chat ----------------------- */
   /* A path in a message opens in the editor. Underlined the way a link is, but
      dotted rather than solid and in the text's own colour: there are a dozen of
@@ -206,3 +270,141 @@
     background: color-mix(in srgb, var(--md-sys-color-primary) 14%, transparent);
   }
 
+
+  /* ------------------------------- a subagent ------------------------------ */
+  /* A Task call on a tool row, folded: who was sent, and whether they are back.
+     Shaped like the folded change above it — same bar, same gaps, same quiet
+     colour — because they are the same gesture in the same place: a line in the
+     conversation that opens into the thing it stands for. */
+  .agent { margin: var(--md-sys-spacing-1) 0 var(--md-sys-spacing-2); }
+  .agent__bar {
+    display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+    width: 100%; border: 0; background: none; cursor: pointer; text-align: left;
+    padding: var(--md-sys-spacing-1) var(--md-sys-spacing-2);
+    border-radius: var(--md-sys-shape-corner-small);
+    color: var(--md-sys-color-on-surface-variant);
+  }
+  .agent__type { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; color: var(--md-sys-color-on-surface); }
+  .agent__state { flex: none; }
+  .agent__hint { flex: 1 1 auto; text-align: right; opacity: 0.85; }
+  /* The state in the colours the list already uses for a session in the same
+     one, so an agent that is working reads as working across the whole panel. */
+  .agent[data-state="running"] .agent__state { color: var(--md-sys-color-primary); }
+  .agent[data-state="done"] .agent__state {
+    color: var(--md-extended-color-idle-color, var(--md-sys-color-primary)); }
+  .agent[data-state="stopped"] .agent__state { opacity: 0.7; }
+  /* Opened, it takes the pane — and once it has, everything in it is drawn in
+     the panel's second colour rather than its first.
+
+     That is the whole idea of this view. What is on screen is a conversation
+     that reads exactly like the session's own: same bubbles, same tool rows,
+     same patches. Without a change of colour you lose track of whose words you
+     are reading and start answering an agent that finished ten minutes ago. So
+     the surface, the rail down its edge, and the turns spoken *to* the agent
+     all move to the secondary ramp, and the composer below stays primary — the
+     thing you can still type into is the thing in the panel's first colour. */
+  .agent-panel {
+    display: flex; flex-direction: column; min-height: 100%;
+    margin: calc(var(--md-sys-spacing-4) * -1) calc(var(--md-sys-spacing-6) * -1)
+            calc(var(--md-sys-spacing-6) * -1);
+    /* Deeper than the conversation it stands in front of, not merely a
+       different hue. A scheme built from one seed makes the secondary ramp a
+       quiet sibling of the primary one — on a pink seed the two containers
+       differ by four hex digits — so tone is what carries here and colour only
+       confirms it. This surface sits a step down, and everything on it is
+       lifted back up. */
+    background: color-mix(in srgb, var(--md-sys-color-secondary-container) 62%,
+                          var(--md-sys-color-surface-container-high));
+  }
+  .agent-panel__head {
+    position: sticky; top: 0; z-index: 3;
+    display: flex; flex-direction: column; gap: 2px;
+    padding: var(--md-sys-spacing-2) var(--md-sys-spacing-4) var(--md-sys-spacing-3);
+    margin-bottom: var(--md-sys-spacing-3);
+    background: var(--md-sys-color-secondary-container);
+    color: var(--md-sys-color-on-secondary-container);
+    border-bottom: 1px solid color-mix(in srgb, var(--md-sys-color-secondary) 45%, transparent);
+  }
+  .agent-panel__bar { display: flex; align-items: center; gap: var(--md-sys-spacing-2); }
+  .agent-panel__back { flex: none; }
+  .agent-panel__back svg { width: 18px; height: 18px; }
+  /* What it was sent to do, as the headline: an agent is an errand, and the
+     errand is what tells two Explores apart. Its type and model are how it was
+     staffed, and they read below in the smaller line. */
+  .agent-panel__what {
+    margin: 0; color: var(--md-sys-color-on-secondary-container);
+    overflow-wrap: anywhere;
+  }
+  .agent-panel__meta { margin: 0; color: var(--md-sys-color-on-surface-variant); }
+  .agent-panel__state {
+    flex: none; margin-inline-start: auto;
+    display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+    padding: 2px var(--md-sys-spacing-3);
+    border-radius: var(--md-sys-shape-corner-full);
+    background: var(--md-sys-color-surface);
+    color: var(--md-sys-color-on-surface-variant);
+  }
+  /* The same lamp as the chip over the composer and the row in the list, on the
+     same beat: one language for "this is still going". */
+  .agent-panel__lamp {
+    width: 8px; height: 8px; border-radius: var(--md-sys-shape-corner-full);
+    background: currentColor;
+  }
+  .agent-panel[data-state="running"] .agent-panel__state {
+    color: var(--md-sys-color-primary);
+    background: color-mix(in srgb, var(--md-sys-color-primary) 12%, var(--md-sys-color-surface));
+  }
+  .agent-panel[data-state="running"] .agent-panel__lamp {
+    animation: lamp-throb 1.6s var(--md-sys-motion-easing-standard) infinite;
+  }
+  .agent-panel[data-state="stopped"] .agent-panel__state { opacity: 0.75; }
+  /* The rail is the signature of this view: one line down the edge of the
+     transcript, in the second colour, running from the header to the last thing
+     the agent said. It is what you see out of the corner of your eye that says
+     you are inside somebody else's thread. */
+  .agent-panel__body {
+    flex: 1 1 auto;
+    padding: 0 var(--md-sys-spacing-4) var(--md-sys-spacing-4) var(--md-sys-spacing-5);
+    border-inline-start: 2px solid color-mix(in srgb, var(--md-sys-color-secondary) 45%, transparent);
+    margin-inline-start: var(--md-sys-spacing-4);
+  }
+  /* The agent's own speech is lifted off the wash; what was said *to* it takes
+     the secondary container, where the session's own conversation takes the
+     primary one. Two conversations, two colours, the same shapes. */
+  .agent-panel .msg--assistant {
+    background: var(--md-sys-color-surface);
+    border-color: color-mix(in srgb, var(--md-sys-color-secondary) 30%, transparent);
+  }
+  /* The turns on the user's side of a subagent's transcript are not yours. They
+     are the errand it was handed and the results it was fed — so they are drawn
+     as a briefing rather than as speech: full width, outlined, and squared off
+     where a bubble would be rounded. Nobody should be able to mistake this pane
+     for one they are talking in. */
+  .agent-panel .msg--user {
+    align-self: stretch; max-width: none;
+    background: color-mix(in srgb, var(--md-sys-color-secondary-container) 45%,
+                          var(--md-sys-color-surface));
+    color: var(--md-sys-color-on-surface);
+    border: 1px dashed color-mix(in srgb, var(--md-sys-color-secondary) 50%, transparent);
+    border-radius: var(--md-sys-shape-corner-small);
+  }
+  .agent-panel .msg--user .msg__who { color: var(--md-sys-color-on-surface-variant); }
+  /* Still being written. A running agent's transcript ends mid-thought, and
+     without this the last tool row reads as the end of the story. */
+  .agent-panel__still {
+    display: flex; align-items: center; gap: var(--md-sys-spacing-2);
+    margin: var(--md-sys-spacing-3) 0 0;
+    color: var(--md-sys-color-primary);
+  }
+  .agent-panel__dots { display: flex; gap: 3px; }
+  .agent-panel__dots i {
+    width: 5px; height: 5px; border-radius: var(--md-sys-shape-corner-full);
+    background: currentColor; opacity: 0.35;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .agent-panel__dots i { animation: agent-dots 1.2s var(--md-sys-motion-easing-standard) infinite; }
+    .agent-panel__dots i:nth-child(2) { animation-delay: 0.15s; }
+    .agent-panel__dots i:nth-child(3) { animation-delay: 0.3s; }
+  }
+  @keyframes agent-dots { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }

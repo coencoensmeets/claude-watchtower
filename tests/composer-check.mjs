@@ -89,7 +89,7 @@ const OWNED_MODE_LABEL = { default: "Manual", auto: "Auto", plan: "Plan", accept
 let FEED = {};
 const ownedFor = (s) => FEED[s.sessionId] || {};
 const ICON = { check: "<svg/>", ask: "<svg/>", play: "<svg/>", stop: "<svg/>", compact: "<svg/>",
-               file: "<svg/>" };
+               file: "<svg/>", terminal: "<svg/>", remoteControl: "<svg/>", discard: "<svg/>" };
 const ownedAskCard = () => "<ASKCARD>";
 let IMAGES = {};
 const imagesFor = (id) => IMAGES[id] || [];
@@ -100,7 +100,8 @@ const catalog = { get entries() { return CATALOG.entries; },
 `;
 
 const { composer, modeBar, setFeed, setImages, sendBlockedReason, runsHere, queuedStrip,
-        stopButton, attachedStrip, contextBar, terminalOnly, sentAs, knownCommand,
+        stopButton, terminalAction, clearOffer, attachedStrip, agentDock, contextBar,
+        terminalOnly, sentAs, knownCommand,
         compactPct, drawnStateOf, STATE, STATE_ORDER, setCatalog,
         pathOfUri, pathsOn, dragCarriesFiles, quotePath, insertAtCaret, withImages } = new Function(
   `const app = { feed: { canSend: true }, skew: 0 };
@@ -114,7 +115,11 @@ const { composer, modeBar, setFeed, setImages, sendBlockedReason, runsHere, queu
    ${lift("modeBar")}
    ${lift("queuedStrip")}
    ${lift("attachedStrip")}
+   ${lift("agentDock")}
    ${lift("stopButton")}
+   ${lift("terminalAction")}
+   ${lift("remoteAction")}
+   ${liftConst("clearOffer")}
    ${liftConst("STATE")}
    ${liftConst("STATE_ALIAS")}
    ${liftConst("STATE_ORDER")}
@@ -143,7 +148,8 @@ const { composer, modeBar, setFeed, setImages, sendBlockedReason, runsHere, queu
    ${lift("insertAtCaret")}
    ${lift("withImages")}
    return { pathOfUri, pathsOn, dragCarriesFiles, quotePath, insertAtCaret, withImages,
-            composer, modeBar, runsHere, queuedStrip, stopButton, attachedStrip, contextBar,
+            composer, modeBar, runsHere, queuedStrip, stopButton, terminalAction, attachedStrip,
+            agentDock, contextBar, clearOffer,
             compactPct, drawnStateOf, STATE, STATE_ORDER,
             sendBlockedReason: LIFTED_BLOCKED, setFeed: (f) => { FEED = f; app.feed.owned = f; },
             setImages: (i) => { IMAGES = i; },
@@ -160,7 +166,7 @@ const CALLED = [
   "pickMode", "runsHere", "wayIn", "modeBar", "composer", "ownedAskCard", "sendAskAnswer",
   "askPicksFor", "ownedFor", "sendBlockedReason", "openAdoptDialog", "openNewMenu",
   "newSessionFolders", "pickNewFolder", "drawnStateOf", "sendMessage", "detailHeader", "queuedStrip",
-  "stopButton", "showSnackbar", "attachedStrip", "imagesFor", "attachPicture", "picturesOn",
+  "stopButton", "showSnackbar", "attachedStrip", "agentDock", "imagesFor", "attachPicture", "picturesOn",
   "dropImage", "withImages", "imagesStamp", "clearImages", "setSayImages", "readAsBase64",
   "contextBar", "compactSession", "compactPct", "tokens", "terminalOnly", "knownCommand", "cmdMatches",
   "headerActions", "menuItemsFor", "openMenu",
@@ -295,6 +301,81 @@ check("and says what typing something else would do, since that is the third way
 check("a queue nobody stopped is not asking anything",
   !/data-act="resume"/.test(composer({ sessionId: "one", status: "busy" })));
 
+/* Handing a session back to a terminal. The button is offered for a session the
+   panel runs, and refused mid-turn — which is a turn *in flight*, not the panel
+   merely holding the session. Reading the wrong flag disabled it for the whole
+   of a session's life and told you to wait for a turn that had finished. */
+const ours = { mode: "auto", here: true, running: true, busy: false };
+setFeed({ kept: ours });
+const back = terminalAction({ sessionId: "kept", cwd: "/tmp/p", alive: false, status: "stopped" });
+check("a session the panel runs can be handed back to a terminal",
+  back.includes('data-act="terminal"') && !back.includes("disabled"), back);
+check("and the hint says what handing it back does",
+  /lets go of it/.test(back), (back.match(/title="([^"]*)"/) || [])[1]);
+setFeed({ kept: { ...ours, busy: true } });
+const handBack = terminalAction({ sessionId: "kept", cwd: "/tmp/p", alive: false, status: "stopped" });
+check("mid-turn it is refused, and says which turn", handBack.includes("disabled")
+  && /turn from the panel is running/.test(handBack), (handBack.match(/title="([^"]*)"/) || [])[1]);
+/* Parked on a permission ask. `busy` stays up — the turn really is in flight —
+   so the button is refused exactly as mid-turn, but the sentence cannot be the
+   mid-turn one: that turn ends when the ask is answered and never on its own,
+   so "let that finish first" is advice that never comes true. */
+setFeed({ kept: { ...ours, busy: true, ask: { asks: true, at: 1 } } });
+const onAsk = terminalAction({ sessionId: "kept", cwd: "/tmp/p", alive: false, status: "waiting" });
+check("parked on an ask it is still refused", onAsk.includes("disabled"), onAsk);
+check("but it names the answer as the way out, not waiting",
+  /waiting on a permission answer/.test(onAsk) && !/let that finish first/.test(onAsk),
+  (onAsk.match(/title="([^"]*)"/) || [])[1]);
+
+setFeed({ kept: { ...ours, queued: ["and then the tests", "and push it"] } });
+check("and it counts what is typed ahead, since that goes with the hand-back",
+  /2 messages waiting behind it go too/.test(
+    terminalAction({ sessionId: "kept", cwd: "/tmp/p", alive: false, status: "stopped" })),
+  (terminalAction({ sessionId: "kept", cwd: "/tmp/p", alive: false, status: "stopped" })
+    .match(/title="([^"]*)"/) || [])[1]);
+check("a session already in a terminal is not offered it — it is already there",
+  terminalAction({ sessionId: "live", cwd: "/tmp/p", alive: true, status: "idle" }) === "");
+
+/* Remote Control. Its own button beside the plain hand-back, because it is the
+   only way the panel can switch Remote Control on at all: it needs an
+   interactive session, and a session the panel runs is `claude --print` down a
+   pipe. It rides on the same /api/start, so it is offered and refused on
+   exactly the same terms as its neighbour. */
+setFeed({ kept: ours });
+const withRemote = terminalAction({ sessionId: "kept", cwd: "/tmp/p", alive: false, status: "stopped" });
+check("the hand-back offers Remote Control beside it",
+  withRemote.includes('data-act="remote"') && withRemote.includes('data-act="terminal"'), withRemote);
+check("and says what Remote Control buys, not just that it opens a terminal",
+  /driven from your phone/.test(withRemote),
+  (withRemote.match(/data-act="remote"[\s\S]*?title="([^"]*)"/) || [])[1]);
+setFeed({ kept: { ...ours, busy: true } });
+const remoteBusy = terminalAction({ sessionId: "kept", cwd: "/tmp/p", alive: false, status: "stopped" });
+check("mid-turn it is refused for the same reason the plain one is",
+  (remoteBusy.match(/data-act="remote"[\s\S]*?disabled/) || []).length === 1
+  && /turn from the panel is running/.test(remoteBusy), remoteBusy);
+check("a session already in a terminal is not offered it either — /remote-control works there",
+  terminalAction({ sessionId: "live", cwd: "/tmp/p", alive: true, status: "idle" }) === "");
+
+/* Clearing. The same transport question as the rest of this file: `/clear` is
+   the terminal's own command over a socket and an ordinary one down a held
+   pipe, so the button exists for exactly one of the two. */
+setFeed({ kept: ours });
+const heldSession = { sessionId: "kept", cwd: "/tmp/p", alive: false, status: "stopped", spoken: true };
+check("a session the panel runs is offered Clear", clearOffer(heldSession) === true);
+check("and it is in the context bar beside Compact",
+  contextBar({ ...heldSession, context: { tokens: 200000, window: 1000000, share: 0.2 } })
+    .includes(`data-act="clear"`),
+  contextBar({ ...heldSession, context: { tokens: 200000, window: 1000000, share: 0.2 } }));
+check("offered even with room to spare, unlike Compact — starting again is not about room",
+  contextBar({ ...heldSession, context: { tokens: 1000, window: 1000000, share: 0.001 } })
+    .includes(`data-act="clear"`)
+  && !contextBar({ ...heldSession, context: { tokens: 1000, window: 1000000, share: 0.001 } })
+    .includes(`data-act="compact"`));
+check("a session in a terminal is not — there it is the terminal's own command",
+  clearOffer({ sessionId: "live", cwd: "/tmp/p", alive: true, status: "idle", spoken: true }) === false);
+check("nor is one that has never said anything — there is nothing to clear",
+  clearOffer({ ...heldSession, spoken: false }) === false);
+
 /* Stopping the train of thought. Only a session the panel holds has a channel
    for it — the interrupt goes down the pipe the panel owns — so that is the only
    one whose button does anything. */
@@ -356,6 +437,39 @@ check("one that did not save says why rather than pretending",
 setImages({ kept: [{ id: "shot1", url: 'blob:"><b>x</b>', path: "<b>p</b>", name: "<b>p</b>" }] });
 check("what came off the clipboard is escaped where it is drawn",
   !attachedStrip({ sessionId: "kept" }).includes("<b>"));
+/* The agents a session has out, over the box you type in. They are the one
+   thing a working session is doing that the conversation cannot show you, so
+   they get a strip of their own — and each chip has to carry the id that opens
+   what it stands for, or it is decoration. */
+const OUT = [{ agentId: "a1", agentType: "Explore", description: "Find the rows" },
+             { agentId: "a2", agentType: "general-purpose", description: "Read the changelog" }];
+const fanned = composer({ sessionId: "kept", status: "busy",
+                          agents: { running: 2, total: 5, newest: "x", live: OUT } });
+check("the agents a session has out are named over the box",
+  (fanned.match(/class="agent-chip /g) || []).length === 2);
+check("and each chip opens the agent it stands for",
+  fanned.includes(`data-act="subagent"`) && fanned.includes(`data-id="a1"`)
+  && fanned.includes(`data-id="a2"`));
+check("the head counts them", /2 agents out/.test(fanned));
+check("one of them is not two", /1 agent out/.test(
+  composer({ sessionId: "kept", status: "busy",
+             agents: { running: 1, total: 1, newest: "x", live: [OUT[0]] } })));
+/* Past the cap the chips are a sample and the count is the truth, so the head
+   is the server's count rather than the number of chips drawn. */
+check("the head says how many are out, not how many fitted",
+  /9 agents out/.test(composer({ sessionId: "kept", status: "busy",
+    agents: { running: 9, total: 9, newest: "x", live: OUT } })));
+/* A session with none is a session with no strip: an empty rail over the box
+   would cost a line of the pane to say nothing. */
+check("a session running none has no strip at all",
+  !composer({ sessionId: "kept", status: "idle" }).includes("agent-dock"));
+check("nor when the agents it ran have all reported back",
+  !composer({ sessionId: "kept", status: "idle",
+              agents: { running: 0, total: 3, newest: "x" } }).includes("agent-dock"));
+check("what an agent was asked to do cannot break the strip",
+  !agentDock({ agents: { running: 1, live: [
+    { agentId: "a3", agentType: "Explore", description: "<b>hi</b>" }] } }).includes("<b>"));
+
 /* A drop that carried no path — out of Chrome's downloads, say — is saved the
    way a paste is and waits in the same strip. It has no picture to show for
    itself and it knows its name from the start, which is the whole of the

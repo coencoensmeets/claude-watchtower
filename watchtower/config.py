@@ -82,6 +82,22 @@ OWNED_FILE = HOME / ".config" / "claude-watchtower" / "owned.json"
 MAX_OWNED = 200
 
 
+# How many running subagents the strip over the composer names one by one. Past
+# a handful it is a wall of chips over the box you were typing in, and the count
+# on the row already says how many there are.
+AGENT_DOCK_MAX = 6
+
+
+# Which line of the panel this install follows: the releases, or the development
+# branch. Kept beside the file above rather than in the checkout, because it is a
+# fact about this install and an update replaces the checkout under it.
+CHANNEL_FILE = HOME / ".config" / "claude-watchtower" / "channel.json"
+
+# The branch the development channel follows. Not configurable from the browser:
+# a name from a request is a name the panel would check out.
+DEV_BRANCH = os.environ.get("CLAUDE_WATCHTOWER_DEV_BRANCH") or "develop"
+
+
 # How long a state trace remembers, and how often we sample.
 HISTORY_SECONDS = 30 * 60
 
