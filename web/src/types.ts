@@ -117,6 +117,16 @@ export interface Session {
   kept: boolean;
   pinned: boolean;
   window: WindowMatch | null;
+  /** How many subagents this session has going, absent when it has none.
+      `newest` names one: its type and what it was asked to do. */
+  agents?: {
+    running: number;
+    total: number;
+    newest: string;
+    /** The running ones by name, for the strip over the composer.
+        Absent when none are running; never more than a handful. */
+    live?: { agentId: string; agentType: string; description: string }[];
+  };
 }
 
 /** What the panel is running for a session, keyed by session id in the feed.
@@ -219,6 +229,13 @@ export interface ToolCall {
   detail: string;
   /** Only on a call that changed a file; absent on every other one. */
   change?: ChangePreview;
+  /** Only on a Task/Agent call, naming the subagent it started — which is what
+      makes the row openable. Absent on every other call. */
+  agent?: {
+    agentId: string;
+    agentType: string;
+    state: "running" | "done" | "stopped";
+  };
 }
 
 export interface Message {
@@ -238,6 +255,19 @@ export interface Transcript {
   messages: Message[];
   truncated: boolean;
   path: string | null;
+}
+
+/** GET /api/subagent — one subagent's conversation, in the shape the chat
+    already draws, with the meta on top. */
+export interface Subagent extends Transcript {
+  ok: boolean;
+  message?: string;
+  agentId: string;
+  agentType: string;
+  description: string;
+  spawnDepth: number;
+  state: "running" | "done" | "stopped";
+  model?: string;
 }
 
 /** GET /api/change — the whole of one change, by its tool-use id. */

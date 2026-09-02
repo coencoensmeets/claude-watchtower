@@ -999,6 +999,7 @@ PANEL_URL=http://127.0.0.1:8787 node tests/ui-check.mjs
 | `GET /api/state` | Every live session, with status, trace, window match, and the `question` it is standing at if it is standing at one , plus `moved`: where a cleared session went, so a browser holding the old id can follow it |
 | `GET /api/transcript` | `?sessionId=…&limit=…` — the recent conversation |
 | `GET /api/change?sessionId=…&id=…` | The whole of one file change, by the tool-use id its preview in the chat carries: the patch as unified text, what it added and removed, and whether it was long enough to be clipped |
+| `GET /api/subagent?sessionId=…&agentId=…&limit=…` | One subagent's own conversation, by the id the `Task` row in the chat carries, in the same shape as `/api/transcript` |
 | `GET /api/usage` | `?sessionId=…` — that session's token totals per model, the cost they come to, and the size of its last context |
 | `GET /api/commands` | `?sessionId=…` — the skills and slash commands that session could be asked for, read from the project's folders, yours, and any enabled plugin's. A session that has gone is answered with what is true of every session rather than a 404 |
 | `GET /api/plan` | The subscription's limits, read by running `claude --print /usage`; `?force=1` skips the five-minute cache; loopback only |

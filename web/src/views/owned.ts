@@ -10,6 +10,7 @@ import { imagesFor } from "../ui/images.js";
 import { showSnackbar } from "../ui/snackbar.js";
 import { headerActions, sendBlockedReason, traceFor } from "./chat.js";
 import { plan } from "./plan.js";
+import { agentDock } from "./subagent.js";
 
 /* The mode a session the panel runs is in, as the one row of chips that changes
    what it may do. No tick on the chosen one: the fill says it, and a tick beside
@@ -202,6 +203,13 @@ function foldButton(folded) {
    the same word for it: `busy`, a turn in flight, rather than `running`, which
    is only whether the panel holds the session at all.
 
+   A session parked on a permission ask is mid-turn too — the turn is genuinely
+   still in flight, `busy` stays up, and letting go of the pipe would abandon a
+   prompt nobody else can answer. But it is not going to finish on its own, so
+   telling somebody to wait for it is advice that never comes true: the only
+   thing that ends that turn is the answer they are being asked for. Same
+   refusal, different sentence, naming the two ways out — answer it, or stop it.
+
    Whatever is typed ahead of the session goes with the hand-back, which is why
    the hint counts it rather than the queue quietly emptying. */
 function terminalAction(session) {
@@ -215,6 +223,9 @@ function terminalAction(session) {
   // had usually finished minutes ago. `busy` is the flag /api/start itself
   // refuses on, and the two now say the same thing.
   const midTurn = owned.busy === true;
+  // Standing on a prompt, which is a turn in flight that has stopped moving.
+  // The row already says `waiting` for this, and the reason has to as well.
+  const onAsk = midTurn && !!owned.ask;
   const can = app.feed.canSend && !midTurn;
   // What goes with the hand-back. Letting go deliberately clears the queue —
   // that session is about to be somebody else's — and after a stop the queue is
@@ -223,7 +234,8 @@ function terminalAction(session) {
   const waiting = (owned.queued || []).length;
   const alsoGoes = waiting === 1 ? ", and the message waiting behind it goes too"
     : waiting ? `, and the ${waiting} messages waiting behind it go too` : "";
-  const why = midTurn ? "A turn from the panel is running on it — let that finish first"
+  const why = onAsk ? "It is waiting on a permission answer — answer it, or stop the turn, first"
+    : midTurn ? "A turn from the panel is running on it — let that finish first"
     : !app.feed.canSend ? "opening a terminal needs the panel on loopback"
     : `Resume this session in a terminal — the panel lets go of it${alsoGoes}`;
   return `<button class="button button--outlined md-state detail-header__terminal" data-act="terminal"
@@ -577,7 +589,7 @@ export function composer(session) {
     // The queue outlives the prompt standing in front of it, so it is still
     // shown here: what you typed ahead goes in after the turn this prompt is
     // holding up, and that is exactly when you might want it back.
-    return `<div class="composer composer--asking">${queuedStrip(session)}${attachedStrip(session)}${ownedAskCard(session, owned.ask)}</div>`;
+    return `<div class="composer composer--asking">${agentDock(session)}${queuedStrip(session)}${attachedStrip(session)}${ownedAskCard(session, owned.ask)}</div>`;
   }
   // Alive, but with nothing to send *to* this second: it is up without a
   // messaging socket, or its socket is still opening. The box stays either way —
@@ -614,6 +626,7 @@ export function composer(session) {
     : wayIn(session);
   return `<div class="composer">
       <div class="cmdbar" id="cmdBar" hidden></div>
+      ${agentDock(session)}
       ${queuedStrip(session)}
       ${attachedStrip(session)}
       <div class="composer-grip" id="composerGrip" role="separator" aria-orientation="horizontal"

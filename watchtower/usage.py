@@ -12,6 +12,7 @@ import json
 import threading
 from pathlib import Path
 
+from watchtower.agents import subagent_dir
 from watchtower.transcript import transcript_paths
 
 
@@ -241,7 +242,22 @@ def read_usage(session_id: str, cwd: str) -> dict:
                             "priced": price_of(model, fast) is not None})
             return out
 
-        main, agents = rows(held["main"]), rows(held["agents"])
+        # A subagent's spend is in a file of its own, so the session's scan does
+        # not have it. Every entry in those files is marked as a sidechain, so
+        # scan_usage sorts them into the agent bucket without being told.
+        #
+        # Copied, not merged in place: `held` is the dict scan_usage keeps to
+        # read each transcript incrementally, and adding to it would count the
+        # subagents again on the next poll, and again on the one after.
+        spent = {name: dict(counters) for name, counters in held["agents"].items()}
+        folder = subagent_dir(session_id, cwd)
+        for side in sorted(folder.glob("agent-*.jsonl")) if folder else []:
+            extra = scan_usage(side)
+            for name, counters in (extra.get("agents") or {}).items():
+                target = spent.setdefault(name, blank_counters())
+                for field, value in counters.items():
+                    target[field] = target.get(field, 0) + value
+        main, agents = rows(held["main"]), rows(spent)
         every = main + agents
         totals = blank_counters()
         for row in every:
