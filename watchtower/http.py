@@ -29,7 +29,8 @@ from watchtower import config
 from watchtower.agents import list_subagents, read_subagent
 from watchtower.catalog import read_catalog
 from watchtower.config import HOME, ROOT, STATIC_DIR
-from watchtower.control import new_session, open_editor, pick_folder, show_folder, start_session
+from watchtower.control import (new_session, open_editor, pick_folder, show_folder,
+                                start_session, terminal_report)
 from watchtower.git.actions import git_action
 from watchtower.git.message import suggest_message
 from watchtower.git.read import read_diff, read_git
@@ -404,6 +405,17 @@ class Handler(BaseHTTPRequestHandler):
             "key": key,
             "url": url,
         })
+
+    @route("GET", "/api/terminal")
+    def _get_terminal(self) -> None:
+        """Whether *Open in terminal* can work on this machine, for the settings page.
+
+        A GET with no session in it, because neither answer is about a session:
+        the terminal the panel would open and the `claude` it would run are the
+        same for every row, and a reader who has not opened a row yet is exactly
+        the reader who needs telling.
+        """
+        self._json({"ok": True, **terminal_report()})
 
     @route("GET", "/api/qr")
     def _get_qr(self) -> None:
