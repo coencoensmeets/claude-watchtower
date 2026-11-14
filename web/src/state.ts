@@ -87,7 +87,9 @@ export const app = {
   // looks, on screen, exactly like a session that has gone quiet.
   readFailed: false,
   filter: "all",
-  selectedId: localStorage.getItem("cbu-selected") || null,
+  // A notification tapped with no panel open opens one at /?session=<id>.
+  selectedId: new URLSearchParams(location.search).get("session")
+    || localStorage.getItem("cbu-selected") || null,
   tab: localStorage.getItem("cbu-tab") || "chat",
   inFlight: null,
   showingSettings: false,

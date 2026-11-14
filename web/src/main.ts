@@ -5,13 +5,13 @@
    the parts that are about the app as a whole — the index and its groups, the
    composer, the session menu, the dialogs, and boot. */
 
-import { Hct, SchemeVibrant, TonalPalette, argbFromHex, hexFromArgb } from "/vendor/material-color-utilities.js";
 import { run } from "./net.js";
 import { isAmbiguous, windowSays } from "./sessions/facts.js";
 import { ASK_ICON, ASK_WORD, STATE, STATE_ORDER, displaySince, drawnStateOf, standingAsk, stateKeyOf } from "./sessions/state.js";
 import type { StateKey } from "./sessions/state.js";
 import { CHAT_LIMIT_MAX, CHAT_PAGE, app, chat, loadKeySet, mutedSessions, quietWhenDone, readJson, repo, sayDrafts, selected, sessionById, sidebar, spend, ui } from "./state.js";
 import { askConfirm, askScrim, closeAsk } from "./ui/ask.js";
+import { browseFolder, onThisMachine } from "./ui/folders.js";
 import { backButton, barNudge, barNudgeIcon, barNudgeLink, barNudgeText, barSupporting, chipSet, control, detailPane, endScrim, hitClosest, hitElement, linkChip, linkChipText, listEmpty, panes, pickBar, pickClear, pickCount, pickGroup, sessionList, settingsButton } from "./ui/dom.js";
 import { duration, escapeHtml, shorten, tokens } from "./ui/format.js";
 import { ICON, hostOf } from "./ui/icons.js";
@@ -25,8 +25,9 @@ import { announce, paintFavicon } from "./ui/notify.js";
 import { conceal, reveal } from "./ui/overlay.js";
 import { paintSettings, syncTheme } from "./ui/settings.js";
 import { copyText } from "./ui/clipboard.js";
+import { afterDetail, beforeDetail, listDone, rowPainted } from "./ui/motion.js";
 import { showSnackbar } from "./ui/snackbar.js";
-import { CONTRAST_LEVELS, MAX_CUSTOM_CHROMA, NOTIFY_KINDS, STATE_BASE_HUES, SYS_ROLES, customRoles, firstFreeHue, kebab } from "./ui/theme.js";
+import { CONTRAST_LEVELS, NOTIFY_KINDS, SYS_ROLES, WT_INK, WT_PAGE, WT_PLENTY, WT_SCHEME, WT_STATE, WT_TINT, kebab } from "./ui/theme.js";
 import { changeBusy, chatPanel, hideChange, showChange } from "./views/change.js";
 import { agentBusy, hideAgent, refreshAgent, showAgent } from "./views/subagent.js";
 import { IDENTIFY_NOTE, commentIsOpen, markCommented, paintTrace, questionCard, renderRail, startRename, wireTrace } from "./views/chat.js";
@@ -71,23 +72,27 @@ export function persist() {
 
 export function applyScheme() {
   const root = document.documentElement;
-  const seedArgb = argbFromHex(app.settings.seed);
-  const level = CONTRAST_LEVELS.find((l) => l.key === app.settings.contrast) || CONTRAST_LEVELS[0];
-  const scheme = new SchemeVibrant(Hct.fromInt(seedArgb), app.settings.dark, level.value);
+  // The Watchtower palette is fixed (see theme.ts): the M3 role names stay, so
+  // every stylesheet that reads them keeps working, but the values are ours.
+  const mode = app.settings.dark ? "dark" : "light";
+  const scheme = WT_SCHEME[mode];
   for (const role of SYS_ROLES) {
     if (scheme[role] === undefined) continue;
-    root.style.setProperty(`--md-sys-color-${kebab(role)}`, hexFromArgb(scheme[role]));
+    root.style.setProperty(`--md-sys-color-${kebab(role)}`, scheme[role]);
   }
-  const occupied = [Hct.fromInt(scheme.primary).hue];
-  for (const [name, baseHex] of Object.entries(STATE_BASE_HUES)) {
-    const base = Hct.fromInt(argbFromHex(baseHex));
-    const hue = firstFreeHue(base.hue, occupied);
-    occupied.push(hue);
-    const palette = TonalPalette.fromHueAndChroma(hue, Math.min(base.chroma, MAX_CUSTOM_CHROMA));
-    for (const [role, argb] of Object.entries(customRoles(palette, app.settings.dark))) {
-      root.style.setProperty(`--md-extended-color-${name}-${kebab(role)}`, hexFromArgb(argb));
+  // A state's colour and its container are the same mid-tone with ink on it:
+  // the avatar, the header and the ask badge are all the state, said loudly.
+  for (const [name, hex] of Object.entries(WT_STATE)) {
+    const roles = { color: hex, onColor: WT_INK, container: hex, onContainer: WT_INK, tint: WT_TINT[mode][name] };
+    for (const [role, value] of Object.entries(roles)) {
+      root.style.setProperty(`--md-extended-color-${name}-${kebab(role)}`, value);
     }
   }
+  for (const [role, value] of Object.entries(WT_PLENTY[mode])) {
+    root.style.setProperty(`--md-extended-color-plenty-${kebab(role)}`, value);
+  }
+  root.style.setProperty("--wt-page", WT_PAGE[mode]);
+  root.dataset.theme = mode;
   root.style.colorScheme = app.settings.dark ? "dark" : "light";
   root.dataset.schemeReady = "true";
   // The switch lives on the settings page, which is only sometimes on screen —
@@ -800,6 +805,7 @@ function renderList(visible) {
     const count = item.querySelector(".group__count");
     if (count) count.textContent = inside ? `${inside} of ${block.sessions.length}` : String(block.sessions.length);
   }
+  listDone(visible.length);
   syncPickBar();
 }
 
@@ -902,11 +908,13 @@ function paintListItem(item, session) {
     // The id, not the session: the object is replaced on every poll, the row is not.
     const id = session.sessionId;
     button.addEventListener("click", (event) => onRowClick(id, event));
+    rowPainted(button, id, stateKeyOf(session.status), true);
   } else {
     const button = item.firstElementChild;
     button.setAttribute("aria-current", String(isSelected));
     button.dataset.picked = String(isPicked);
     button.dataset.status = stateKeyOf(session.status);
+    rowPainted(button, session.sessionId, stateKeyOf(session.status), false);
   }
   const trailing = item.querySelector("[data-since]");
   if (trailing) trailing.dataset.since = displaySince(session);
@@ -1103,14 +1111,22 @@ function openNewMenu(button) {
   // session will run on. It stays last: the folders above are the answer most
   // of the time.
   if (items.length) items.push({ divider: true });
+  // Off this machine — a phone — the desktop's chooser would open on a screen
+  // nobody holding the phone can see, so the panel lists the folders itself.
+  // It does the same on a desktop with no chooser to open.
+  const browse = !onThisMachine() || app.feed.canPickFolder === false;
   items.push({
     key: "pick",
     icon: ICON.folder,
     label: "Another folder…",
     hint: !app.feed.canSend ? "needs loopback"
-      : app.feed.canPickFolder === false ? "no chooser on this desktop" : "opens a folder chooser",
-    disabled: !app.feed.canSend || app.feed.canPickFolder === false,
-    run: (el) => startOwnedSession({ pick: true }, el),
+      : browse ? "browse this computer's folders" : "opens a folder chooser",
+    disabled: !app.feed.canSend,
+    run: async (el) => {
+      if (!browse) return startOwnedSession({ pick: true }, el);
+      const cwd = await browseFolder();
+      if (cwd) startOwnedSession({ cwd }, el);
+    },
   });
   items.push({ divider: true });
   items.push({
@@ -1612,6 +1628,7 @@ function renderDetail(force = false) {
   // order, so a data-tab here answers every [data-tab="…"] lookup meant for the
   // buttons inside it — including the ones the tests click.
   const cameFrom = `${detailPane.dataset.sessionId || ""}/${detailPane.dataset.showing || ""}`;
+  beforeDetail(detailPane, session.sessionId);
   detailPane.dataset.sessionId = session.sessionId;
   detailPane.dataset.showing = app.tab;
   detailPane.innerHTML = `
@@ -1645,6 +1662,8 @@ function renderDetail(force = false) {
   header.style.setProperty("--state-colour", state.colour);
   header.style.setProperty("--state-container", state.container);
   header.style.setProperty("--state-on-container", state.onContainer);
+  afterDetail(detailPane, session.sessionId, stateKeyOf(session.status), state.container,
+              chat.transcriptFor === session.sessionId);
 
   paintTrace(header, session);
   wireTrace(header);
@@ -2417,7 +2436,8 @@ async function startOwnedSession(where, item) {
   try {
     const response = await fetch("/api/owned/new", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(where.pick ? { pick: true } : { sessionId: where.from.sessionId }),
+      body: JSON.stringify(where.pick ? { pick: true }
+        : where.cwd ? { cwd: where.cwd } : { sessionId: where.from.sessionId }),
     });
     const data = await response.json().catch(() => ({}));
     showSnackbar(data.message || (response.ok ? "Started" : "That did not start"));

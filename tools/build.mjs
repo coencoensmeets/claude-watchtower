@@ -46,6 +46,8 @@ const STYLE_ORDER = [
   "controls.css",     // buttons, switches, segmented buttons, the context menu
   "comments.css",     // the rail, its cards, and the quote chip
   "dialog.css",       // scrims, dialogs, the snackbar
+  "watchtower.css",   // the Watchtower look over the components above
+  "motion.css",       // response, arrival and ambient motion over the look
   "responsive.css",   // last: it narrows what everything above laid out
 ];
 

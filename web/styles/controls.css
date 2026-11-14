@@ -142,6 +142,7 @@
   }
   /* Blocked or unsupported is a dead end rather than a step, and says so. */
   .notify-permission[data-state="denied"], .notify-permission[data-state="unsupported"],
+  .notify-permission[data-state="insecure"],
   .settings-notice[data-state="missing"] {
     background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container);
   }

@@ -130,6 +130,29 @@ NO_KEY_PAGE = """<!doctype html>
 
 
 
+# How many folders one listing hands back. A home folder with thousands of
+# entries is somebody's downloads, not a place to scroll a phone through.
+FOLDER_LIST_MAX = 500
+
+
+def _home_folder(raw: str) -> tuple[Path | None, str]:
+    """A folder named in a request, resolved and held inside your home — or None
+    and why not. What the panel's folder browser lists and starts a session in.
+    Resolved before it is judged, so a symlink out of home is outside it."""
+    if not raw:
+        return None, "No folder given"
+    try:
+        spot = Path(raw).expanduser().resolve()
+        home = Path(HOME).resolve()
+    except (OSError, RuntimeError):
+        return None, "That folder cannot be read"
+    if spot != home and home not in spot.parents:
+        return None, "Only folders inside your home folder can be opened"
+    if not spot.is_dir():
+        return None, f"That is not a folder: {spot}"
+    return spot, ""
+
+
 def _resolve_under(raw: str, cwd: str, repo_root: str,
                    *, temp: bool = False) -> tuple[Path | None, str]:
     """A path from a message, made absolute and judged — or None and why not.
@@ -1008,6 +1031,53 @@ class Handler(BaseHTTPRequestHandler):
                                 if empty else "Running here now") if up
                                else f"Ended the terminal session, but it did not start here: {said}"})
 
+    @route("GET", "/api/folders")
+    def _get_folders(self) -> None:
+        # The folders under one folder, for the browser a new session is started
+        # from when the desktop's chooser is out of reach — on a phone, or on a
+        # desktop that has none. Behind the same gate as starting a session,
+        # which is the only thing the list is for, and held to your home folder.
+        if not config.SAY_ENABLED:
+            self._json({"ok": False, "message": OFF_HERE}, 403)
+            return
+        query = parse_qs(urlparse(self.path).query)
+        raw = (query.get("path") or [""])[0]
+        if not raw:
+            # Open where the sessions are when they agree on one place's parent,
+            # which is usually where the other projects sit, else at home.
+            folders = {x["cwd"] for x in STORE.snapshot()["sessions"] if x.get("cwd")}
+            raw = str(Path(folders.pop()).parent) if len(folders) == 1 else str(HOME)
+        spot, why = _home_folder(raw)
+        if not spot:
+            spot, why = _home_folder(str(HOME))
+        if not spot:
+            self._json({"ok": False, "message": why}, 404)
+            return
+        hidden = (query.get("hidden") or [""])[0] == "1"
+        found = []
+        try:
+            for entry in os.scandir(spot):
+                if entry.name.startswith(".") and not hidden:
+                    continue
+                try:
+                    if entry.is_dir():
+                        found.append(entry.name)
+                except OSError:
+                    continue
+        except OSError as exc:
+            self._json({"ok": False, "message": f"Could not read that folder: {exc.strerror}"}, 403)
+            return
+        found.sort(key=str.casefold)
+        home = Path(HOME).resolve()
+        self._json({
+            "ok": True,
+            "path": str(spot),
+            "home": str(home),
+            "parent": str(spot.parent) if spot != home else None,
+            "folders": [{"name": n, "path": str(spot / n)} for n in found[:FOLDER_LIST_MAX]],
+            "more": max(0, len(found) - FOLDER_LIST_MAX),
+        })
+
     @route("POST", "/api/owned/new")
     def _post_owned_new(self, payload: dict, session_id: str) -> None:
         # A new session the panel runs from its first word. The folder comes off
@@ -1016,7 +1086,17 @@ class Handler(BaseHTTPRequestHandler):
         if not config.SAY_ENABLED:
             self._json({"ok": False, "message": OFF_HERE}, 403)
             return
-        if payload.get("pick"):
+        if payload.get("cwd"):
+            # Picked in the panel's own folder browser — the way a phone picks
+            # one, since a chooser on the desktop is a window nobody holding the
+            # phone can see. Held to the same ground the browser lists: a real
+            # folder inside your home.
+            spot, why = _home_folder(str(payload.get("cwd")))
+            if not spot:
+                self._json({"ok": False, "message": why}, 400)
+                return
+            cwd = str(spot)
+        elif payload.get("pick"):
             folders = {x["cwd"] for x in STORE.snapshot()["sessions"] if x.get("cwd")}
             cwd, why = pick_folder(folders.pop() if len(folders) == 1 else str(HOME))
             if not cwd:

@@ -79,12 +79,11 @@ const parsedTokens = JSON.parse(tokens);
 check("all md-sys / md-extended tokens resolve",
   Object.values(parsedTokens).every((v) => /^#[0-9a-f]{6}$/i.test(v)), `${Object.keys(parsedTokens).length} tokens`);
 check("first paint is not blocked", await evaluate(`document.documentElement.dataset.schemeReady === 'true'`));
-check("Roboto actually loaded", await evaluate(`document.fonts.check('16px Roboto')`));
+check("Urbanist actually loaded", await evaluate(`document.fonts.check('16px Urbanist')`));
 
 const distinct = await evaluate(`(() => {
   const s = getComputedStyle(document.documentElement);
-  const hexes = ['waiting','idle'].map(n => s.getPropertyValue('--md-extended-color-'+n+'-container').trim())
-    .concat([s.getPropertyValue('--md-sys-color-primary-container').trim()]);
+  const hexes = ['waiting','busy','idle'].map(n => s.getPropertyValue('--md-extended-color-'+n+'-container').trim());
   return JSON.stringify({hexes, unique: new Set(hexes).size});
 })()`);
 check("three state containers are distinct", JSON.parse(distinct).unique === 3, JSON.parse(distinct).hexes.join(" "));
@@ -791,9 +790,11 @@ check("settings opens in the detail pane", await evaluate(
    && document.getElementById('settingsButton').getAttribute('aria-pressed') === 'true'`));
 check("no row claims to be current while it shows", await evaluate(
   `!document.querySelector('.session-item[aria-current="true"]')`));
-check("the page has swatches, a contrast group and a switch per kind", await evaluate(
-  `document.querySelectorAll('#swatches .swatch').length >= 6
-   && document.querySelectorAll('#contrastGroup .segmented__item').length === 3
+/* The palette is fixed — its colours mean session states — so the page has a
+   theme switch and no base colour or contrast to pick. */
+check("the page has a theme switch, no palette picker, and a switch per kind", await evaluate(
+  `!!document.getElementById('themeToggle')
+   && !document.getElementById('swatches') && !document.getElementById('contrastGroup')
    && document.querySelectorAll('#notifySwitches [data-notify]').length === 4`));
 
 /* Tabs rather than one long page: one panel shows at a time, the strip says
@@ -812,23 +813,21 @@ check("the tab is remembered", await evaluate(`sessionStorage.getItem('watchtowe
 await evaluate(`document.querySelector('#detailPane [data-settings-tab="appearance"]').click()`);
 await sleep(200);
 
-const primaryBefore = await evaluate(`getComputedStyle(document.documentElement).getPropertyValue('--md-sys-color-primary').trim()`);
-await evaluate(`[...document.querySelectorAll('#swatches .swatch')][2].click()`);
-await sleep(700);
-const primaryAfter = await evaluate(`getComputedStyle(document.documentElement).getPropertyValue('--md-sys-color-primary').trim()`);
-check("changing the base colour regenerates the scheme", primaryBefore !== primaryAfter, `${primaryBefore} -> ${primaryAfter}`);
-check("base colour persists", await evaluate(`localStorage.getItem('cbu-seed') === '#00A18F'`));
-check("states stay distinct after the seed change", await evaluate(`(() => {
-  const s = getComputedStyle(document.documentElement);
-  const hexes = ['waiting','idle'].map(n => s.getPropertyValue('--md-extended-color-'+n+'-container').trim())
-    .concat([s.getPropertyValue('--md-sys-color-primary-container').trim()]);
-  return new Set(hexes).size === 3; })()`));
-
-const onSurfaceBefore = await evaluate(`getComputedStyle(document.documentElement).getPropertyValue('--md-sys-color-on-surface').trim()`);
-await evaluate(`[...document.querySelectorAll('#contrastGroup .segmented__item')][2].click()`);
-await sleep(600);
-check("high contrast changes the scheme", onSurfaceBefore !==
-  await evaluate(`getComputedStyle(document.documentElement).getPropertyValue('--md-sys-color-on-surface').trim()`));
+/* The theme switch flips the action colour between ink and chalk, and leaves
+   the state colours exactly where they were: a card reads the same in both. */
+const themeBefore = await evaluate(`(() => { const s = getComputedStyle(document.documentElement);
+  return JSON.stringify({ primary: s.getPropertyValue('--md-sys-color-primary').trim(),
+    busy: s.getPropertyValue('--md-extended-color-busy-color').trim() }); })()`);
+await evaluate(`document.getElementById('themeToggle').click()`);
+await sleep(500);
+const themeAfter = await evaluate(`(() => { const s = getComputedStyle(document.documentElement);
+  return JSON.stringify({ primary: s.getPropertyValue('--md-sys-color-primary').trim(),
+    busy: s.getPropertyValue('--md-extended-color-busy-color').trim() }); })()`);
+check("the theme switch flips the action colour", JSON.parse(themeBefore).primary !== JSON.parse(themeAfter).primary,
+  `${JSON.parse(themeBefore).primary} -> ${JSON.parse(themeAfter).primary}`);
+check("state colours are the same in both themes", JSON.parse(themeBefore).busy === JSON.parse(themeAfter).busy);
+await evaluate(`document.getElementById('themeToggle').click()`);
+await sleep(500);
 
 /* Each switch is its own setting, and turning one off leaves the rest alone. */
 await evaluate(`document.querySelector('#notifySwitches [data-notify="done"]').click()`);
