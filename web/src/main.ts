@@ -1671,12 +1671,6 @@ function renderDetail(force = false) {
   // terminal. The pane repaints off the next poll, by which point the row is a
   // terminal session again and offers Make interactive instead.
   detailPane.querySelector("[data-act='terminal']")?.addEventListener("click", (e) => run("/api/start", session, control(e)));
-  // The same hand-back with Remote Control switched on. It is the only way the
-  // panel can give a session Remote Control: that needs an interactive session,
-  // and a session the panel runs is `claude --print` down a pipe, where
-  // /remote-control is answered with "not available in this environment".
-  detailPane.querySelector("[data-act='remote']")?.addEventListener("click", (e) =>
-    run("/api/start", session, control(e), null, { remoteControl: true }));
   detailPane.querySelector("#stickyToggle")?.addEventListener("change", (event) =>
     run("/api/sticky", session, control(event), null,
         { pinned: control<HTMLInputElement>(event).checked }));
@@ -2272,10 +2266,11 @@ function cmdNote(asked, session) {
   // /remote-control down in a session the panel runs — Remote Control wants an
   // interactive session and this one is `claude --print` down a pipe — and
   // "does not list a /remote-control" is true but reads as *this cannot be
-  // done*, when in fact the panel has a button for it two inches away.
+  // done*, when it is one step away: hand it to a terminal and type it there.
   if (asked.name.toLowerCase() === "remote-control" && session && runsHere(session)) {
     return `Remote Control needs a session in a terminal, and this one runs down the panel's
-      pipe. <b>Remote Control</b> in the header hands it to a terminal with that switched on.`;
+      pipe. <b>Open in terminal</b> in the header hands it over — type
+      <span class="md-mono">/remote-control</span> there.`;
   }
   if (terminalOnly(asked.name, session)) {
     return `<span class="md-mono">/${escapeHtml(asked.name)}</span> only works at this session's

@@ -89,7 +89,7 @@ const OWNED_MODE_LABEL = { default: "Manual", auto: "Auto", plan: "Plan", accept
 let FEED = {};
 const ownedFor = (s) => FEED[s.sessionId] || {};
 const ICON = { check: "<svg/>", ask: "<svg/>", play: "<svg/>", stop: "<svg/>", compact: "<svg/>",
-               file: "<svg/>", terminal: "<svg/>", remoteControl: "<svg/>", discard: "<svg/>",
+               file: "<svg/>", terminal: "<svg/>", discard: "<svg/>",
                image: "<svg/>", camera: "<svg/>" };
 const ownedAskCard = () => "<ASKCARD>";
 let IMAGES = {};
@@ -120,7 +120,6 @@ const { composer, modeBar, setFeed, setImages, sendBlockedReason, runsHere, queu
    ${lift("stopButton")}
    ${lift("pictureButtons")}
    ${lift("terminalAction")}
-   ${lift("remoteAction")}
    ${liftConst("clearOffer")}
    ${liftConst("STATE")}
    ${liftConst("STATE_ALIAS")}
@@ -343,25 +342,11 @@ check("and it counts what is typed ahead, since that goes with the hand-back",
 check("a session already in a terminal is not offered it — it is already there",
   terminalAction({ sessionId: "live", cwd: "/tmp/p", alive: true, status: "idle" }) === "");
 
-/* Remote Control. Its own button beside the plain hand-back, because it is the
-   only way the panel can switch Remote Control on at all: it needs an
-   interactive session, and a session the panel runs is `claude --print` down a
-   pipe. It rides on the same /api/start, so it is offered and refused on
-   exactly the same terms as its neighbour. */
+/* No Remote Control button: the panel reaches a phone itself now, and a
+   session handed to a terminal takes /remote-control typed there. */
 setFeed({ kept: ours });
-const withRemote = terminalAction({ sessionId: "kept", cwd: "/tmp/p", alive: false, status: "stopped" });
-check("the hand-back offers Remote Control beside it",
-  withRemote.includes('data-act="remote"') && withRemote.includes('data-act="terminal"'), withRemote);
-check("and says what Remote Control buys, not just that it opens a terminal",
-  /driven from your phone/.test(withRemote),
-  (withRemote.match(/data-act="remote"[\s\S]*?title="([^"]*)"/) || [])[1]);
-setFeed({ kept: { ...ours, busy: true } });
-const remoteBusy = terminalAction({ sessionId: "kept", cwd: "/tmp/p", alive: false, status: "stopped" });
-check("mid-turn it is refused for the same reason the plain one is",
-  (remoteBusy.match(/data-act="remote"[\s\S]*?disabled/) || []).length === 1
-  && /turn from the panel is running/.test(remoteBusy), remoteBusy);
-check("a session already in a terminal is not offered it either — /remote-control works there",
-  terminalAction({ sessionId: "live", cwd: "/tmp/p", alive: true, status: "idle" }) === "");
+check("the hand-back is the only terminal button in the header",
+  !terminalAction({ sessionId: "kept", cwd: "/tmp/p", alive: false, status: "stopped" }).includes('data-act="remote"'));
 
 /* Clearing. The same transport question as the rest of this file: `/clear` is
    the terminal's own command over a socket and an ordinary one down a held
