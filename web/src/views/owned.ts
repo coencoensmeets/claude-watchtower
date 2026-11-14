@@ -151,6 +151,9 @@ export function detailHeader(session, state, host) {
   // one that came with the session behind it, so the subject is there on the
   // first paint rather than a moment after it.
   const title = (chat.transcriptFor === session.sessionId && chat.transcript?.title) || session.title || null;
+  // Not repeated under the name when it already is the name — a session with a
+  // default name goes by its subject, see shown_name.
+  const subtitle = title && title.toLowerCase() !== session.name.toLowerCase() ? title : null;
   const folded = ui.headerFolded;
   return `<header class="detail-header" data-folded="${folded ? 1 : 0}">
       <div class="detail-header__top">
@@ -164,7 +167,7 @@ export function detailHeader(session, state, host) {
               <span class="md-mono md-body-small" data-since="${displaySince(session)}">${duration(Date.now() / 1000 + app.skew - displaySince(session))}</span></span>
           </div>
           <div class="detail-header__fold" id="headerFold"><div class="detail-header__fold-inner">
-            ${title ? `<p class="detail-header__subtitle md-body-medium">${escapeHtml(title)}</p>` : ""}
+            ${subtitle ? `<p class="detail-header__subtitle md-body-medium">${escapeHtml(subtitle)}</p>` : ""}
             ${modeBar(session)}
             ${contextBar(session)}
             <div class="detail-header__meta">${meta.join(" ")}</div>

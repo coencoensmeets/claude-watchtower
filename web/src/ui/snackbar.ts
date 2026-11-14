@@ -6,5 +6,7 @@ export function showSnackbar(message, life = 3400) {
   snackbar.textContent = message;
   snackbar.dataset.open = "true";
   clearTimeout(snackTimer);
-  snackTimer = setTimeout(() => { snackbar.dataset.open = "false"; }, life);
+  // Long instructions need reading time: about 60ms a character beyond the default.
+  const reading = Math.min(12000, String(message).length * 60);
+  snackTimer = setTimeout(() => { snackbar.dataset.open = "false"; }, Math.max(life, reading));
 }

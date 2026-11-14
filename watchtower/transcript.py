@@ -574,6 +574,11 @@ def read_transcript(session_id: str, cwd: str, limit: int = 60,
             "truncated": False, "path": None}
 
 
+# How far past the asked-for count a page reads to begin at a turn's first
+# message rather than in the middle of it.
+TURN_GRACE = 60
+
+
 def parse_transcript(path: Path, limit: int = 60, sidechain: bool = False,
                      agents: dict[str, dict] | None = None) -> dict:
     """One transcript file, read as a conversation.
@@ -613,14 +618,21 @@ def parse_transcript(path: Path, limit: int = 60, sidechain: bool = False,
         entries.append(shown)
     # A bigger ask reads further back: the byte cap is what usually ends the
     # walk on a long transcript, not the message count.
-    for line in reverse_lines(path, cap=max(3_000_000, limit * 50_000)):
+    cap = max(3_000_000, limit * 50_000)
+    for line in reverse_lines(path, cap=cap):
         line = line.strip()
         if not line.startswith("{"):
             continue
         seen += 1
         # A page of conversation is enough; the title is worth a little more
         # reading, since it rides in a block of its own.
-        if len(entries) >= limit and (title is not None or seen > TITLE_PATIENCE):
+        # And it starts at the start of a turn. Cut at the bare count, a page
+        # opened halfway through an answer — tool steps with no question above
+        # them — which read as the conversation missing its top. Reading on to
+        # the message that began that turn costs a few entries; TURN_GRACE caps
+        # it for a turn that ran for hundreds of steps.
+        if (len(entries) >= limit and (title is not None or seen > TITLE_PATIENCE)
+                and (entries[-1].get("role") == "user" or len(entries) >= limit + TURN_GRACE)):
             more = True
             break
         try:
@@ -746,12 +758,24 @@ def parse_transcript(path: Path, limit: int = 60, sidechain: bool = False,
                 sent.setdefault("\n\n".join(texts), shown)
             entries.append(shown)
 
+    # The walk can also end because it read as far back as `cap` allows, and
+    # then there is older conversation it never reached. Saying "that is all"
+    # took away the button that asks for more, and the top of a long session
+    # could not be reached at all.
+    if not more:
+        try:
+            more = path.stat().st_size > cap
+        except OSError:
+            pass
+
     # Read newest-first, so put it back the way it was said.
     entries.reverse()
     return {
         "sessionId": "",
         "title": title,
-        "messages": entries[-max(1, min(limit, TRANSCRIPT_LIMIT_MAX)):],
+        # Not cut back to `limit`: the walk above already stopped at the start
+        # of a turn, a few entries past it, and cutting here undid exactly that.
+        "messages": entries[-max(1, min(limit + TURN_GRACE, TRANSCRIPT_LIMIT_MAX)):],
         "truncated": more or len(entries) > limit,
         "path": str(path),
     }

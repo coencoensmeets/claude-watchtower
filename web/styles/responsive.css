@@ -14,6 +14,7 @@
     /* No room for it beside the title once the bar is this narrow. */
     .app-bar__nudge { display: none; }
     .detail-header, .tab-panel { padding-inline: var(--md-sys-spacing-4); }
+    .tab-panel { --tab-pad-inline: var(--md-sys-spacing-4); }
     /* Tighter tabs so four of them mostly fit before the strip has to scroll,
        while keeping the 48dp target height. */
     .tab { padding-inline: var(--md-sys-spacing-4); }
@@ -24,6 +25,7 @@
      the panel's own padding is the first thing a 380px screen cannot afford. */
   @media (max-width: 599px) {
     .detail-header, .tab-panel { padding-inline: var(--md-sys-spacing-3); }
+    .tab-panel { --tab-pad-inline: var(--md-sys-spacing-3); }
     .composer { padding-inline: var(--md-sys-spacing-3); }
     /* The box gets the whole width, and the buttons a row of their own under it.
        In one row, two picture buttons, Send and Stop took about 200px of a 360px

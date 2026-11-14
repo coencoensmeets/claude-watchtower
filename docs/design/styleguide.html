@@ -126,12 +126,40 @@ code, .mono { font-family: var(--wt-mono); font-size: .86em; }
   background: var(--wt-ink); display: grid; place-items: center;
 }
 .brand-mark svg { width: 22px; height: 22px; }
-.toc { display: flex; gap: var(--wt-s1); margin-left: auto; flex-wrap: wrap; }
-.toc a {
-  text-decoration: none; font-weight: 600; font-size: 14px;
-  padding: 9px 14px; border-radius: var(--wt-r-pill); color: var(--wt-text-2);
+.brand { white-space: nowrap; flex: none; }
+/* Sections are grouped into a few chapters, each a pill that drops a menu
+   of its sections. The chapter you are reading is lifted to the surface,
+   like a chosen tab. Built on <details>, so it opens without script. */
+.toc {
+  display: flex; gap: 4px; margin-left: auto; padding: 4px;
+  border-radius: var(--wt-r-pill); background: var(--wt-surface-2);
 }
-.toc a:hover { background: var(--wt-surface); color: var(--wt-text); }
+.toc-group { position: relative; }
+.toc-group > summary {
+  list-style: none; display: flex; align-items: center; gap: 6px; height: 40px; padding: 0 12px 0 16px;
+  border-radius: var(--wt-r-pill); font-weight: 600; font-size: 14px; color: var(--wt-text-2);
+  cursor: pointer; user-select: none; white-space: nowrap;
+  transition: background .2s var(--wt-ease), color .2s var(--wt-ease);
+}
+.toc-group > summary::-webkit-details-marker { display: none; }
+.toc-group > summary svg { width: 14px; height: 14px; transition: transform .2s var(--wt-ease); }
+.toc-group > summary:hover { color: var(--wt-text); }
+.toc-group[open] > summary svg { transform: rotate(180deg); }
+.toc-group.is-current > summary, .toc-group[open] > summary {
+  background: var(--wt-surface); color: var(--wt-text); box-shadow: 0 2px 8px -4px rgba(0,0,0,.25);
+}
+.toc-group .short { display: none; }
+.toc-menu {
+  position: absolute; top: calc(100% + 10px); right: 0; z-index: 20; min-width: 200px;
+  padding: 6px; border-radius: var(--wt-r-md); background: var(--wt-surface); box-shadow: var(--wt-float);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.toc-menu a {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; height: 42px; padding: 0 14px;
+  border-radius: calc(var(--wt-r-md) - 6px); text-decoration: none; font-weight: 600; font-size: 14px; color: var(--wt-text-2);
+}
+.toc-menu a:hover { background: var(--wt-surface-2); color: var(--wt-text); }
+.toc-menu a[aria-current="true"] { background: var(--wt-act); color: var(--wt-on-act); }
 
 section { padding: var(--wt-s8) 0 0; scroll-margin-top: 40px; }
 section > .wrap > h2 {
@@ -404,7 +432,7 @@ p.note { color: var(--wt-text-2); max-width: 66ch; margin: 0 0 var(--wt-s4); }
 .hero { padding: var(--wt-s7) 0 0; }
 .hero .wrap { display: grid; grid-template-columns: 1.05fr 1fr; gap: var(--wt-s7); align-items: center; }
 .hero h1 {
-  font-size: clamp(56px, 7.4vw, 104px); line-height: .92; font-weight: 600;
+  font-size: clamp(44px, 7.4vw, 104px); line-height: .92; font-weight: 600;
   letter-spacing: -.045em; margin: 0 0 var(--wt-s5);
 }
 .hero h1 .pill-word {
@@ -429,14 +457,525 @@ p.note { color: var(--wt-text-2); max-width: 66ch; margin: 0 0 var(--wt-s4); }
 .fact i { width: 24px; height: 24px; border-radius: 50%; background: var(--wt-surface); display: grid; place-items: center; font-style: normal; }
 .fact i svg { width: 13px; height: 13px; }
 
+/* =========================================================================
+   KIT START — everything from here to KIT END is copied into the
+   watchtower-style skill's watchtower.css by tools/style_kit.py.
+   ========================================================================= */
+
+/* ---- Data and map tokens. Deeper steps than the state colours: series
+   colours live only inside plots and maps, never on controls or cards.
+   Validated with the dataviz checks (CVD, normal vision, lightness band)
+   on chalk #FAFAFC and on #1E1F24. */
+:root {
+  --viz-1: #6B5FD3;  /* violet */
+  --viz-2: #E2702F;  /* orange */
+  --viz-3: #1E9E8A;  /* teal   */
+  --viz-4: #D9A21B;  /* gold   */
+  --viz-5: #D9577E;  /* rose   */
+  --viz-6: #7E9B23;  /* olive  */
+  --viz-7: #3B8BD9;  /* sky    */
+  --viz-8: #B5452F;  /* brick  */
+  --viz-muted: #CFCDD6;          /* de-emphasis, "Other" */
+  --viz-grid: #E6E5EC;           /* hairline gridlines */
+  --viz-axis: #C9C7D1;           /* baseline */
+  --viz-label: var(--wt-text-2);
+  /* Sequential: one hue (lilac), light to dark */
+  --seq-1: #ECEAFA; --seq-2: #C9C6F2; --seq-3: #A59FE2; --seq-4: #8077D6; --seq-5: #5B50B8; --seq-6: #3E3590;
+  /* Diverging: violet <-> orange through a neutral grey */
+  --div-neg-3: #4A40A8; --div-neg-2: #7F76D8; --div-neg-1: #BEB9EE; --div-mid: #E4E3EA;
+  --div-pos-1: #F5C3A3; --div-pos-2: #E8874F; --div-pos-3: #B9541C;
+  /* Status: the support colours, always with an icon and a word */
+  --st-good: var(--wt-lime); --st-warn: var(--wt-butter); --st-serious: var(--wt-ember); --st-critical: var(--wt-rose);
+
+  /* Basemap: quiet enough that markers are the only loud thing */
+  --map-land: #F1F0F5;
+  --map-block: #E6E5EC;
+  --map-water: #D9DCF0;
+  --map-park: #E3EBC4;
+  --map-road: #FFFFFF;
+  --map-road-edge: #DCDAE3;
+  --map-label: #8E8D99;
+}
+[data-theme="dark"] {
+  --viz-1: #8A80E6; --viz-2: #DD6E30; --viz-3: #1F9F8A; --viz-4: #BA860F;
+  --viz-5: #D8607F; --viz-6: #7F9C22; --viz-7: #3F8DDB; --viz-8: #D35A42;
+  --viz-muted: #4A4A55; --viz-grid: #2E2F36; --viz-axis: #44454E;
+  --seq-1: #2B2A3D; --seq-2: #3E3A6E; --seq-3: #5B53A3; --seq-4: #7D74D2; --seq-5: #A59FE2; --seq-6: #D3CFF5;
+  --div-neg-3: #B9B3F2; --div-neg-2: #8A80E6; --div-neg-1: #4F4890; --div-mid: #34353D;
+  --div-pos-1: #7A4528; --div-pos-2: #C7642C; --div-pos-3: #F2A577;
+  --map-land: #1B1C21; --map-block: #24252B; --map-water: #232436; --map-park: #232A1C;
+  --map-road: #2E2F36; --map-road-edge: #1B1C21; --map-label: #74737F;
+}
+
+/* ---- Forms. Fields are filled pills on surface-2; focus is a lilac ring. */
+.field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.field > label, .field__label { font-size: 13px; font-weight: 600; color: var(--wt-text-2); padding-left: 18px; }
+.input, .select, .textarea {
+  width: 100%; height: 52px; padding: 0 20px; border: 0; border-radius: var(--wt-r-pill);
+  background: var(--wt-surface-2); color: var(--wt-text); font: 500 15px/1.2 var(--wt-font);
+  outline: none; transition: box-shadow .2s var(--wt-ease), background .2s var(--wt-ease);
+}
+.input::placeholder, .textarea::placeholder { color: var(--wt-text-3); }
+.input:hover, .select:hover, .textarea:hover { background: color-mix(in srgb, var(--wt-surface-2) 70%, var(--wt-line)); }
+.input:focus, .select:focus, .textarea:focus { box-shadow: 0 0 0 3px var(--wt-lilac); background: var(--wt-surface); }
+.textarea { height: auto; min-height: 120px; padding: 16px 20px; border-radius: var(--wt-r-md); resize: vertical; line-height: 1.55; }
+.select {
+  appearance: none; cursor: pointer; padding-right: 52px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236C6B77' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 18px center; background-size: 18px;
+}
+.input-wrap { position: relative; }
+.input-wrap > svg { position: absolute; left: 18px; top: 50%; width: 18px; height: 18px; transform: translateY(-50%); color: var(--wt-text-2); pointer-events: none; }
+.input-wrap > .input { padding-left: 48px; }
+.input-wrap > .ib { position: absolute; right: 6px; top: 6px; width: 40px; height: 40px; }
+.field__help { font-size: 13px; color: var(--wt-text-2); padding-left: 18px; }
+.field--error .input, .field--error .textarea, .field--error .select { box-shadow: 0 0 0 2px var(--wt-rose); }
+.field--error .field__help { color: var(--wt-text); display: flex; align-items: center; gap: 6px; }
+.field--error .field__help::before { content: "!"; width: 18px; height: 18px; border-radius: 50%; background: var(--wt-rose); color: var(--wt-on-state); display: inline-grid; place-items: center; font-weight: 800; font-size: 12px; }
+
+/* Checkbox, radio, switch: real inputs, restyled */
+.check, .radio, .switch { display: inline-flex; align-items: center; gap: 12px; cursor: pointer; font-weight: 500; user-select: none; }
+.check input, .radio input, .switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.check .box, .radio .dot {
+  width: 26px; height: 26px; flex: none; display: grid; place-items: center;
+  background: var(--wt-surface-2); box-shadow: inset 0 0 0 1.5px var(--wt-line);
+  transition: background .2s var(--wt-ease), box-shadow .2s var(--wt-ease);
+}
+.check .box { border-radius: 9px; }
+.radio .dot { border-radius: 50%; }
+.check .box svg { width: 16px; height: 16px; opacity: 0; transform: scale(.6); transition: .2s var(--wt-ease); }
+.check input:checked + .box { background: var(--wt-act); box-shadow: none; color: var(--wt-on-act); }
+.check input:checked + .box svg { opacity: 1; transform: none; }
+.radio .dot::after { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--wt-on-act); transform: scale(0); transition: transform .2s var(--wt-ease); }
+.radio input:checked + .dot { background: var(--wt-act); box-shadow: none; }
+.radio input:checked + .dot::after { transform: scale(1); }
+.switch .track {
+  width: 52px; height: 32px; flex: none; border-radius: var(--wt-r-pill); position: relative;
+  background: var(--wt-surface-2); box-shadow: inset 0 0 0 1.5px var(--wt-line); transition: background .2s var(--wt-ease);
+}
+.switch .track::after {
+  content: ""; position: absolute; top: 4px; left: 4px; width: 24px; height: 24px; border-radius: 50%;
+  background: var(--wt-text-3); transition: transform .25s cubic-bezier(.34, 1.56, .64, 1), background .2s var(--wt-ease);
+}
+/* On is lime with an ink knob, the same in both themes: "on" reads as go,
+   not as a black slab on a light page. */
+.switch input:checked + .track { background: var(--wt-lime); box-shadow: none; }
+.switch input:checked + .track::after { transform: translateX(20px); background: var(--wt-ink); }
+.check input:focus-visible + .box, .radio input:focus-visible + .dot, .switch input:focus-visible + .track { outline: 3px solid var(--wt-lilac); outline-offset: 3px; }
+
+/* Slider: ink fill, a chalk-ringed ink thumb; the rest of the track is hatched */
+.range { -webkit-appearance: none; appearance: none; width: 100%; height: 32px; background: transparent; cursor: pointer; --v: 50%; }
+.range::-webkit-slider-runnable-track {
+  height: 10px; border-radius: var(--wt-r-pill);
+  background: linear-gradient(var(--wt-act), var(--wt-act)) 0 / var(--v) 100% no-repeat,
+              repeating-linear-gradient(-45deg, var(--wt-hatch) 0 2px, transparent 2px 7px), var(--wt-surface-2);
+}
+.range::-moz-range-track { height: 10px; border-radius: var(--wt-r-pill); background: var(--wt-surface-2); }
+.range::-moz-range-progress { height: 10px; border-radius: var(--wt-r-pill); background: var(--wt-act); }
+.range::-webkit-slider-thumb { -webkit-appearance: none; width: 26px; height: 26px; margin-top: -8px; border-radius: 50%; background: var(--wt-lime); box-shadow: 0 0 0 4px var(--wt-surface), 0 0 0 5.5px var(--wt-act); }
+.range::-moz-range-thumb { width: 26px; height: 26px; border: 0; border-radius: 50%; background: var(--wt-lime); box-shadow: 0 0 0 4px var(--wt-surface), 0 0 0 5.5px var(--wt-act); }
+
+/* Stepper: a pill with circles riding at both ends */
+.stepper { display: inline-flex; align-items: center; gap: 4px; height: 52px; padding: 6px; border-radius: var(--wt-r-pill); background: var(--wt-surface-2); }
+.stepper .ib { width: 40px; height: 40px; background: var(--wt-surface); }
+.stepper output { min-width: 56px; text-align: center; font-weight: 650; font-variant-numeric: tabular-nums; }
+
+/* Drop zone: empty is hatched — "nothing here yet" */
+.drop {
+  display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center;
+  padding: var(--wt-s6) var(--wt-s5); border-radius: var(--wt-r-lg); color: var(--wt-text-2);
+  box-shadow: inset 0 0 0 1.5px var(--wt-line);
+  background-image: repeating-linear-gradient(-45deg, var(--wt-hatch) 0 2px, transparent 2px 9px);
+}
+.drop b { color: var(--wt-text); }
+.drop.is-over { box-shadow: inset 0 0 0 3px var(--wt-lilac); background-color: var(--wt-lilac-tint); }
+
+/* ---- Feedback */
+.alert {
+  display: flex; align-items: flex-start; gap: 14px; padding: 14px 18px 14px 14px;
+  border-radius: var(--wt-r-md); background: var(--t, var(--wt-surface-2));
+}
+.alert__icon { width: 36px; height: 36px; flex: none; border-radius: 50%; display: grid; place-items: center; background: var(--s, var(--wt-act)); color: var(--wt-on-state); font-weight: 800; }
+.alert__icon svg { width: 18px; height: 18px; }
+.alert__title { font-weight: 650; }
+.alert__body { font-size: 14px; color: var(--wt-text-2); }
+.alert .btn { margin-left: auto; align-self: center; }
+.alert--info    { --s: var(--wt-lilac);  --t: var(--wt-lilac-tint); }
+.alert--success { --s: var(--wt-lime);   --t: var(--wt-lime-tint); }
+.alert--warning { --s: var(--wt-butter); --t: color-mix(in srgb, var(--wt-butter) 22%, var(--wt-surface)); }
+.alert--error   { --s: var(--wt-rose);   --t: color-mix(in srgb, var(--wt-rose) 20%, var(--wt-surface)); }
+
+.toast {
+  display: inline-flex; align-items: center; gap: 14px; height: 56px; padding: 0 8px 0 22px;
+  border-radius: var(--wt-r-pill); background: var(--wt-act); color: var(--wt-on-act); box-shadow: var(--wt-float); font-weight: 500;
+}
+.toast button { border: 0; background: none; color: var(--wt-lime); font: 650 14px/1 var(--wt-font); padding: 0 14px; height: 40px; border-radius: var(--wt-r-pill); cursor: pointer; }
+[data-theme="dark"] .toast button { color: var(--wt-ink); text-decoration: underline; }
+
+.badge {
+  display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 7px;
+  border-radius: var(--wt-r-pill); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;
+  background: var(--s, var(--wt-act)); color: var(--s, var(--wt-on-act));
+}
+.badge[data-s] { color: var(--wt-on-state); }
+.dot-label { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; }
+.dot-label::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--s, var(--wt-stone)); }
+
+.progress { height: 10px; border-radius: var(--wt-r-pill); background-color: var(--wt-surface-2); overflow: hidden;
+  background-image: repeating-linear-gradient(-45deg, var(--wt-hatch) 0 2px, transparent 2px 7px); }
+.progress > span { display: block; height: 100%; width: var(--v, 40%); border-radius: var(--wt-r-pill); background: var(--s, var(--wt-act)); transition: width .4s var(--wt-ease); }
+.progress--indeterminate > span { width: 35%; animation: wt-indet 1.4s var(--wt-ease) infinite; }
+@keyframes wt-indet { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
+.ring { --v: 64; width: 72px; height: 72px; border-radius: 50%; display: grid; place-items: center;
+  background: conic-gradient(var(--s, var(--wt-act)) calc(var(--v) * 1%), var(--wt-surface-2) 0);
+  -webkit-mask: radial-gradient(circle, transparent 26px, #000 27px); mask: radial-gradient(circle, transparent 26px, #000 27px); }
+.ring-wrap { position: relative; width: 72px; height: 72px; display: grid; place-items: center; }
+.ring-wrap > .ring { position: absolute; inset: 0; }
+.ring-wrap > b { font-size: 15px; font-variant-numeric: tabular-nums; }
+.spinner { width: 28px; height: 28px; border-radius: 50%; border: 3px solid var(--wt-surface-2); border-top-color: var(--wt-act); animation: wt-spin .8s linear infinite; }
+@keyframes wt-spin { to { transform: rotate(360deg); } }
+
+.steps { display: flex; align-items: center; gap: 8px; list-style: none; margin: 0; padding: 0; flex-wrap: wrap; }
+.steps li { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 14px; color: var(--wt-text-2); }
+.steps li::before {
+  content: attr(data-n); width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--wt-surface-2); color: var(--wt-text-2); font-size: 13px;
+}
+.steps li + li::after { content: none; }
+.steps .sep { flex: 1 1 24px; min-width: 24px; height: 2px; border-radius: 2px; background: var(--wt-line); }
+.steps li[data-state="done"] { color: var(--wt-text); }
+.steps li[data-state="done"]::before { content: "✓"; background: var(--wt-lime); color: var(--wt-on-state); }
+.steps li[data-state="now"] { color: var(--wt-text); }
+.steps li[data-state="now"]::before { background: var(--wt-act); color: var(--wt-on-act); }
+
+.skeleton { border-radius: var(--wt-r-xs); background: linear-gradient(100deg, var(--wt-surface-2) 30%, color-mix(in srgb, var(--wt-surface-2) 40%, var(--wt-surface)) 50%, var(--wt-surface-2) 70%) 0 0 / 220% 100%; animation: wt-shimmer 1.4s linear infinite; }
+.skeleton--line { height: 14px; }
+.skeleton--circle { border-radius: 50%; }
+@keyframes wt-shimmer { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+
+.empty { text-align: center; padding: var(--wt-s6) var(--wt-s5); color: var(--wt-text-2); }
+.empty__art { width: 96px; height: 96px; margin: 0 auto var(--wt-s4); border-radius: 50%; display: grid; place-items: center; background-color: var(--wt-surface-2); background-image: repeating-linear-gradient(-45deg, var(--wt-hatch) 0 2px, transparent 2px 9px); color: var(--wt-text); }
+.empty__art svg { width: 36px; height: 36px; }
+.empty h4 { color: var(--wt-text); font-size: 20px; font-weight: 650; margin: 0 0 6px; }
+
+.tip { position: relative; display: inline-flex; }
+.tip__bubble {
+  position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translate(-50%, 4px); white-space: nowrap;
+  padding: 8px 12px; border-radius: var(--wt-r-xs); background: var(--wt-act); color: var(--wt-on-act);
+  font-size: 13px; font-weight: 600; opacity: 0; pointer-events: none; transition: .18s var(--wt-ease);
+}
+.tip:hover .tip__bubble, .tip:focus-within .tip__bubble { opacity: 1; transform: translate(-50%, 0); }
+
+/* ---- Navigation */
+.crumbs { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 14px; font-weight: 600; }
+.crumbs a { color: var(--wt-text-2); text-decoration: none; padding: 6px 12px; border-radius: var(--wt-r-pill); }
+.crumbs a:hover { background: var(--wt-surface-2); color: var(--wt-text); }
+.crumbs span[aria-current] { padding: 6px 12px; border-radius: var(--wt-r-pill); background: var(--wt-surface-2); }
+.crumbs .sl { color: var(--wt-text-3); }
+.pager { display: flex; align-items: center; gap: 6px; }
+.pager a, .pager span { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; font-weight: 650; font-variant-numeric: tabular-nums; text-decoration: none; color: var(--wt-text); }
+.pager a:hover { background: var(--wt-surface-2); }
+.pager [aria-current] { background: var(--wt-act); color: var(--wt-on-act); }
+.pager .ib { width: 44px; height: 44px; }
+.side-nav { display: flex; flex-direction: column; gap: 4px; }
+.side-nav a { display: flex; align-items: center; gap: 12px; height: 48px; padding: 0 16px 0 6px; border-radius: var(--wt-r-pill); text-decoration: none; font-weight: 600; color: var(--wt-text-2); }
+.side-nav a i { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--wt-surface-2); color: var(--wt-text); }
+.side-nav a i svg { width: 18px; height: 18px; }
+.side-nav a:hover { background: var(--wt-surface-2); color: var(--wt-text); }
+.side-nav a[aria-current] { background: var(--wt-act); color: var(--wt-on-act); }
+.side-nav a[aria-current] i { background: var(--wt-lime); color: var(--wt-on-state); }
+.side-nav .badge { margin-left: auto; }
+.side-nav__group { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--wt-text-3); padding: 14px 18px 6px; }
+
+.accordion { display: flex; flex-direction: column; gap: 6px; }
+.accordion details { border-radius: var(--wt-r-md); background: var(--wt-surface-2); }
+.accordion summary { list-style: none; display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 20px; min-height: 56px; cursor: pointer; font-weight: 650; }
+.accordion summary::-webkit-details-marker { display: none; }
+.accordion summary::after { content: "+"; margin-left: auto; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--wt-surface); font-size: 20px; font-weight: 500; transition: transform .25s var(--wt-ease); }
+.accordion details[open] summary::after { transform: rotate(45deg); background: var(--wt-act); color: var(--wt-on-act); }
+.accordion details > div { padding: 0 20px 18px; color: var(--wt-text-2); }
+
+.menu { min-width: 220px; padding: 6px; border-radius: var(--wt-r-md); background: var(--wt-surface); box-shadow: var(--wt-float); display: flex; flex-direction: column; gap: 2px; }
+.menu button { display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 14px; border: 0; border-radius: calc(var(--wt-r-md) - 6px); background: none; color: var(--wt-text); font: 500 15px/1 var(--wt-font); cursor: pointer; text-align: left; }
+.menu button:hover { background: var(--wt-surface-2); }
+.menu button svg { width: 18px; height: 18px; color: var(--wt-text-2); }
+.menu button kbd { margin-left: auto; }
+.menu hr { border: 0; height: 1px; background: var(--wt-line); margin: 4px 10px; }
+.menu .danger { color: var(--wt-text); }
+.menu .danger svg { color: var(--wt-rose); }
+kbd { font: 600 12px/1 var(--wt-mono); padding: 4px 7px; border-radius: 7px; background: var(--wt-surface-2); color: var(--wt-text-2); box-shadow: inset 0 -1.5px 0 var(--wt-line); }
+
+.avatars { display: flex; }
+.avatars > * { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 14px; box-shadow: 0 0 0 3px var(--wt-surface); background: var(--wt-surface-2); }
+.avatars > * + * { margin-left: -6px; }
+
+/* Dialog: the biggest container, the page dims behind it */
+.dialog { width: min(480px, 100%); border-radius: var(--wt-r-lg); background: var(--wt-surface); padding: var(--wt-s5); box-shadow: var(--wt-float); }
+.dialog h4 { font-size: 22px; font-weight: 650; margin: 0 0 8px; letter-spacing: -.01em; }
+.dialog p { color: var(--wt-text-2); margin: 0 0 var(--wt-s5); }
+.dialog__actions { display: flex; gap: var(--wt-s2); justify-content: flex-end; flex-wrap: wrap; }
+.scrim { background: color-mix(in srgb, var(--wt-ink) 40%, transparent); }
+
+/* ---- Tables and lists. No vertical rules; rows separate by a hairline. */
+.table-wrap { overflow-x: auto; border-radius: var(--wt-r-lg); background: var(--wt-surface); }
+.table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.table th { text-align: left; font-size: 12px; font-weight: 700; color: var(--wt-text-2); padding: 14px 16px; white-space: nowrap; }
+.table th button { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+.table th[aria-sort] { color: var(--wt-text); }
+.table th[aria-sort="ascending"] button::after { content: "↑"; }
+.table th[aria-sort="descending"] button::after { content: "↓"; }
+.table td { padding: 12px 16px; border-top: 1px solid var(--wt-line); }
+.table tbody tr { transition: background .15s var(--wt-ease); }
+.table tbody tr:hover { background: var(--wt-surface-2); }
+.table tbody tr[aria-selected="true"] { background: var(--wt-lilac-tint); }
+.table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.table .muted { color: var(--wt-text-2); }
+.table td:first-child, .table th:first-child { padding-left: 24px; }
+.table td:last-child, .table th:last-child { padding-right: 24px; }
+
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 10px 24px; margin: 0; font-size: 14px; }
+.kv dt { color: var(--wt-text-2); font-weight: 500; }
+.kv dd { margin: 0; font-weight: 600; }
+
+.timeline { list-style: none; margin: 0; padding: 0; position: relative; }
+.timeline li { position: relative; padding: 0 0 22px 44px; }
+.timeline li::before { content: ""; position: absolute; left: 13px; top: 30px; bottom: 2px; width: 2px; border-radius: 2px; background: var(--wt-line); }
+.timeline li:last-child::before { display: none; }
+.timeline .tl-dot { position: absolute; left: 0; top: 0; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--s, var(--wt-surface-2)); color: var(--wt-on-state); }
+.timeline .tl-dot svg { width: 14px; height: 14px; }
+.timeline b { display: block; font-weight: 650; }
+.timeline small { color: var(--wt-text-2); font-size: 13px; }
+
+.cal { display: grid; grid-template-columns: repeat(7, 40px); gap: 4px; font-size: 14px; font-variant-numeric: tabular-nums; }
+.cal > * { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 50%; font-weight: 600; }
+.cal .dow { font-size: 12px; color: var(--wt-text-3); font-weight: 700; height: 28px; }
+.cal .out { color: var(--wt-text-3); }
+.cal .today { position: relative; }
+.cal .today::after { content: ""; position: absolute; bottom: 5px; width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+.cal .in-range { background: var(--wt-lilac-tint); border-radius: 0; }
+.cal .start, .cal .end { background: var(--wt-act); color: var(--wt-on-act); }
+.cal .start { border-radius: 50% 0 0 50%; } .cal .end { border-radius: 0 50% 50% 0; }
+.cal button { all: unset; width: 40px; height: 40px; display: grid; place-items: center; border-radius: 50%; cursor: pointer; }
+
+/* ---- Charts. A chart is a card: title, legend, plot, then a table toggle. */
+.viz { border-radius: var(--wt-r-lg); background: var(--wt-surface); padding: var(--wt-s5); position: relative; min-width: 0; }
+.viz__head { display: flex; align-items: flex-start; gap: var(--wt-s3); flex-wrap: wrap; margin-bottom: var(--wt-s3); }
+.viz__title { font-weight: 650; font-size: 17px; }
+.viz__sub { font-size: 13px; color: var(--wt-text-2); }
+.viz__head .seg { margin-left: auto; }
+.viz__head .seg button { height: 32px; padding: 0 12px; font-size: 13px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; font-weight: 600; color: var(--wt-text-2); margin-bottom: var(--wt-s3); }
+.legend span { display: inline-flex; align-items: center; gap: 8px; }
+.legend i { width: 12px; height: 12px; border-radius: 4px; background: var(--c); }
+.legend i.line { width: 16px; height: 3px; border-radius: 2px; }
+.viz svg { display: block; width: 100%; height: auto; overflow: visible; }
+.viz text { font-family: var(--wt-font); fill: var(--viz-label); font-size: 12px; font-weight: 500; }
+.viz .grid-line { stroke: var(--viz-grid); stroke-width: 1; }
+.viz .axis-line { stroke: var(--viz-axis); stroke-width: 1; }
+.viz .tick { font-variant-numeric: tabular-nums; }
+.viz .end-label { fill: var(--wt-text); font-weight: 650; }
+.viz .mark { transition: opacity .15s var(--wt-ease); }
+.viz .mark:hover, .viz .mark:focus { opacity: .82; outline: none; }
+.viz .cross { stroke: var(--wt-text-3); stroke-width: 1; }
+.viz__tip {
+  position: absolute; pointer-events: none; z-index: 2; min-width: 140px;
+  padding: 10px 12px; border-radius: var(--wt-r-sm); background: var(--wt-surface); box-shadow: var(--wt-float), 0 0 0 1px var(--wt-line);
+  font-size: 13px; opacity: 0; transform: translateY(4px); transition: opacity .12s, transform .12s;
+}
+.viz__tip.on { opacity: 1; transform: none; }
+.viz__tip .h { font-weight: 650; margin-bottom: 4px; color: var(--wt-text-2); font-size: 12px; }
+.viz__tip .r { display: flex; align-items: center; gap: 8px; }
+.viz__tip .r i { width: 12px; height: 3px; border-radius: 2px; background: var(--c); }
+.viz__tip .r b { font-variant-numeric: tabular-nums; min-width: 3ch; }
+.viz__tip .r span { color: var(--wt-text-2); }
+.viz__foot { display: flex; justify-content: space-between; align-items: center; margin-top: var(--wt-s3); font-size: 13px; color: var(--wt-text-2); }
+.viz__foot button { all: unset; cursor: pointer; font-weight: 650; color: var(--wt-text); padding: 6px 12px; border-radius: var(--wt-r-pill); }
+.viz__foot button:hover { background: var(--wt-surface-2); }
+.viz table { width: 100%; font-size: 13px; border-collapse: collapse; margin-top: var(--wt-s3); }
+.viz table td, .viz table th { padding: 6px 8px; border-top: 1px solid var(--wt-line); text-align: right; font-variant-numeric: tabular-nums; }
+.viz table td:first-child, .viz table th:first-child { text-align: left; }
+
+/* KPI tile with a sparkline */
+.kpi { border-radius: var(--wt-r-md); background: var(--wt-surface); padding: var(--wt-s5); display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.kpi__l { font-size: 14px; font-weight: 600; color: var(--wt-text-2); }
+.kpi__n { font-size: 44px; line-height: 1; font-weight: 600; letter-spacing: -.035em; }
+.kpi__n small { font-size: .4em; font-weight: 600; color: var(--wt-text-2); letter-spacing: 0; margin-left: 3px; }
+.kpi__d { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 650; }
+.kpi__d i { padding: 2px 8px; border-radius: var(--wt-r-pill); font-style: normal; background: var(--s); color: var(--wt-on-state); }
+.kpi__d span { color: var(--wt-text-2); font-weight: 500; }
+.kpi svg { margin-top: 8px; width: 100%; height: 40px; overflow: visible; }
+
+/* Segmented bar: one whole, split into parts */
+.segbar { display: flex; gap: 2px; height: 28px; }
+.segbar > span { border-radius: 6px; background: var(--c); color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; padding: 0 8px; min-width: 0; overflow: hidden; white-space: nowrap; }
+.segbar > span.dark-text { color: var(--wt-ink); }
+.segbar--thin { height: 8px; }
+.segbar--thin > span { border-radius: var(--wt-r-pill); padding: 0; }
+.meter-list { display: grid; grid-template-columns: max-content 1fr max-content; gap: 12px 16px; align-items: center; font-size: 14px; }
+.meter-list .progress { height: 8px; }
+.meter-list b { font-variant-numeric: tabular-nums; }
+
+/* Scale legend for sequential and diverging fills */
+.scale { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--wt-text-2); font-weight: 600; }
+.scale__bar { display: flex; gap: 2px; height: 12px; }
+.scale__bar i { flex: 1; border-radius: 3px; background: var(--c); }
+.scale__ticks { display: flex; justify-content: space-between; font-variant-numeric: tabular-nums; }
+
+/* ---- Maps. Quiet basemap; markers, routes and areas carry the meaning. */
+.map {
+  position: relative; overflow: hidden; border-radius: var(--wt-r-lg); background: var(--map-land);
+  isolation: isolate; min-height: 320px;
+}
+.map > svg.base { display: block; width: 100%; height: 100%; }
+.map .water { fill: var(--map-water); }
+.map .park { fill: var(--map-park); }
+.map .block { fill: var(--map-block); }
+.map .road { fill: none; stroke: var(--map-road); stroke-linecap: round; stroke-linejoin: round; }
+.map .road-edge { fill: none; stroke: var(--map-road-edge); stroke-linecap: round; stroke-linejoin: round; }
+.map .label { font: 600 11px var(--wt-font); fill: var(--map-label); letter-spacing: .04em; text-transform: uppercase; }
+.map .label--water { font-style: italic; text-transform: none; letter-spacing: 0; }
+.map .route-casing { fill: none; stroke: var(--wt-surface); stroke-width: 11; stroke-linecap: round; stroke-linejoin: round; }
+.map .route { fill: none; stroke: var(--wt-act); stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; }
+.map .route--alt { stroke: var(--wt-text-3); stroke-width: 4; }
+.map .area { fill: color-mix(in srgb, var(--wt-lilac) 22%, transparent); stroke: var(--wt-lilac); stroke-width: 2; }
+.map .area--alert { fill: color-mix(in srgb, var(--wt-ember) 20%, transparent); stroke: var(--wt-ember); }
+
+/* Markers are HTML over the map, placed with --x / --y in percent */
+.mk { position: absolute; left: var(--x); top: var(--y); transform: translate(-50%, -50%); z-index: 2; }
+.mk--dot { width: 18px; height: 18px; border-radius: 50%; background: var(--s, var(--wt-act)); box-shadow: 0 0 0 3px var(--wt-surface), 0 4px 10px -4px rgba(0,0,0,.4); }
+.mk--pin {
+  transform: translate(-50%, calc(-100% - 8px)); display: inline-flex; align-items: center; gap: 8px;
+  height: 40px; padding: 0 14px 0 4px; border-radius: var(--wt-r-pill); background: var(--wt-act); color: var(--wt-on-act);
+  font-weight: 650; font-size: 13px; white-space: nowrap; box-shadow: var(--wt-float); cursor: pointer; border: 0; font-family: var(--wt-font);
+}
+.mk--pin::after { content: ""; position: absolute; left: 50%; bottom: -7px; width: 14px; height: 14px; background: inherit; border-radius: 0 0 4px 0; transform: translateX(-50%) rotate(45deg); z-index: -1; }
+.mk--pin .ride { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: var(--s, var(--wt-lime)); color: var(--wt-on-state); }
+.mk--pin .ride svg { width: 16px; height: 16px; }
+.mk--pin.is-quiet { background: var(--wt-surface); color: var(--wt-text); }
+.mk--price { height: 32px; padding: 0 12px; display: inline-flex; align-items: center; border-radius: var(--wt-r-pill); background: var(--wt-surface); color: var(--wt-text); font-weight: 700; font-size: 13px; box-shadow: var(--wt-float); font-variant-numeric: tabular-nums; border: 0; font-family: var(--wt-font); cursor: pointer; }
+.mk--price[aria-pressed="true"] { background: var(--wt-act); color: var(--wt-on-act); transform: translate(-50%, -50%) scale(1.08); }
+.mk--cluster { width: var(--d, 48px); height: var(--d, 48px); border-radius: 50%; display: grid; place-items: center; background: var(--wt-act); color: var(--wt-on-act); font-weight: 700; font-size: 14px; font-variant-numeric: tabular-nums; box-shadow: 0 0 0 4px var(--wt-surface), 0 0 0 10px color-mix(in srgb, var(--wt-act) 14%, transparent); }
+.mk--me { width: 20px; height: 20px; border-radius: 50%; background: var(--wt-lilac); box-shadow: 0 0 0 4px var(--wt-surface); }
+.mk--me::before { content: ""; position: absolute; inset: -14px; border-radius: 50%; background: color-mix(in srgb, var(--wt-lilac) 30%, transparent); animation: wt-halo 2s var(--wt-ease) infinite; z-index: -1; }
+@keyframes wt-halo { from { transform: scale(.4); opacity: 1; } to { transform: scale(1.4); opacity: 0; } }
+.mk--end { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--wt-surface); box-shadow: 0 0 0 5px var(--wt-act); font-size: 11px; font-weight: 800; color: var(--wt-text); }
+/* Leaflet: L.divIcon({ className: "mk-leaflet", html: "<span>3</span>", iconSize: [32, 32], iconAnchor: [16, 16] }).
+   Leaflet places the icon; the inner span is the look. No .mk position or transform here. */
+.mk-leaflet { background: none; border: 0; }
+.mk-leaflet > span { width: 100%; height: 100%; border-radius: 50%; display: grid; place-items: center; background: var(--wt-act); color: var(--wt-on-act); font: 700 13px/1 var(--wt-font); font-variant-numeric: tabular-nums; box-shadow: 0 0 0 3px var(--wt-surface), 0 6px 14px -6px rgba(0,0,0,.5); cursor: pointer; }
+.mk-leaflet.is-done > span { background: var(--wt-lime); color: var(--wt-on-state); }
+.mk-leaflet.is-next > span { box-shadow: 0 0 0 3px var(--wt-surface), 0 0 0 7px var(--wt-ember); }
+.mk-leaflet.is-open > span { background: var(--wt-lilac); color: var(--wt-on-state); }
+
+/* Popup: a card anchored above a marker */
+.map-pop {
+  position: absolute; left: var(--x); top: var(--y); transform: translate(-50%, calc(-100% - 56px)); z-index: 3;
+  width: 260px; padding: 8px; border-radius: var(--wt-r-md); background: var(--wt-surface); box-shadow: var(--wt-float);
+}
+.map-pop::after { content: ""; position: absolute; left: 50%; bottom: -7px; width: 14px; height: 14px; background: inherit; transform: translateX(-50%) rotate(45deg); border-radius: 0 0 4px 0; }
+.map-pop--below { transform: translate(-50%, 34px); }
+.map-pop--below::after { bottom: auto; top: -7px; border-radius: 4px 0 0 0; }
+.map-pop__img { height: 96px; border-radius: calc(var(--wt-r-md) - 8px); background: var(--wt-lime-tint); display: grid; place-items: center; }
+.map-pop__body { padding: 10px 8px 4px; }
+.map-pop__title { font-weight: 650; }
+.map-pop__meta { font-size: 13px; color: var(--wt-text-2); }
+.map-pop .btn { width: 100%; justify-content: center; margin-top: 10px; }
+
+/* Controls float in the corners as pills and circles */
+.map-ctl { position: absolute; z-index: 4; display: flex; flex-direction: column; gap: 8px; }
+.map-ctl--tr { top: 16px; right: 16px; } .map-ctl--br { bottom: 16px; right: 16px; }
+.map-ctl--tl { top: 16px; left: 16px; } .map-ctl--bl { bottom: 16px; left: 16px; }
+.map-ctl .ib { background: var(--wt-surface); box-shadow: var(--wt-float); }
+.map-zoom { display: flex; flex-direction: column; border-radius: var(--wt-r-pill); background: var(--wt-surface); box-shadow: var(--wt-float); padding: 4px; gap: 2px; }
+.map-zoom .ib { box-shadow: none; width: 40px; height: 40px; }
+.map-search { width: min(340px, calc(100vw - 120px)); }
+.map-search .input { background: var(--wt-surface); box-shadow: var(--wt-float); }
+.map-legend { padding: 12px 14px; border-radius: var(--wt-r-md); background: var(--wt-surface); box-shadow: var(--wt-float); font-size: 13px; display: flex; flex-direction: column; gap: 8px; min-width: 160px; }
+.map-legend b { font-size: 12px; color: var(--wt-text-2); }
+.map-attrib { position: absolute; right: 12px; bottom: 8px; z-index: 1; font-size: 10px; color: var(--map-label); }
+.map-sheet { position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 4; padding: 18px 18px 14px; border-radius: var(--wt-r-lg); background: var(--wt-surface); box-shadow: var(--wt-float); }
+.map-sheet::before { content: ""; display: block; width: 40px; height: 5px; border-radius: 3px; background: var(--wt-line); margin: -8px auto 12px; }
+
+/* ---- Live location and turn-by-turn. In Leaflet, "you" is one inline SVG
+   in an L.divIcon (className "me-mk", 80x80, anchored at the centre); on an
+   SVG map, add .mk and set --x/--y. Set --h to the heading in degrees and
+   add .has-heading to show the wedge. */
+.me-mk { width: 80px; height: 80px; background: none; border: 0; pointer-events: none; }
+.me-mk svg { display: block; overflow: visible; }
+.me-ring { fill: var(--wt-surface); }
+.me-dot { fill: var(--wt-lilac); }
+.me-mk::before { content: ""; position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%;
+  background: color-mix(in srgb, var(--wt-lilac) 35%, transparent); animation: wt-halo 2s var(--wt-ease) infinite; }
+/* The way you face: a soft wedge that turns with the compass or GPS heading. */
+.me-cone { display: none; fill: color-mix(in srgb, var(--wt-lilac) 45%, transparent); transform: rotate(var(--h, 0deg)); transition: transform .3s var(--wt-ease); }
+.me-mk.has-heading .me-cone { display: block; }
+.map .acc { fill: color-mix(in srgb, var(--wt-lilac) 16%, transparent); }
+/* Locate button: lilac and pressed while the map follows you. */
+.ib--follow[aria-pressed="true"] { background: var(--wt-lilac); color: var(--wt-on-state); }
+/* The stretch ahead: ember over a surface casing, on top of the ink route.
+   Off the route, a dotted ember line leads back to it. */
+.map .ahead-casing { fill: none; stroke: var(--wt-surface); stroke-width: 13; stroke-linecap: round; stroke-linejoin: round; }
+.map .ahead { fill: none; stroke: var(--wt-ember); stroke-width: 7; stroke-linecap: round; stroke-linejoin: round; }
+.map .back { fill: none; stroke: var(--wt-ember); stroke-width: 4; stroke-dasharray: 1 9; stroke-linecap: round; }
+/* Arrowhead at the end of the stretch, pointing the way out of the turn.
+   L.divIcon({ className: "turn-head", html: "<span></span>", iconSize: [26, 26], iconAnchor: [13, 13] }) */
+.turn-head { width: 26px; height: 26px; background: none; border: 0; }
+.turn-head span { position: absolute; inset: 0; transform: rotate(var(--h, 0deg)); }
+.turn-head span::before { content: ""; position: absolute; left: 50%; top: 50%; width: 0; height: 0; transform: translate(-50%, -62%);
+  border-left: 11px solid transparent; border-right: 11px solid transparent; border-bottom: 18px solid var(--wt-ember); }
+/* The instruction banner over the map. Plain is surface; ember (--turn) is
+   act now, a turn within about 45 m; lime (--arrive) is you've arrived. */
+.nav {
+  position: absolute; z-index: 600; left: 16px; top: 16px; width: min(400px, calc(100% - 104px));
+  display: flex; align-items: center; gap: 14px; padding: 10px;
+  border-radius: var(--wt-r-md); background: var(--wt-surface); color: var(--wt-text); box-shadow: var(--wt-float);
+  transition: background .2s var(--wt-ease), color .2s var(--wt-ease);
+}
+.nav__icon { width: 56px; height: 56px; flex: none; border-radius: 50%; display: grid; place-items: center; background: var(--wt-act); color: var(--wt-on-act); }
+.nav__icon svg { width: 30px; height: 30px; transition: transform .3s var(--wt-ease); }
+.nav__spin { margin: 14px; flex: none; }
+.nav__text { flex: 1; min-width: 0; }
+.nav__main { font-size: 20px; font-weight: 650; line-height: 1.15; letter-spacing: -.01em; }
+.nav__sub { font-size: 13px; font-weight: 500; opacity: .75; margin-top: 3px; line-height: 1.3; }
+.nav__acts { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.nav__x { align-self: flex-start; background: transparent; color: inherit; }
+.nav--turn { background: var(--wt-ember); color: var(--wt-on-state); }
+.nav--turn .nav__icon { background: var(--wt-ink); color: #fff; }
+.nav--arrive { background: var(--wt-lime); color: var(--wt-on-state); }
+.nav--arrive .nav__icon { background: var(--wt-ink); color: var(--wt-lime); }
+.nav--arrive .btn { background: var(--wt-ink); color: #fff; }
+.nav--arrive .btn--soft { background: rgba(255,255,255,.55); color: var(--wt-on-state); }
+.nav--quiet .nav__main { font-size: 17px; }
+/* On phones it sits under the attribution, beside the control column. */
+.nav--phone { left: 10px; top: 36px; width: calc(100% - 80px); }
+.nav--phone .nav__main { font-size: 18px; }
+.nav--phone .nav__icon { width: 48px; height: 48px; }
+@media (max-width: 860px) {
+  .nav { left: 10px; top: 36px; width: calc(100% - 80px); }
+  .nav .nav__main { font-size: 18px; }
+  .nav .nav__icon { width: 48px; height: 48px; }
+}
+
+/* =========================================================================
+   KIT END
+   ========================================================================= */
+
 /* Responsive */
 @media (max-width: 980px) {
-  .hero .wrap, .panel { grid-template-columns: 1fr; }
+  .hero .wrap, .panel, .nav-demo { grid-template-columns: 1fr !important; }
   .g4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .g3 { grid-template-columns: 1fr; }
-  .toc { display: none; }
+  .brand { font-size: 0; gap: 0; }
+  .top .wrap { gap: var(--wt-s2); }
 }
 @media (max-width: 640px) {
+  .toc-group .long { display: none; }
+  .toc-group .short { display: inline; }
+  .toc-group > summary { padding: 0 10px; font-size: 13px; height: 36px; }
+  .toc-group > summary svg { display: none; }
+  .toc { gap: 2px; padding: 3px; }
+  .top .ib { width: 40px; height: 40px; }
+  .toc-group:nth-child(-n+2) .toc-menu { right: auto; left: 0; }
   .g2, .g4 { grid-template-columns: 1fr; }
   .type-row { grid-template-columns: 1fr; gap: var(--wt-s1); }
   section > .wrap > h2 { font-size: 34px; }
@@ -467,6 +1006,29 @@ p.note { color: var(--wt-text-2); max-width: 66ch; margin: 0 0 var(--wt-s4); }
     <symbol id="i-moon" viewBox="0 0 24 24"><path d="M19.5 14.5A8 8 0 1 1 9.5 4.5a6.5 6.5 0 0 0 10 10z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
     <symbol id="i-file" viewBox="0 0 24 24"><path d="M7 3.5h7l4.5 4.5v12.5H7z M14 3.5V8h4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
     <symbol id="i-tower" viewBox="0 0 24 24"><path d="M12 3 7 7h10zM8.5 7v4h7V7M9.5 11 8 21h8l-1.5-10M10.2 15.5h3.6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="m16 16 4.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><path d="M12 11v6M12 7.5h.01" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></symbol>
+    <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 7v6M12 16.5h.01" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 4 8.5 4.5L12 13 3.5 8.5zM3.5 12.5 12 17l8.5-4.5M3.5 16.5 12 21l8.5-4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+    <symbol id="i-locate" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2" fill="currentColor"/><path d="M12 2.5V6M12 18v3.5M2.5 12H6M18 12h3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="10" r="2.3" fill="currentColor"/></symbol>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 11 12 4l8 7v8.5a1 1 0 0 1-1 1h-4.5V15h-5v5.5H5a1 1 0 0 1-1-1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4.5 19.5h15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-left" viewBox="0 0 24 24"><path d="m15 5-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-right" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="12" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15.5 5.5v-.5a1.5 1.5 0 0 0-1.5-1.5H5A1.5 1.5 0 0 0 3.5 5v9A1.5 1.5 0 0 0 5 15.5h.5" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+    <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+    <symbol id="i-cal" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3.5 10h17M8 3v4M16 3v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-route" viewBox="0 0 24 24"><circle cx="6" cy="18" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="18" cy="6" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8.5 18H15a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 3 5 13.5h6L10.5 21 19 10h-6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+    <symbol id="i-cup" viewBox="0 0 24 24"><path d="M5 8h11v6a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5zM16 10h1.5a2.5 2.5 0 0 1 0 5H16M8 3.5v2M11 3.5v2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   </defs>
 </svg>
 
@@ -474,13 +1036,14 @@ p.note { color: var(--wt-text-2); max-width: 66ch; margin: 0 0 var(--wt-s4); }
   <div class="wrap">
     <a class="brand" href="#top"><span class="brand-mark"><svg style="color:var(--wt-lime)"><use href="#i-tower"/></svg></span>Watchtower style guide</a>
     <nav class="toc" aria-label="Sections">
-      <a href="#principles">Principles</a>
-      <a href="#colour">Colour</a>
-      <a href="#type">Type</a>
-      <a href="#shape">Shape</a>
-      <a href="#components">Components</a>
-      <a href="#layout">Layout</a>
-      <a href="#motion">Motion</a>
+      <details class="toc-group"><summary><span class="long">Foundations</span><span class="short">Basics</span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+        <div class="toc-menu"><a href="#principles">Principles</a><a href="#colour">Colour</a><a href="#type">Type</a><a href="#shape">Shape</a><a href="#motion">Motion</a><a href="#rules">Do and don't</a></div></details>
+      <details class="toc-group"><summary><span class="long">Components</span><span class="short">Parts</span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+        <div class="toc-menu"><a href="#components">Components</a><a href="#forms">Forms</a><a href="#feedback">Feedback</a><a href="#navigation">Navigation</a></div></details>
+      <details class="toc-group"><summary><span class="long">Layout</span><span class="short">Layout</span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+        <div class="toc-menu"><a href="#layout">Layout</a><a href="#data">Tables and lists</a></div></details>
+      <details class="toc-group"><summary><span class="long">Data &amp; maps</span><span class="short">Data</span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+        <div class="toc-menu"><a href="#charts">Charts</a><a href="#maps">Maps</a></div></details>
     </nav>
     <button class="ib" id="theme" aria-label="Switch between light and dark"><svg><use href="#i-moon"/></svg></button>
   </div>
@@ -850,6 +1413,507 @@ p.note { color: var(--wt-text-2); max-width: 66ch; margin: 0 0 var(--wt-s4); }
   </div>
 </section>
 
+<!-- ================================================================ Forms -->
+<section id="forms">
+  <div class="wrap">
+    <h2>Forms</h2>
+    <p class="lede">Fields are filled pills on surface-2, never boxes with borders. The label sits above, lined up with the text inside. Focus is a 3px lilac ring, and an error is a rose ring with an icon and a sentence that says how to fix it.</p>
+    <div class="grid g2">
+      <div class="board" style="display:flex;flex-direction:column;gap:var(--wt-s4)">
+        <div class="field"><label for="f-name">Project name</label><input class="input" id="f-name" value="robot-app"></div>
+        <div class="field"><label for="f-search">Search</label>
+          <div class="input-wrap"><svg><use href="#i-search"/></svg><input class="input" id="f-search" placeholder="Sessions, folders, branches"><button class="ib ib--ink" aria-label="Filters"><svg><use href="#i-filter"/></svg></button></div>
+        </div>
+        <div class="field"><label for="f-mode">Mode</label><select class="select" id="f-mode"><option>Auto</option><option>Plan</option><option>Accept edits</option></select></div>
+        <div class="field field--error"><label for="f-port">Port</label><input class="input" id="f-port" value="80"><div class="field__help">Use a port above 1024; lower ones need root.</div></div>
+        <div class="field"><label for="f-note">Message</label><textarea class="textarea" id="f-note" placeholder="Ask the session something…"></textarea><div class="field__help">Markdown works. Shift + Enter for a new line.</div></div>
+      </div>
+      <div class="board" style="display:flex;flex-direction:column;gap:var(--wt-s5)">
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <div class="field__label" style="padding:0">Choices</div>
+          <label class="check"><input type="checkbox" checked><span class="box"><svg><use href="#i-check"/></svg></span>Notify when a session finishes</label>
+          <label class="check"><input type="checkbox"><span class="box"><svg><use href="#i-check"/></svg></span>Include closed sessions</label>
+          <label class="radio"><input type="radio" name="r1" checked><span class="dot"></span>This computer</label>
+          <label class="radio"><input type="radio" name="r1"><span class="dot"></span>Every device on the tailnet</label>
+          <label class="switch"><input type="checkbox" checked><span class="track"></span>Sounds</label>
+          <label class="switch"><input type="checkbox"><span class="track"></span>Reduce motion</label>
+        </div>
+        <div class="field"><label for="f-range">Context warning at <output id="f-range-out">60</output>%</label>
+          <input class="range" id="f-range" type="range" min="0" max="100" value="60" style="--v:60%"></div>
+        <div style="display:flex;gap:var(--wt-s4);align-items:center;flex-wrap:wrap">
+          <div class="stepper" data-stepper><button class="ib" aria-label="Fewer"><svg><use href="#i-minus"/></svg></button><output>3</output><button class="ib" aria-label="More"><svg><use href="#i-plus"/></svg></button></div>
+          <span class="spec" style="margin:0">Steppers for small counts; a slider for a range.</span>
+        </div>
+        <div class="drop" data-drop><span class="ib ib--ink"><svg><use href="#i-upload"/></svg></span><b>Drop files to attach</b><span style="font-size:13px">or <a href="#forms">browse</a> · PNG, JPG, PDF up to 32 MB</span></div>
+      </div>
+    </div>
+    <p class="note" style="margin-top:var(--wt-s4)">One column of fields, full width, in the order people think of them. The primary action is an ink pill at the end, and the secondary one is a soft pill beside it. Never disable a submit button to hint at an error; let it be pressed and say what is missing.</p>
+  </div>
+</section>
+
+<!-- ============================================================= Feedback -->
+<section id="feedback">
+  <div class="wrap">
+    <h2>Feedback</h2>
+    <p class="lede">How a page talks back. Status takes the support colours (lime done, butter careful, rose wrong, lilac for information) and always comes with an icon and words, never colour alone.</p>
+    <div class="grid g2">
+      <div style="display:flex;flex-direction:column;gap:var(--wt-s2)">
+        <div class="alert alert--info"><span class="alert__icon"><svg><use href="#i-info"/></svg></span><div><div class="alert__title">A new version is ready</div><div class="alert__body">Restart the panel to pick it up. Nothing you have open is lost.</div></div><button class="btn btn--sm">Restart</button></div>
+        <div class="alert alert--success"><span class="alert__icon"><svg><use href="#i-check"/></svg></span><div><div class="alert__title">Tests pass on the branch</div><div class="alert__body">264 tests, 3.3 seconds.</div></div></div>
+        <div class="alert alert--warning"><span class="alert__icon"><svg><use href="#i-warn"/></svg></span><div><div class="alert__title">Context is 82% full</div><div class="alert__body">Compact soon, or the next long answer may be cut short.</div></div></div>
+        <div class="alert alert--error"><span class="alert__icon"><svg><use href="#i-x"/></svg></span><div><div class="alert__title">Could not reach the session</div><div class="alert__body">Its terminal was closed. Start it again to send this.</div></div></div>
+      </div>
+      <div class="board" style="display:flex;flex-direction:column;gap:var(--wt-s5)">
+        <div><div class="toast">Session ended<button>Undo</button></div></div>
+        <div style="display:flex;gap:var(--wt-s3);align-items:center;flex-wrap:wrap">
+          <span class="badge">3</span><span class="badge" data-s="ember">2</span><span class="badge" data-s="lime">12</span>
+          <span class="tag">Draft</span><span class="tag" style="background:var(--wt-butter);box-shadow:none;color:var(--wt-on-state)">Unsaved</span>
+          <span class="dot-label" data-s="lime">Online</span><span class="dot-label" data-s="ember">Degraded</span><span class="dot-label" data-s="stone">Offline</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div class="progress" style="--v:62%"><span></span></div>
+          <div class="progress progress--indeterminate"><span></span></div>
+        </div>
+        <div style="display:flex;gap:var(--wt-s5);align-items:center;flex-wrap:wrap">
+          <div class="ring-wrap"><div class="ring" style="--v:72"></div><b>72%</b></div>
+          <div class="ring-wrap"><div class="ring" style="--v:30;--s:var(--wt-lilac)"></div><b>30%</b></div>
+          <div class="spinner" role="status" aria-label="Loading"></div>
+          <span class="tip" tabindex="0"><span class="ib ib--sm"><svg><use href="#i-info"/></svg></span><span class="tip__bubble">Tooltips are ink, short and plain</span></span>
+        </div>
+        <ol class="steps">
+          <li data-n="1" data-state="done">Folder</li><span class="sep"></span>
+          <li data-n="2" data-state="now">Mode</li><span class="sep"></span>
+          <li data-n="3">First message</li>
+        </ol>
+      </div>
+    </div>
+    <div class="grid g3" style="margin-top:var(--wt-s4)">
+      <div class="board" style="display:flex;flex-direction:column;gap:var(--wt-s4)" aria-busy="true" aria-label="Loading">
+        <div style="display:flex;gap:var(--wt-s3);align-items:center">
+          <span class="skeleton skeleton--circle" style="width:52px;height:52px;flex:none"></span>
+          <div style="flex:1;display:flex;flex-direction:column;gap:8px"><span class="skeleton skeleton--line" style="width:70%"></span><span class="skeleton skeleton--line" style="width:45%"></span></div>
+        </div>
+        <span class="skeleton" style="height:96px;border-radius:var(--wt-r-md)"></span>
+        <span class="skeleton skeleton--line" style="width:90%"></span>
+        <span class="skeleton skeleton--line" style="width:60%"></span>
+        <p class="spec" style="margin:0">Skeletons echo the layout that is coming, for first loads only. A refresh keeps the old content in place, dimmed.</p>
+      </div>
+      <div class="board empty" style="grid-column:span 2">
+        <div class="empty__art"><svg><use href="#i-folder"/></svg></div>
+        <h4>No sessions in this folder yet</h4>
+        <p style="margin:0 auto var(--wt-s4);max-width:44ch">An empty state says what would be here, why it is not, and the one thing to do about it.</p>
+        <a class="btn btn--rider btn--sm" href="#feedback" style="padding-left:4px"><span class="ride" style="width:32px;height:32px"><svg><use href="#i-plus"/></svg></span>Start a session</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =========================================================== Navigation -->
+<section id="navigation">
+  <div class="wrap">
+    <h2>Navigation</h2>
+    <p class="lede">Where you are is ink, and everything else is quiet text that gets a surface-2 wash on hover. The same rule covers side navigation, breadcrumbs, pages and menus.</p>
+    <div class="grid nav-demo" style="grid-template-columns:280px minmax(0,1fr);gap:var(--wt-s4)">
+      <nav class="board side-nav" style="padding:var(--wt-s3)" aria-label="Example side navigation">
+        <a href="#navigation" aria-current="page"><i><svg><use href="#i-home"/></svg></i>Overview</a>
+        <a href="#navigation"><i><svg><use href="#i-term"/></svg></i>Sessions<span class="badge" data-s="ember">2</span></a>
+        <a href="#navigation"><i><svg><use href="#i-chart"/></svg></i>Usage</a>
+        <div class="side-nav__group">Workspace</div>
+        <a href="#navigation"><i><svg><use href="#i-folder"/></svg></i>Folders</a>
+        <a href="#navigation"><i><svg><use href="#i-gear"/></svg></i>Settings</a>
+      </nav>
+      <div style="display:flex;flex-direction:column;gap:var(--wt-s4);min-width:0">
+        <div class="board" style="display:flex;flex-direction:column;gap:var(--wt-s4)">
+          <nav class="crumbs" aria-label="Breadcrumb"><a href="#navigation">Home</a><span class="sl">/</span><a href="#navigation">claude-watchtower</a><span class="sl">/</span><span aria-current="page">feature/mcp</span></nav>
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:var(--wt-s4);flex-wrap:wrap">
+            <div class="pager" aria-label="Pages"><button class="ib" aria-label="Previous"><svg><use href="#i-left"/></svg></button><a href="#navigation">1</a><span aria-current="page">2</span><a href="#navigation">3</a><span style="color:var(--wt-text-3)">…</span><a href="#navigation">9</a><button class="ib" aria-label="Next"><svg><use href="#i-right"/></svg></button></div>
+            <div class="avatars"><span style="background:var(--wt-lilac)">CS</span><span style="background:var(--wt-lime)">AK</span><span style="background:var(--wt-ember)">JD</span><span>+4</span></div>
+          </div>
+        </div>
+        <div class="grid g2">
+          <div class="accordion">
+            <details open><summary>What does Auto mode allow?</summary><div>Edits and commands run without asking, except the ones on your deny list.</div></details>
+            <details><summary>Can I run two panels?</summary><div>No. Two panels would both resume the same sessions.</div></details>
+            <details><summary>Where are sessions kept?</summary><div>In <code>~/.claude/projects</code>, one transcript per session.</div></details>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:var(--wt-s3);align-items:flex-start">
+            <div class="menu" role="menu">
+              <button role="menuitem"><svg><use href="#i-edit"/></svg>Rename<kbd>R</kbd></button>
+              <button role="menuitem"><svg><use href="#i-copy"/></svg>Copy session id</button>
+              <button role="menuitem"><svg><use href="#i-split"/></svg>Focus window<kbd>F</kbd></button>
+              <hr>
+              <button role="menuitem" class="danger"><svg><use href="#i-trash"/></svg>End session</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="board" style="margin-top:var(--wt-s4);display:grid;place-items:center;padding:var(--wt-s6);background-image:linear-gradient(color-mix(in srgb,var(--wt-ink) 30%,transparent),color-mix(in srgb,var(--wt-ink) 30%,transparent))">
+      <div class="dialog" role="dialog" aria-label="Example dialog">
+        <h4>End robot-app?</h4>
+        <p>Its process stops and the turn it is in is lost. The conversation stays, so you can start it again.</p>
+        <div class="dialog__actions"><button class="btn btn--soft btn--sm">Keep it</button><button class="btn btn--rose btn--sm">End session</button></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================= Data -->
+<section id="data">
+  <div class="wrap">
+    <h2>Tables and lists</h2>
+    <p class="lede">Tables have no vertical rules and no zebra stripes. A hairline between rows is enough, and hovering a row gives it a surface-2 wash. Numbers sit right-aligned in tabular figures, and status is a dot with a word.</p>
+    <div class="table-wrap">
+      <table class="table" data-sortable>
+        <thead><tr><th aria-sort="ascending"><button>Session</button></th><th><button>State</button></th><th><button>Branch</button></th><th class="num"><button>Tokens</button></th><th class="num"><button>Cost</button></th><th class="num"><button>Age</button></th></tr></thead>
+        <tbody>
+          <tr><td><b>api-client</b></td><td><span class="dot-label" data-s="ember">Needs an answer</span></td><td class="muted"><code>feat/auth</code></td><td class="num">412,880</td><td class="num">$4.12</td><td class="num" data-v="42">42s</td></tr>
+          <tr aria-selected="true"><td><b>claude-watchtower</b></td><td><span class="dot-label" data-s="lilac">Working</span></td><td class="muted"><code>feature/mcp</code></td><td class="num">1,204,511</td><td class="num">$11.87</td><td class="num" data-v="720">12m</td></tr>
+          <tr><td><b>robot-app</b></td><td><span class="dot-label" data-s="lime">Waiting on you</span></td><td class="muted"><code>main</code></td><td class="num">88,302</td><td class="num">$0.91</td><td class="num" data-v="180">3m</td></tr>
+          <tr><td><b>docs-site</b></td><td><span class="dot-label" data-s="stone">Closed</span></td><td class="muted"><code>gh-pages</code></td><td class="num">9,114</td><td class="num">$0.08</td><td class="num" data-v="7200">2h</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="grid g3" style="margin-top:var(--wt-s4)">
+      <div class="board">
+        <h3 style="margin-top:0">Details</h3>
+        <dl class="kv"><dt>Folder</dt><dd><code>~/claude-watchtower</code></dd><dt>Branch</dt><dd>feature/mcp</dd><dt>Mode</dt><dd>Auto</dd><dt>Started</dt><dd>Today, 09:14</dd><dt>Model</dt><dd>Opus 5.5</dd></dl>
+      </div>
+      <div class="board">
+        <h3 style="margin-top:0">Activity</h3>
+        <ol class="timeline">
+          <li><span class="tl-dot" data-s="lime" style="--s:var(--wt-lime)"><svg><use href="#i-check"/></svg></span><b>Tests passed</b><small>2 minutes ago</small></li>
+          <li><span class="tl-dot" style="--s:var(--wt-lilac)"><svg><use href="#i-code"/></svg></span><b>Edited 4 files</b><small>6 minutes ago</small></li>
+          <li><span class="tl-dot" style="--s:var(--wt-ember)"><svg><use href="#i-warn"/></svg></span><b>Asked to run a command</b><small>9 minutes ago · allowed</small></li>
+          <li><span class="tl-dot"><svg style="color:var(--wt-text)"><use href="#i-chat"/></svg></span><b>You sent a message</b><small>11 minutes ago</small></li>
+        </ol>
+      </div>
+      <div class="board">
+        <h3 style="margin-top:0">Date range</h3>
+        <div class="cal" aria-label="November 2026">
+          <span class="dow">M</span><span class="dow">T</span><span class="dow">W</span><span class="dow">T</span><span class="dow">F</span><span class="dow">S</span><span class="dow">S</span>
+          <span class="out">26</span><span class="out">27</span><span class="out">28</span><span class="out">29</span><span class="out">30</span><span class="out">31</span><span>1</span>
+          <span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span>
+          <span class="start">9</span><span class="in-range">10</span><span class="in-range">11</span><span class="in-range">12</span><span class="in-range">13</span><span class="in-range today">14</span><span class="end">15</span>
+          <span>16</span><span>17</span><span>18</span><span>19</span><span>20</span><span>21</span><span>22</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =============================================================== Charts -->
+<section id="charts">
+  <div class="wrap">
+    <h2>Charts</h2>
+    <p class="lede">Charts get a palette of their own. These are deeper steps than the state colours, and they appear only inside a plot or on a map, never on a control. Pick the form first and the colours last. Every chart is interactive and keeps a table view one press away.</p>
+
+    <h3>Data palette</h3>
+    <div class="board">
+      <div class="field__label" style="padding:0 0 10px">Categorical, in this order and never cycled. Lines, bars and scatter can use all eight; scatter and maps stop at three.</div>
+      <div class="segbar" style="height:56px;margin-bottom:var(--wt-s4)" id="pal-cat"></div>
+      <div class="grid g3">
+        <div><div class="field__label" style="padding:0 0 10px">Sequential: magnitude, one hue</div>
+          <div class="scale"><div class="scale__bar" style="height:28px"><i style="--c:var(--seq-1)"></i><i style="--c:var(--seq-2)"></i><i style="--c:var(--seq-3)"></i><i style="--c:var(--seq-4)"></i><i style="--c:var(--seq-5)"></i><i style="--c:var(--seq-6)"></i></div><div class="scale__ticks"><span>Less</span><span>More</span></div></div></div>
+        <div><div class="field__label" style="padding:0 0 10px">Diverging: above and below a middle</div>
+          <div class="scale"><div class="scale__bar" style="height:28px"><i style="--c:var(--div-neg-3)"></i><i style="--c:var(--div-neg-2)"></i><i style="--c:var(--div-neg-1)"></i><i style="--c:var(--div-mid)"></i><i style="--c:var(--div-pos-1)"></i><i style="--c:var(--div-pos-2)"></i><i style="--c:var(--div-pos-3)"></i></div><div class="scale__ticks"><span>−20%</span><span>0</span><span>+20%</span></div></div></div>
+        <div><div class="field__label" style="padding:0 0 10px">Status: always with an icon and a word</div>
+          <div style="display:flex;flex-wrap:wrap;gap:10px 16px"><span class="dot-label" style="--s:var(--st-good)">Good</span><span class="dot-label" style="--s:var(--st-warn)">Warning</span><span class="dot-label" style="--s:var(--st-serious)">Serious</span><span class="dot-label" style="--s:var(--st-critical)">Critical</span></div></div>
+      </div>
+    </div>
+
+    <h3>Headline numbers</h3>
+    <p class="note">A single number is a tile, not a chart. Give it a plain label, a delta against a named period, and a sparkline in muted grey with the latest point in ink.</p>
+    <div class="grid g4" id="kpis"></div>
+
+    <h3>Over time</h3>
+    <div class="grid g2">
+      <figure class="viz" id="viz-line" style="margin:0"></figure>
+      <figure class="viz" id="viz-area" style="margin:0"></figure>
+    </div>
+
+    <h3>Comparing amounts</h3>
+    <div class="grid g2">
+      <figure class="viz" id="viz-cols" style="margin:0"></figure>
+      <figure class="viz" id="viz-stack" style="margin:0"></figure>
+      <figure class="viz" id="viz-rank" style="margin:0"></figure>
+      <figure class="viz" id="viz-scatter" style="margin:0"></figure>
+    </div>
+
+    <h3>Patterns and parts</h3>
+    <div class="grid g2">
+      <figure class="viz" id="viz-heat" style="margin:0"></figure>
+      <figure class="viz" style="margin:0">
+        <div class="viz__head"><div><div class="viz__title">Where the tokens went</div><div class="viz__sub">This week, 2.4M tokens</div></div></div>
+        <div class="segbar" style="margin:var(--wt-s3) 0">
+          <span style="flex:46;--c:var(--viz-1)">46%</span><span style="flex:27;--c:var(--viz-2)">27%</span><span style="flex:17;--c:var(--viz-3)">17%</span><span style="flex:10;--c:var(--viz-muted)" class="dark-text">10%</span>
+        </div>
+        <div class="legend"><span><i style="--c:var(--viz-1)"></i>Cache reads</span><span><i style="--c:var(--viz-2)"></i>Output</span><span><i style="--c:var(--viz-3)"></i>Fresh input</span><span><i style="--c:var(--viz-muted)"></i>Other</span></div>
+        <div class="viz__title" style="font-size:15px;margin:var(--wt-s5) 0 var(--wt-s3)">Context used per session</div>
+        <div class="meter-list">
+          <span>claude-watchtower</span><div class="progress" style="--v:82%;--s:var(--st-warn)"><span></span></div><b>82%</b>
+          <span>robot-app</span><div class="progress" style="--v:41%"><span></span></div><b>41%</b>
+          <span>api-client</span><div class="progress" style="--v:23%"><span></span></div><b>23%</b>
+        </div>
+      </figure>
+    </div>
+
+    <div class="grid g2" style="margin-top:var(--wt-s4)">
+      <div class="dd"><h4><i style="background:var(--wt-lime)">&#10003;</i>Charts do</h4><ul>
+        <li>Lines are 2px with round ends. Bars are at most 24px thick, with 4px rounded tips and square bases.</li>
+        <li>Keep 2px of surface between touching marks, and give dots a surface ring.</li>
+        <li>Gridlines are hairlines, solid and faint, and there is one y-axis.</li>
+        <li>Show a legend for two or more series, and label directly only the end or the extreme.</li>
+        <li>Text keeps the text colours. A coloured mark beside a label carries its identity.</li>
+        <li>Use a crosshair tooltip on lines and a per-mark tooltip on bars, cells and dots.</li>
+      </ul></div>
+      <div class="dd"><h4><i style="background:var(--wt-rose)">&#10005;</i>Charts don't</h4><ul>
+        <li>Pies, donuts or gauges. Use a segmented bar, a meter or a ranked bar.</li>
+        <li>Two y-axes. Draw two charts, or index both to a common base.</li>
+        <li>A number on every point, or a value that does not fit inside its bar.</li>
+        <li>State colours used as series, or a ninth hue; fold extras into "Other".</li>
+        <li>Rainbow ramps, or a colour at the middle of a diverging scale.</li>
+        <li>Gradients, 3D or drop shadows on marks.</li>
+      </ul></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================= Maps -->
+<section id="maps">
+  <div class="wrap">
+    <h2>Maps</h2>
+    <p class="lede">The basemap stays quiet: mist land, soft blocks, white roads, lilac-grey water and pale lime parks. Its labels are small and grey. The meaning goes on top as ink pins, state dots, an ink route with a chalk casing, and tinted areas. Controls float in the corners as circles and pills.</p>
+
+    <div class="map" id="map-main" style="height:520px">
+      <svg class="base" viewBox="0 0 1000 520" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+        <path class="water" d="M0 380 C 140 350, 230 420, 360 400 S 560 330, 690 360 S 900 430, 1000 400 L1000 520 L0 520 Z"/>
+        <path class="water" d="M760 60 c60 -20 140 10 150 60 s-40 90 -110 80 s-100 -120 -40 -140z"/>
+        <path class="park" d="M90 70 h170 a24 24 0 0 1 24 24 v110 a24 24 0 0 1 -24 24 h-170 a24 24 0 0 1 -24 -24 v-110 a24 24 0 0 1 24 -24z"/>
+        <path class="park" d="M520 220 c40 -20 120 -10 140 30 s-20 70 -80 70 s-100 -80 -60 -100z"/>
+        <g id="blocks"></g>
+        <g>
+          <path class="road-edge" stroke-width="18" d="M-20 300 C 200 280, 400 300, 560 250 S 860 170, 1020 200"/>
+          <path class="road" stroke-width="15" d="M-20 300 C 200 280, 400 300, 560 250 S 860 170, 1020 200"/>
+          <path class="road-edge" stroke-width="18" d="M430 -20 C 420 120, 470 260, 450 540"/>
+          <path class="road" stroke-width="15" d="M430 -20 C 420 120, 470 260, 450 540"/>
+          <path class="road-edge" stroke-width="11" d="M-20 150 H 1020 M 300 -20 V 540 M 620 -20 V 540 M 820 -20 V 540 M -20 440 H 1020"/>
+          <path class="road" stroke-width="8" d="M-20 150 H 1020 M 300 -20 V 540 M 620 -20 V 540 M 820 -20 V 540 M -20 440 H 1020"/>
+        </g>
+        <text class="label" x="110" y="150">Westpark</text>
+        <text class="label label--water" x="360" y="480">Harbour</text>
+        <text class="label label--water" x="790" y="125">Mill pond</text>
+        <text class="label" x="455" y="90" transform="rotate(-88 455 90)">Station road</text>
+        <path class="area" d="M640 260 l120 -40 l60 90 l-60 80 l-130 -20 z"/>
+        <path class="route-casing" d="M140 300 C 220 290, 300 296, 330 280 L 440 270 C 450 220, 445 180, 440 150 L 620 150 L 700 150 C 740 150, 760 180, 800 190"/>
+        <path class="route" d="M140 300 C 220 290, 300 296, 330 280 L 440 270 C 450 220, 445 180, 440 150 L 620 150 L 700 150 C 740 150, 760 180, 800 190"/>
+      </svg>
+      <span class="mk mk--end" style="--x:14%;--y:57.7%">A</span>
+      <span class="mk mk--end" style="--x:80%;--y:36.5%">B</span>
+      <span class="mk mk--me" style="--x:33%;--y:53.8%" aria-label="You are here"></span>
+      <button class="mk mk--pin" style="--x:62%;--y:28.8%" data-pin aria-pressed="true"><span class="ride"><svg><use href="#i-cup"/></svg></span>Roastery</button>
+      <button class="mk mk--pin is-quiet" style="--x:25%;--y:22%" data-pin><span class="ride" style="--s:var(--wt-lilac)"><svg><use href="#i-bolt"/></svg></span>Charger</button>
+      <span class="mk mk--dot" style="--x:52%;--y:68%;--s:var(--wt-ember)" title="Needs attention"></span>
+      <span class="mk mk--dot" style="--x:72%;--y:72%;--s:var(--wt-lime)" title="Done"></span>
+      <span class="mk mk--dot" style="--x:90%;--y:60%;--s:var(--wt-lilac)" title="In progress"></span>
+      <span class="mk mk--cluster" style="--x:12%;--y:80%;--d:52px">24</span>
+      <span class="mk mk--cluster" style="--x:93%;--y:14%;--d:40px">7</span>
+      <div class="map-pop map-pop--below" style="--x:62%;--y:28.8%" id="map-pop">
+        <div class="map-pop__img"><svg width="40" height="40" style="color:var(--wt-ink)"><use href="#i-cup"/></svg></div>
+        <div class="map-pop__body"><div class="map-pop__title">Roastery on Mill Lane</div><div class="map-pop__meta">Open until 18:00 · 6 min walk</div><a class="btn btn--sm btn--rider" href="#maps" style="padding-left:4px"><span class="ride" style="width:32px;height:32px"><svg><use href="#i-route"/></svg></span>Directions</a></div>
+      </div>
+      <div class="map-ctl map-ctl--tl map-search"><div class="input-wrap"><svg><use href="#i-search"/></svg><input class="input" placeholder="Search places" aria-label="Search places"></div></div>
+      <div class="map-ctl map-ctl--tr"><button class="ib" aria-label="Layers"><svg><use href="#i-layers"/></svg></button></div>
+      <div class="map-ctl map-ctl--br"><button class="ib" aria-label="Show my location"><svg><use href="#i-locate"/></svg></button><div class="map-zoom"><button class="ib" aria-label="Zoom in"><svg><use href="#i-plus"/></svg></button><button class="ib" aria-label="Zoom out"><svg><use href="#i-minus"/></svg></button></div></div>
+      <div class="map-ctl map-ctl--bl map-legend" style="left:16px;bottom:16px">
+        <b>Legend</b>
+        <span class="dot-label" style="--s:var(--wt-ember)">Needs attention</span>
+        <span class="dot-label" style="--s:var(--wt-lilac)">In progress</span>
+        <span class="dot-label" style="--s:var(--wt-lime)">Done</span>
+        <span style="display:flex;align-items:center;gap:8px;font-weight:600"><i style="width:18px;height:4px;border-radius:2px;background:var(--wt-act)"></i>Route</span>
+      </div>
+      <span class="map-attrib">© map data contributors</span>
+    </div>
+
+    <div class="grid g3" style="margin-top:var(--wt-s4)">
+      <div class="board"><h3 style="margin-top:0">Markers</h3>
+        <div style="position:relative;height:150px;background:var(--map-land);border-radius:var(--wt-r-md)">
+          <button class="mk mk--pin" style="--x:30%;--y:62%"><span class="ride"><svg><use href="#i-pin"/></svg></span>Selected</button>
+          <button class="mk mk--price" style="--x:72%;--y:30%">€ 142</button>
+          <button class="mk mk--price" style="--x:78%;--y:72%" aria-pressed="true">€ 96</button>
+          <span class="mk mk--dot" style="--x:52%;--y:80%;--s:var(--wt-ember)"></span>
+        </div>
+        <p class="spec">A <b>pin</b> is an ink pill with a rider and a short name, for the one or two places that matter. A <b>price chip</b> is a chalk pill that turns ink when chosen. A <b>dot</b> is 18px with a chalk ring and carries state, and only state.</p></div>
+      <div class="board"><h3 style="margin-top:0">Clusters and you</h3>
+        <div style="position:relative;height:150px;background:var(--map-land);border-radius:var(--wt-r-md)">
+          <span class="mk mk--cluster" style="--x:25%;--y:50%;--d:60px">128</span>
+          <span class="mk mk--cluster" style="--x:55%;--y:35%;--d:44px">16</span>
+          <span class="mk mk--cluster" style="--x:72%;--y:70%;--d:34px">4</span>
+          <span class="mk mk--me" style="--x:86%;--y:30%"></span>
+        </div>
+        <p class="spec">Clusters are ink circles sized by the square root of the count, with a faint halo, and they split as you zoom. <b>You are here</b> is a lilac dot with a slow halo, the only map element that moves on its own.</p></div>
+      <div class="board"><h3 style="margin-top:0">Regions</h3>
+        <svg viewBox="0 0 300 150" style="width:100%;height:150px;display:block" id="choro" aria-label="Choropleth example"></svg>
+        <div class="scale" style="margin-top:10px"><div class="scale__bar"><i style="--c:var(--seq-1)"></i><i style="--c:var(--seq-2)"></i><i style="--c:var(--seq-3)"></i><i style="--c:var(--seq-4)"></i><i style="--c:var(--seq-5)"></i><i style="--c:var(--seq-6)"></i></div><div class="scale__ticks"><span>0</span><span>50</span><span>100+</span></div></div>
+        <p class="spec">Filled regions use the sequential lilac ramp, with a 1.5px surface-coloured gap between them and a scale legend. Use diverging colours only when there is a real middle.</p></div>
+    </div>
+
+    <div class="grid g2" style="margin-top:var(--wt-s4)">
+      <div class="board">
+        <h3 style="margin-top:0">On a phone</h3>
+        <div class="map" style="height:420px;max-width:300px;margin:0 auto;border-radius:36px">
+          <svg class="base" viewBox="0 0 300 420" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+            <path class="water" d="M0 300 C 80 280, 160 330, 300 300 L300 420 L0 420z"/>
+            <path class="park" d="M40 60 h90 a20 20 0 0 1 20 20 v60 a20 20 0 0 1 -20 20 h-90 a20 20 0 0 1 -20 -20 v-60 a20 20 0 0 1 20 -20z"/>
+            <path class="road-edge" stroke-width="14" d="M-10 200 H 310 M 190 -10 V 430"/>
+            <path class="road" stroke-width="11" d="M-10 200 H 310 M 190 -10 V 430"/>
+          </svg>
+          <button class="mk mk--pin" style="--x:63%;--y:47%"><span class="ride"><svg><use href="#i-cup"/></svg></span>Roastery</button>
+          <span class="mk mk--me" style="--x:40%;--y:60%"></span>
+          <div class="map-ctl map-ctl--tr" style="top:14px;right:14px"><button class="ib ib--sm" aria-label="Layers"><svg><use href="#i-layers"/></svg></button></div>
+          <div class="map-sheet"><div class="map-pop__title">Roastery on Mill Lane</div><div class="map-pop__meta">Open until 18:00 · 6 min walk</div><div style="display:flex;gap:8px;margin-top:12px"><a class="btn btn--sm" href="#maps" style="flex:1;justify-content:center">Directions</a><button class="ib ib--sm ib--line" aria-label="Save"><svg><use href="#i-plus"/></svg></button></div></div>
+        </div>
+        <p class="spec" style="text-align:center">On a phone the popup becomes a bottom sheet, the controls shrink to 36px circles, and the search moves into the sheet.</p>
+      </div>
+      <div class="board">
+        <h3 style="margin-top:0">Using a real map library</h3>
+        <p class="note">Leaflet, MapLibre and Mapbox all work. Pick a light, low-chroma basemap: the keyless Esri grey canvas (<i>World_Light_Gray_Base</i>, and <i>World_Dark_Gray_Base</i> in dark), or a MapLibre style with the map tokens above. Don't use CARTO <i>Positron</i> or <i>Dark Matter</i>: they now need an API key, and without one they still return tiles that just read "API KEY REQUIRED". Then:</p>
+        <ul style="margin:0 0 var(--wt-s4);padding-left:20px;color:var(--wt-text-2)">
+          <li>Markers are HTML markers (<code>L.divIcon</code>, <code>new maplibregl.Marker({element})</code>) that match the page. In Leaflet, use <code>.mk-leaflet</code>: the library places the icon and the inner span carries the look. Don't use <code>.mk</code>'s position or transform there, because they fight Leaflet's positioning.</li>
+          <li>Put the Esri <i>Reference</i> layer (place names) on its own pane at z-index 350, so it sits above the base and below the route. Set <code>maxNativeZoom: 16</code>, credit Esri, HERE, Garmin and OpenStreetMap, and swap both URLs with <code>setUrl</code> when the theme changes.</li>
+          <li>Leaflet's controls sit at z-index 1000 and draw over anything beside the map, such as a <code>.map-sheet</code>. Give the map's wrapper <code>position: relative; z-index: 0</code>. On phones, move the attribution to the top left, because the sheet covers the bottom.</li>
+          <li>Restyle the library's own zoom and attribution controls, or replace them with <code>.map-zoom</code> and <code>.map-ctl</code>.</li>
+          <li>Routes are two line layers: a chalk casing 11px wide under a 5px ink line, both with round caps and joins.</li>
+          <li>Areas are a fill at about 22% with a 2px solid line in the same colour. Lilac means a chosen area and ember means an alert zone.</li>
+          <li>Cluster with the library (<code>Leaflet.markercluster</code>, the MapLibre <code>cluster</code> source), styled as <code>.mk--cluster</code>.</li>
+          <li>Round the map container to 32 or 44px. Its controls float inside it with a 16px inset.</li>
+        </ul>
+<pre style="margin:0;padding:var(--wt-s4);border-radius:var(--wt-r-sm);background:var(--wt-surface-2);overflow:auto;font:13px/1.5 var(--wt-mono)">const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas";
+const tone = () =&gt; document.documentElement.dataset.theme === "dark" ? "Dark" : "Light";
+const url = (kind) =&gt; `${ESRI}/World_${tone()}_Gray_${kind}/MapServer/tile/{z}/{y}/{x}`;
+const opts = { maxZoom: 20, maxNativeZoom: 16 };
+const base = L.tileLayer(url("Base"), { ...opts,
+  attribution: "Tiles &amp;copy; Esri, HERE, Garmin, &amp;copy; OpenStreetMap contributors" }).addTo(map);
+map.createPane("labels").style.zIndex = 350;
+map.getPane("labels").style.pointerEvents = "none";
+const labels = L.tileLayer(url("Reference"), { ...opts, pane: "labels" }).addTo(map);
+// on a theme toggle: base.setUrl(url("Base")); labels.setUrl(url("Reference"));
+
+L.marker(latlng, { icon: L.divIcon({
+  className: "mk-leaflet", html: "&lt;span&gt;3&lt;/span&gt;",
+  iconSize: [32, 32], iconAnchor: [16, 16]
+}) }).addTo(map);</pre>
+      </div>
+    </div>
+    <h3 style="margin:var(--wt-s6) 0 var(--wt-s2)">Live location and turn-by-turn</h3>
+    <p class="note" style="max-width:72ch">When a page guides someone along a route, it shows where they are, the way they face and the next turn. The banner is the one loud thing: ember only when a turn is close. The kit's <code>watchtower-nav.js</code> (<code>WTNav</code>) does the route geometry.</p>
+    <div class="grid g2" style="margin-top:var(--wt-s4);align-items:start">
+      <div class="board" style="min-width:0">
+        <div class="map" id="map-guide" style="aspect-ratio:10/7;width:100%;min-height:0">
+          <svg class="base" viewBox="0 0 600 420" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+            <path class="water" d="M0 360 C 120 340, 260 400, 380 380 S 540 340, 600 350 L600 420 L0 420 Z"/>
+            <path class="park" d="M372 140 h170 a20 20 0 0 1 20 20 v70 a20 20 0 0 1 -20 20 h-170 a20 20 0 0 1 -20 -20 v-70 a20 20 0 0 1 20 -20z"/>
+            <rect class="block" x="16" y="16" width="104" height="72" rx="10"/><rect class="block" x="162" y="16" width="146" height="72" rx="10"/>
+            <rect class="block" x="16" y="132" width="104" height="106" rx="10"/><rect class="block" x="162" y="132" width="146" height="106" rx="10"/>
+            <rect class="block" x="352" y="16" width="140" height="72" rx="10"/><rect class="block" x="16" y="282" width="104" height="54" rx="10"/>
+            <rect class="block" x="162" y="282" width="146" height="54" rx="10"/>
+            <path class="road-edge" stroke-width="13" d="M-20 260 H 620 M 330 -20 V 440 M -20 110 H 620 M 140 -20 V 440"/>
+            <path class="road" stroke-width="10" d="M-20 260 H 620 M 330 -20 V 440 M -20 110 H 620 M 140 -20 V 440"/>
+            <path class="route-casing" d="M40 260 H 330 V 110 H 580"/>
+            <path class="route" d="M40 260 H 330 V 110 H 580"/>
+            <circle class="acc" cx="230" cy="260" r="30"/>
+            <path class="ahead-casing" d="M230 260 H 330 V 222"/>
+            <path class="ahead" d="M230 260 H 330 V 222"/>
+          </svg>
+          <span class="mk mk--end" style="--x:91%;--y:26.19%">4</span>
+          <span class="mk turn-head" style="--x:55%;--y:52.86%;--h:0deg"><span></span></span>
+          <span class="mk me-mk has-heading" style="--x:38.33%;--y:61.9%;--h:90deg" aria-label="You are here, facing east"><svg viewBox="-40 -40 80 80" width="80" height="80"><path class="me-cone" d="M0 0 L-17 -34 A38 38 0 0 1 17 -34 Z"/><circle class="me-ring" r="11"/><circle class="me-dot" r="7.5"/></svg></span>
+          <div class="nav nav--turn"><span class="nav__icon"><svg viewBox="0 0 24 24"><path d="M15 19V11a3 3 0 0 0-3-3H6M9 4 5 8l4 4" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <div class="nav__text"><div class="nav__main">Turn left in 30 m</div><div class="nav__sub">160 m to 4 · Lantern garden</div></div>
+            <button class="ib ib--sm nav__x" aria-label="Stop guiding"><svg><use href="#i-x"/></svg></button></div>
+          <div class="map-ctl map-ctl--br"><button class="ib ib--follow" id="guide-follow" aria-pressed="true" aria-label="Follow my location"><svg><use href="#i-locate"/></svg></button><div class="map-zoom"><button class="ib" aria-label="Zoom in"><svg><use href="#i-plus"/></svg></button><button class="ib" aria-label="Zoom out"><svg><use href="#i-minus"/></svg></button></div></div>
+          <span class="map-attrib">© map data contributors</span>
+        </div>
+        <p class="spec">Guiding, a turn 30 m ahead. The stretch to just past the turn is ember, 7px over a 13px surface casing, on top of the 5px ink route. An ember arrowhead points the way out. Drag the map (here: press it) and the locate button lets go; press the button to follow again.</p>
+      </div>
+      <div class="board" style="min-width:0">
+        <div class="map" data-theme="dark" style="aspect-ratio:5/7;max-width:340px;margin:0 auto;border-radius:36px;color:var(--wt-text)">
+          <svg class="base" viewBox="0 0 300 420" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+            <path class="water" d="M0 360 C 80 340, 160 390, 300 360 L300 420 L0 420z"/>
+            <rect class="block" x="14" y="168" width="168" height="66" rx="10"/><rect class="block" x="14" y="272" width="168" height="44" rx="10"/>
+            <rect class="block" x="218" y="168" width="70" height="140" rx="10"/>
+            <path class="road-edge" stroke-width="13" d="M-10 150 H 310 M 200 -10 V 430 M -10 330 H 310"/>
+            <path class="road" stroke-width="10" d="M-10 150 H 310 M 200 -10 V 430 M -10 330 H 310"/>
+            <path class="route-casing" d="M200 430 V 150 H -10"/>
+            <path class="route" d="M200 430 V 150 H -10"/>
+            <circle class="acc" cx="80" cy="252" r="22"/>
+            <path class="back" d="M80 252 H 200"/>
+          </svg>
+          <span class="mk me-mk" style="--x:26.67%;--y:60%" aria-label="You are here"><svg viewBox="-40 -40 80 80" width="80" height="80"><path class="me-cone" d="M0 0 L-17 -34 A38 38 0 0 1 17 -34 Z"/><circle class="me-ring" r="11"/><circle class="me-dot" r="7.5"/></svg></span>
+          <span class="map-attrib" style="left:14px;top:12px;right:auto;bottom:auto">© map data contributors</span>
+          <div class="nav nav--phone"><span class="nav__icon"><svg viewBox="0 0 24 24" style="transform:rotate(90deg)"><path d="M12 20V5M7 10l5-5 5 5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <div class="nav__text"><div class="nav__main">Route is 70 m away</div><div class="nav__sub">The arrow points to it, north up.</div></div>
+            <button class="ib ib--sm nav__x" aria-label="Stop guiding"><svg><use href="#i-x"/></svg></button></div>
+          <div class="map-ctl map-ctl--br" style="bottom:14px;right:14px"><button class="ib ib--sm ib--follow" aria-pressed="false" aria-label="Follow my location"><svg><use href="#i-locate"/></svg></button></div>
+        </div>
+        <p class="spec" style="text-align:center">Dark, on a phone, off the route. The banner sits under the attribution, 36px from the top, beside the control column. A dotted ember line leads back to the route. No heading yet, so no wedge.</p>
+      </div>
+    </div>
+
+    <div class="grid g2" style="margin-top:var(--wt-s4);align-items:start">
+      <div class="board"><h3 style="margin-top:0">Banner tones</h3>
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div class="nav" style="position:static;width:auto"><span class="nav__icon"><svg viewBox="0 0 24 24"><path d="M12 20V5M7 10l5-5 5 5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <div class="nav__text"><div class="nav__main">Bear right in 120 m</div><div class="nav__sub">240 m to 5 · Light tunnel</div></div><button class="ib ib--sm nav__x" aria-label="Stop guiding"><svg><use href="#i-x"/></svg></button></div>
+          <div class="nav nav--turn" style="position:static;width:auto"><span class="nav__icon"><svg viewBox="0 0 24 24"><path d="M15 19V11a3 3 0 0 0-3-3H6M9 4 5 8l4 4" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <div class="nav__text"><div class="nav__main">Turn left now</div><div class="nav__sub">then bear right · 180 m to 5 · Light tunnel</div></div><button class="ib ib--sm nav__x" aria-label="Stop guiding"><svg><use href="#i-x"/></svg></button></div>
+          <div class="nav nav--arrive" style="position:static;width:auto"><span class="nav__icon"><svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <div class="nav__text"><div class="nav__main">You're at 5 · Light tunnel</div><div class="nav__acts"><button class="btn btn--sm">Open</button><button class="btn btn--sm btn--soft">Seen it, next</button></div></div><button class="ib ib--sm nav__x" aria-label="Stop guiding"><svg><use href="#i-x"/></svg></button></div>
+          <div class="nav nav--quiet" style="position:static;width:auto"><span class="spinner nav__spin"></span>
+            <div class="nav__text"><div class="nav__main">Finding you…</div><div class="nav__sub">Allow location when the browser asks.</div></div><button class="ib ib--sm nav__x" aria-label="Stop guiding"><svg><use href="#i-x"/></svg></button></div>
+        </div>
+        <p class="spec"><b>Plain</b> (surface) for straight on or a turn that is still far off. <b>Ember</b> means act now: a turn within about 45 m. <b>Lime</b> means you've arrived, with buttons. <code>.nav--quiet</code> is for "finding you" and errors. A 56px icon circle, a 20px instruction, a 13px second line and a close button.</p>
+      </div>
+      <div class="board"><h3 style="margin-top:0">You, the locate button and turn icons</h3>
+        <div class="map" style="height:130px;border-radius:var(--wt-r-md)">
+          <svg class="base" viewBox="0 0 300 130" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><circle class="acc" cx="90" cy="65" r="44"/><circle class="acc" cx="210" cy="65" r="26"/></svg>
+          <span class="mk me-mk has-heading" style="--x:30%;--y:50%;--h:40deg"><svg viewBox="-40 -40 80 80" width="80" height="80"><path class="me-cone" d="M0 0 L-17 -34 A38 38 0 0 1 17 -34 Z"/><circle class="me-ring" r="11"/><circle class="me-dot" r="7.5"/></svg></span>
+          <span class="mk me-mk" style="--x:70%;--y:50%"><svg viewBox="-40 -40 80 80" width="80" height="80"><path class="me-cone" d="M0 0 L-17 -34 A38 38 0 0 1 17 -34 Z"/><circle class="me-ring" r="11"/><circle class="me-dot" r="7.5"/></svg></span>
+        </div>
+        <p class="spec">A lilac dot (r 7.5) on a surface ring (r 11), with the halo behind it. The wedge turns with the heading (left) and hides when the heading is unknown (right). The accuracy circle is lilac at 16% with no edge, capped at 200 m.</p>
+        <div style="display:flex;gap:var(--wt-s5);margin:var(--wt-s4) 0 var(--wt-s2);flex-wrap:wrap">
+          <span style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600"><button class="ib ib--line ib--follow" aria-pressed="false" aria-label="Show my location"><svg><use href="#i-locate"/></svg></button>Off</span>
+          <span style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600"><button class="ib ib--follow" aria-pressed="true" aria-label="Follow my location"><svg><use href="#i-locate"/></svg></button>Following</span>
+          <span style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600"><button class="ib ib--line ib--follow" aria-pressed="false" aria-label="Follow my location"><svg><use href="#i-locate"/></svg></button>After a drag</span>
+        </div>
+        <p class="spec">A plain <code>.ib</code>. While the map follows you it is lilac with <code>aria-pressed="true"</code>. Dragging the map stops following; pressing again re-centres and follows.</p>
+        <div id="turn-icons" style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px 8px;margin-top:var(--wt-s4)"></div>
+        <p class="spec">Turn icons: 24px stroke paths, <code>WTNav.icons</code>. Bear under 55°, turn under 115°, sharp under 155°, then turn around.</p>
+      </div>
+    </div>
+
+    <div class="board" style="margin-top:var(--wt-s4)">
+      <h3 style="margin-top:0">Live location in Leaflet</h3>
+      <p class="note">Copy <code>watchtower-nav.js</code> next to the page. <code>WTNav.create(line, { loop })</code> snaps a fix onto the route (<code>project</code>), finds the turns and the next one (<code>turns</code>, <code>ahead</code>), and cuts the stretch to draw (<code>slice</code>). The how-to and its gotchas (secure context, compass, testing) are in the skill's SKILL.md.</p>
+<pre style="margin:0;padding:var(--wt-s4);border-radius:var(--wt-r-sm);background:var(--wt-surface-2);overflow:auto;font:13px/1.5 var(--wt-mono)">const css = (v) =&gt; getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const me = L.marker(latlng, { interactive: false, zIndexOffset: 3000, icon: L.divIcon({
+  className: "me-mk", iconSize: [80, 80], iconAnchor: [40, 40],
+  html: `&lt;svg viewBox="-40 -40 80 80" width="80" height="80"&gt;&lt;path class="me-cone" d="M0 0 L-17 -34 A38 38 0 0 1 17 -34 Z"/&gt;
+         &lt;circle class="me-ring" r="11"/&gt;&lt;circle class="me-dot" r="7.5"/&gt;&lt;/svg&gt;` }) }).addTo(map);
+const acc = L.circle(latlng, { radius: Math.min(accuracy, 200), stroke: false,
+  fillColor: css("--wt-lilac"), fillOpacity: .16, interactive: false }).addTo(map);
+// heading known: me.getElement().classList.add("has-heading"); el.style.setProperty("--h", `${h}deg`)
+
+const casing = L.polyline(pts, { color: css("--wt-surface"), weight: 13, lineCap: "round", lineJoin: "round" });
+const ahead  = L.polyline(pts, { color: css("--wt-ember"), weight: 7, lineCap: "round", lineJoin: "round" });
+const back   = L.polyline([me, snapped], { color: css("--wt-ember"), weight: 4, dashArray: "1 9", lineCap: "round" });
+const head   = L.marker(pts.at(-1), { icon: L.divIcon({ className: "turn-head", html: "&lt;span&gt;&lt;/span&gt;",
+  iconSize: [26, 26], iconAnchor: [13, 13] }) });   // then --h = turn.outBearing
+// Re-read --wt-surface and --wt-lilac with setStyle() when the theme changes.</pre>
+    </div>
+  </div>
+</section>
+
 <!-- ============================================================= Do/Don't -->
 <section id="rules" style="padding-bottom:var(--wt-s8)">
   <div class="wrap">
@@ -877,12 +1941,30 @@ p.note { color: var(--wt-text-2); max-width: 66ch; margin: 0 0 var(--wt-s4); }
 
 <script>
   const root = document.documentElement;
-  const saved = localStorage.getItem("wt-guide-theme");
+  // Storage throws where the page runs sandboxed, such as a Watchtower preview.
+  const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+                  set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  const saved = store.get("wt-guide-theme");
   if (saved) root.dataset.theme = saved;
   else if (matchMedia("(prefers-color-scheme: dark)").matches) root.dataset.theme = "dark";
+  const groups = [...document.querySelectorAll(".toc-group")];
+  groups.forEach((g) => g.addEventListener("toggle", () => { if (g.open) groups.forEach((o) => { if (o !== g) o.open = false; }); }));
+  document.addEventListener("click", (e) => { if (!e.target.closest(".toc-group")) groups.forEach((g) => { g.open = false; }); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") groups.forEach((g) => { g.open = false; }); });
+  document.querySelectorAll(".toc-menu a").forEach((a) => a.addEventListener("click", () => { a.closest("details").open = false; }));
+  // The chapter holding the section nearest the top is the current one.
+  const links = [...document.querySelectorAll(".toc-menu a")];
+  const targets = links.map((a) => document.querySelector(a.getAttribute("href"))).filter(Boolean);
+  const spy = () => {
+    let cur = null;
+    for (const t of targets) if (t.getBoundingClientRect().top < 140) cur = t;
+    links.forEach((a) => a.setAttribute("aria-current", String(!!cur && a.getAttribute("href") === "#" + cur.id)));
+    groups.forEach((g) => g.classList.toggle("is-current", !!g.querySelector('a[aria-current="true"]')));
+  };
+  addEventListener("scroll", spy, { passive: true }); spy();
   document.getElementById("theme").addEventListener("click", () => {
     root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
-    localStorage.setItem("wt-guide-theme", root.dataset.theme);
+    store.set("wt-guide-theme", root.dataset.theme);
   });
   // Chips and tabs in the guide are live so their states can be tried.
   document.querySelectorAll(".chips").forEach(group => group.addEventListener("click", e => {
@@ -893,6 +1975,517 @@ p.note { color: var(--wt-text-2); max-width: 66ch; margin: 0 0 var(--wt-s4); }
     const tab = e.target.closest("button"); if (!tab) return;
     group.querySelectorAll("button").forEach(b => b.setAttribute("aria-selected", String(b === tab)));
   }));
+</script>
+<script>
+/* =========================================================================
+   VIZ START: watchtower-viz, small house-style charts in plain SVG.
+   tools/style_kit.py copies this block into the watchtower-style skill.
+
+   WTViz.line(figure, { title, sub, x: [...labels], series: [{ name, values }], area, unit })
+   WTViz.columns(figure, { title, sub, x, series, stacked, highlight, unit })
+   WTViz.ranked(figure, { title, sub, items: [{ label, value }], unit })
+   WTViz.scatter(figure, { title, sub, xLabel, yLabel, series: [{ name, points: [[x, y]] }] })
+   WTViz.heat(figure, { title, sub, rows: [...], cols: [...], values: [[...]] })
+   WTViz.spark(svgElement, values)
+
+   Every chart gets the card head, a legend when there are two or more
+   series, a hover layer, and a "Show table" toggle.
+   ========================================================================= */
+const WTViz = (() => {
+  const NS = "http://www.w3.org/2000/svg";
+  const W = 600, H = 260, M = { t: 12, r: 64, b: 28, l: 44 };
+  const col = (i) => `var(--viz-${(i % 8) + 1})`;
+  const fmt = (v, unit = "") => {
+    const a = Math.abs(v);
+    const s = a >= 1e6 ? (v / 1e6).toFixed(a >= 1e7 ? 0 : 1) + "M" : a >= 1e4 ? (v / 1e3).toFixed(0) + "K" : v.toLocaleString();
+    return unit === "$" ? "$" + s : s + unit;
+  };
+  function ticks(max, n = 4) {
+    const raw = max / n, p = 10 ** Math.floor(Math.log10(raw || 1));
+    const step = [1, 2, 2.5, 5, 10].map((m) => m * p).find((s) => s >= raw) || p * 10;
+    const out = [];
+    for (let v = 0; v <= max + step * 0.001; v += step) out.push(v);
+    if (out[out.length - 1] < max) out.push(out[out.length - 1] + step);
+    return out;
+  }
+  function el(tag, attrs = {}, parent) {
+    const node = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+    if (parent) parent.appendChild(node);
+    return node;
+  }
+  function text(parent, x, y, str, attrs = {}) {
+    const t = el("text", { x, y, ...attrs }, parent);
+    t.textContent = str;
+    return t;
+  }
+  // The card around every chart: head, legend, plot, tooltip, table toggle.
+  function frame(fig, o, legend, legendKind = "box") {
+    fig.textContent = "";
+    fig.classList.add("viz");
+    const head = document.createElement("figcaption");
+    head.className = "viz__head";
+    const words = document.createElement("div");
+    const t = document.createElement("div"); t.className = "viz__title"; t.textContent = o.title || "";
+    const s = document.createElement("div"); s.className = "viz__sub"; s.textContent = o.sub || "";
+    words.append(t, s); head.append(words); fig.append(head);
+    if (legend && legend.length > 1) {
+      const lg = document.createElement("div"); lg.className = "legend";
+      legend.forEach((name, i) => {
+        const span = document.createElement("span"); const sw = document.createElement("i");
+        if (legendKind === "line") sw.className = "line";
+        sw.style.setProperty("--c", col(i)); span.append(sw, document.createTextNode(name)); lg.append(span);
+      });
+      fig.append(lg);
+    }
+    const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": o.title || "Chart" });
+    fig.append(svg);
+    const tip = document.createElement("div"); tip.className = "viz__tip"; fig.append(tip);
+    const foot = document.createElement("div"); foot.className = "viz__foot";
+    const note = document.createElement("span"); note.textContent = o.note || "";
+    const btn = document.createElement("button"); btn.type = "button"; btn.textContent = "Show table";
+    foot.append(note, btn); fig.append(foot);
+    return { svg, tip, btn };
+  }
+  function tableToggle(fig, btn, header, rows) {
+    let table = null;
+    btn.addEventListener("click", () => {
+      if (table) { table.remove(); table = null; btn.textContent = "Show table"; return; }
+      table = document.createElement("table");
+      const tr = table.insertRow(); header.forEach((h) => { const th = document.createElement("th"); th.textContent = h; tr.append(th); });
+      rows.forEach((r) => { const row = table.insertRow(); r.forEach((c) => { row.insertCell().textContent = c; }); });
+      fig.append(table); btn.textContent = "Hide table";
+    });
+  }
+  function showTip(fig, tip, x, y, head, rows) {
+    tip.textContent = "";
+    const h = document.createElement("div"); h.className = "h"; h.textContent = head; tip.append(h);
+    rows.forEach(([name, value, c]) => {
+      const r = document.createElement("div"); r.className = "r";
+      const i = document.createElement("i"); i.style.setProperty("--c", c);
+      const b = document.createElement("b"); b.textContent = value;
+      const s = document.createElement("span"); s.textContent = name;
+      r.append(i, b, s); tip.append(r);
+    });
+    const box = fig.getBoundingClientRect(), tw = tip.offsetWidth || 160;
+    const left = Math.min(Math.max(8, x - box.left + 14), box.width - tw - 8);
+    tip.style.left = left + "px"; tip.style.top = Math.max(8, y - box.top - 20) + "px";
+    tip.classList.add("on");
+  }
+  function axes(svg, max, plotW, plotH, unit) {
+    const g = el("g", {}, svg), tv = ticks(max);
+    const top = tv[tv.length - 1];
+    tv.forEach((v) => {
+      const y = M.t + plotH - (v / top) * plotH;
+      el("line", { class: v === 0 ? "axis-line" : "grid-line", x1: M.l, x2: M.l + plotW, y1: y, y2: y }, g);
+      text(g, M.l - 8, y + 4, fmt(v, unit), { "text-anchor": "end", class: "tick" });
+    });
+    return top;
+  }
+  // A bar with a 4px rounded tip and a square base.
+  function bar(x, y, w, h, r = 4) {
+    r = Math.min(r, h, w / 2);
+    return `M${x},${y + h}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h}Z`;
+  }
+
+  function line(fig, o) {
+    const { svg, tip, btn } = frame(fig, o, o.series.map((s) => s.name), "line");
+    const plotW = W - M.l - M.r, plotH = H - M.t - M.b;
+    const top = axes(svg, Math.max(...o.series.flatMap((s) => s.values)), plotW, plotH, o.unit);
+    const X = (i) => M.l + (i / (o.x.length - 1)) * plotW, Y = (v) => M.t + plotH - (v / top) * plotH;
+    const every = Math.ceil(o.x.length / 6);
+    const lastX = o.x.length - 1;
+    o.x.forEach((lab, i) => { if ((i % every === 0 && lastX - i >= every) || i === lastX) text(svg, X(i), H - 6, lab, { "text-anchor": "middle" }); });
+    o.series.forEach((s, si) => {
+      const d = s.values.map((v, i) => `${i ? "L" : "M"}${X(i)},${Y(v)}`).join("");
+      if (o.area) el("path", { d: `${d}L${X(s.values.length - 1)},${Y(0)}L${X(0)},${Y(0)}Z`, style: `fill:${col(si)};opacity:.12` }, svg);
+      el("path", { d, fill: "none", style: `stroke:${col(si)}`, "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round" }, svg);
+      const last = s.values.length - 1;
+      el("circle", { cx: X(last), cy: Y(s.values[last]), r: 4.5, style: `fill:${col(si)};stroke:var(--wt-surface)`, "stroke-width": 2 }, svg);
+      if (o.series.length <= 4) text(svg, X(last) + 10, Y(s.values[last]) + 4, fmt(s.values[last], o.unit), { class: "end-label" });
+    });
+    // The crosshair and its dots are hidden, not parked off the plot: the
+    // svg does not clip, so anything parked would still be drawn.
+    const cross = el("line", { class: "cross", y1: M.t, y2: M.t + plotH, x1: 0, x2: 0, visibility: "hidden" }, svg);
+    const dots = o.series.map((s, si) => el("circle", { r: 4.5, cx: 0, cy: 0, visibility: "hidden", style: `fill:${col(si)};stroke:var(--wt-surface)`, "stroke-width": 2 }, svg));
+    const hit = el("rect", { x: M.l, y: M.t, width: plotW, height: plotH, fill: "transparent", tabindex: 0 }, svg);
+    const at = (i, ev) => {
+      cross.setAttribute("x1", X(i)); cross.setAttribute("x2", X(i)); cross.setAttribute("visibility", "visible");
+      dots.forEach((d, si) => { d.setAttribute("cx", X(i)); d.setAttribute("cy", Y(o.series[si].values[i])); d.setAttribute("visibility", "visible"); });
+      const r = svg.getBoundingClientRect();
+      showTip(fig, tip, ev ? ev.clientX : r.left + (X(i) / W) * r.width, ev ? ev.clientY : r.top + 40, o.x[i],
+        o.series.map((s, si) => [s.name, fmt(s.values[i], o.unit), col(si)]).sort((a, b) => parseFloat(b[1]) - parseFloat(a[1])));
+    };
+    let cur = o.x.length - 1;
+    hit.addEventListener("pointermove", (ev) => {
+      const r = svg.getBoundingClientRect(), px = ((ev.clientX - r.left) / r.width) * W;
+      cur = Math.round(((px - M.l) / plotW) * (o.x.length - 1)); cur = Math.max(0, Math.min(o.x.length - 1, cur)); at(cur, ev);
+    });
+    hit.addEventListener("keydown", (ev) => { if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") { cur = Math.max(0, Math.min(o.x.length - 1, cur + (ev.key === "ArrowLeft" ? -1 : 1))); at(cur); ev.preventDefault(); } });
+    const off = () => { tip.classList.remove("on"); cross.setAttribute("visibility", "hidden"); dots.forEach((d) => d.setAttribute("visibility", "hidden")); };
+    hit.addEventListener("pointerleave", off); hit.addEventListener("blur", off);
+    tableToggle(fig, btn, ["", ...o.series.map((s) => s.name)], o.x.map((x, i) => [x, ...o.series.map((s) => fmt(s.values[i], o.unit))]));
+  }
+
+  function columns(fig, o) {
+    const { svg, tip, btn } = frame(fig, o, o.series.map((s) => s.name));
+    const plotW = W - M.l - 16, plotH = H - M.t - M.b;
+    const totals = o.x.map((_, i) => o.stacked ? o.series.reduce((a, s) => a + s.values[i], 0) : Math.max(...o.series.map((s) => s.values[i])));
+    const top = axes(svg, Math.max(...totals), plotW + 16 - 16, plotH, o.unit);
+    const band = plotW / o.x.length, groups = o.stacked ? 1 : o.series.length;
+    const bw = Math.min(24, (band * 0.7) / groups), Y = (v) => (v / top) * plotH;
+    o.x.forEach((lab, i) => {
+      const cx = M.l + band * i + band / 2;
+      text(svg, cx, H - 6, lab, { "text-anchor": "middle" });
+      let base = M.t + plotH;
+      o.series.forEach((s, si) => {
+        const v = s.values[i], h = Y(v);
+        let x = cx - (bw * groups + 2 * (groups - 1)) / 2 + (o.stacked ? 0 : si * (bw + 2));
+        let fill = col(si);
+        if (o.highlight !== undefined && o.series.length === 1) fill = i === o.highlight ? col(0) : "var(--viz-muted)";
+        const top_ = base - h;
+        const isTop = !o.stacked || si === o.series.length - 1;
+        const p = el("path", { class: "mark", d: isTop ? bar(x, top_, bw, h) : `M${x},${base}V${top_ + 1}H${x + bw}V${base}Z`, style: `fill:${fill}`, tabindex: 0 }, svg);
+        if (o.stacked) base = top_ - 2;
+        const show = (ev) => { const r = p.getBoundingClientRect(); showTip(fig, tip, ev?.clientX ?? r.right, ev?.clientY ?? r.top, lab,
+          o.stacked ? o.series.map((ss, k) => [ss.name, fmt(ss.values[i], o.unit), col(k)]).reverse() : [[s.name, fmt(v, o.unit), fill]]); };
+        p.addEventListener("pointermove", show); p.addEventListener("focus", () => show());
+        p.addEventListener("pointerleave", () => tip.classList.remove("on")); p.addEventListener("blur", () => tip.classList.remove("on"));
+      });
+      if (o.highlight === i) text(svg, cx, M.t + plotH - Y(totals[i]) - 8, fmt(totals[i], o.unit), { "text-anchor": "middle", class: "end-label" });
+    });
+    tableToggle(fig, btn, ["", ...o.series.map((s) => s.name)], o.x.map((x, i) => [x, ...o.series.map((s) => fmt(s.values[i], o.unit))]));
+  }
+
+  function ranked(fig, o) {
+    const { svg, tip, btn } = frame(fig, o);
+    const items = [...o.items].sort((a, b) => b.value - a.value);
+    const rowH = 32, h = items.length * rowH + 8, labelW = 130, plotW = W - labelW - 70;
+    svg.setAttribute("viewBox", `0 0 ${W} ${h}`);
+    const max = items[0].value;
+    items.forEach((it, i) => {
+      const y = 4 + i * rowH, w = Math.max(2, (it.value / max) * plotW);
+      text(svg, 0, y + 17, it.label, {});
+      const r = Math.min(4, w / 2);
+      const p = el("path", { class: "mark", tabindex: 0, style: `fill:${i === 0 ? col(0) : "var(--viz-muted)"}`,
+        d: `M${labelW},${y + 2}H${labelW + w - r}Q${labelW + w},${y + 2} ${labelW + w},${y + 2 + r}V${y + 22 - r}Q${labelW + w},${y + 22} ${labelW + w - r},${y + 22}H${labelW}Z` }, svg);
+      text(svg, labelW + w + 8, y + 17, fmt(it.value, o.unit), { class: i === 0 ? "end-label tick" : "tick" });
+      const show = (ev) => { const b = p.getBoundingClientRect(); showTip(fig, tip, ev?.clientX ?? b.right, ev?.clientY ?? b.top, it.label, [[o.sub || "", fmt(it.value, o.unit), i === 0 ? col(0) : "var(--viz-muted)"]]); };
+      p.addEventListener("pointermove", show); p.addEventListener("focus", () => show());
+      p.addEventListener("pointerleave", () => tip.classList.remove("on")); p.addEventListener("blur", () => tip.classList.remove("on"));
+    });
+    tableToggle(fig, btn, ["", o.sub || "Value"], items.map((it) => [it.label, fmt(it.value, o.unit)]));
+  }
+
+  function scatter(fig, o) {
+    const { svg, tip, btn } = frame(fig, o, o.series.map((s) => s.name));
+    const plotW = W - M.l - 16, plotH = H - M.t - M.b - 10;
+    const all = o.series.flatMap((s) => s.points);
+    const top = axes(svg, Math.max(...all.map((p) => p[1])), plotW, plotH);
+    const xt = ticks(Math.max(...all.map((p) => p[0])), 5), xmax = xt[xt.length - 1];
+    xt.forEach((v) => text(svg, M.l + (v / xmax) * plotW, H - 16, fmt(v), { "text-anchor": "middle", class: "tick" }));
+    if (o.xLabel) text(svg, M.l + plotW, H - 1, o.xLabel, { "text-anchor": "end" });
+    o.series.slice(0, 3).forEach((s, si) => s.points.forEach(([x, y]) => {
+      const cx = M.l + (x / xmax) * plotW, cy = M.t + plotH - (y / top) * plotH;
+      el("circle", { cx, cy, r: 5, style: `fill:${col(si)};stroke:var(--wt-surface)`, "stroke-width": 2 }, svg);
+      const hit = el("circle", { cx, cy, r: 12, fill: "transparent", tabindex: 0, class: "mark" }, svg);
+      const show = (ev) => { const b = hit.getBoundingClientRect(); showTip(fig, tip, ev?.clientX ?? b.right, ev?.clientY ?? b.top, s.name,
+        [[o.xLabel || "x", fmt(x), col(si)], [o.yLabel || "y", fmt(y), col(si)]]); };
+      hit.addEventListener("pointermove", show); hit.addEventListener("focus", () => show());
+      hit.addEventListener("pointerleave", () => tip.classList.remove("on")); hit.addEventListener("blur", () => tip.classList.remove("on"));
+    }));
+    tableToggle(fig, btn, ["Series", o.xLabel || "x", o.yLabel || "y"], o.series.flatMap((s) => s.points.map((p) => [s.name, fmt(p[0]), fmt(p[1])])));
+  }
+
+  function heat(fig, o) {
+    const { svg, tip, btn } = frame(fig, o);
+    const lw = 40, cw = (W - lw) / o.cols.length, ch = 26, h = o.rows.length * ch + 22;
+    svg.setAttribute("viewBox", `0 0 ${W} ${h}`);
+    const flat = o.values.flat(), max = Math.max(...flat);
+    o.rows.forEach((r, ri) => {
+      text(svg, 0, ri * ch + 17, r, {});
+      o.cols.forEach((c, ci) => {
+        const v = o.values[ri][ci], step = v === 0 ? 0 : Math.min(5, Math.ceil((v / max) * 5));
+        const fill = step === 0 ? "var(--wt-surface-2)" : `var(--seq-${step + 1})`;
+        const rect = el("rect", { class: "mark", x: lw + ci * cw + 1, y: ri * ch + 1, width: cw - 2, height: ch - 2, rx: 4, style: `fill:${fill}`, tabindex: 0 }, svg);
+        const show = (ev) => { const b = rect.getBoundingClientRect(); showTip(fig, tip, ev?.clientX ?? b.right, ev?.clientY ?? b.top, `${r} ${c}`, [[o.unitName || "", fmt(v), fill]]); };
+        rect.addEventListener("pointermove", show); rect.addEventListener("focus", () => show());
+        rect.addEventListener("pointerleave", () => tip.classList.remove("on")); rect.addEventListener("blur", () => tip.classList.remove("on"));
+      });
+    });
+    o.cols.forEach((c, ci) => { if (ci % 3 === 0) text(svg, lw + ci * cw + cw / 2, h - 4, c, { "text-anchor": "middle" }); });
+    tableToggle(fig, btn, ["", ...o.cols], o.rows.map((r, ri) => [r, ...o.values[ri].map((v) => fmt(v))]));
+  }
+
+  function spark(svg, values) {
+    svg.setAttribute("viewBox", "0 0 120 32"); svg.setAttribute("preserveAspectRatio", "none");
+    const max = Math.max(...values), min = Math.min(...values), X = (i) => (i / (values.length - 1)) * 120, Y = (v) => 28 - ((v - min) / (max - min || 1)) * 24;
+    el("path", { d: values.map((v, i) => `${i ? "L" : "M"}${X(i)},${Y(v)}`).join(""), fill: "none", stroke: "var(--viz-muted)", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "vector-effect": "non-scaling-stroke" }, svg);
+    const l = values.length - 1;
+    // A zero-length round-capped stroke stays a circle when the box stretches.
+    el("path", { d: `M${X(l)},${Y(values[l])}h0`, stroke: "var(--wt-surface)", "stroke-width": 12, "stroke-linecap": "round", "vector-effect": "non-scaling-stroke" }, svg);
+    el("path", { d: `M${X(l)},${Y(values[l])}h0`, stroke: "var(--wt-act)", "stroke-width": 8, "stroke-linecap": "round", "vector-effect": "non-scaling-stroke" }, svg);
+  }
+
+  return { line, columns, ranked, scatter, heat, spark, color: col, format: fmt };
+})();
+/* VIZ END */
+
+/* =========================================================================
+   NAV START: watchtower-nav, turn-by-turn along a fixed route.
+   tools/style_kit.py copies this block into the watchtower-style skill.
+
+   Pure geometry, no map or DOM. Positions are [lat, lng], distances metres.
+   const nav = WTNav.create(line, { loop })   line: the route as [[lat, lng], ...]
+   nav.project(latlng, prevS)  -> { s, off, snapped, heading }  snap a fix onto the route
+   nav.ahead(s, horizon)       -> { turn, d } | null            next turn and how far
+   nav.turns                   -> [{ s, angle, kind: { side, word, text }, at, inBearing, outBearing }]
+   nav.slice(s1, s2)           -> [[lat, lng], ...]             a piece of the route
+   nav.along(a, b), nav.bearingTo(from, to), nav.headingAt(s)
+   WTNav.icons, WTNav.iconKey(turn), WTNav.distText(m)          banner helpers
+   Without street names it can say which way to turn, not which street.
+   A flat-earth projection around the first point is fine for a town.
+   ========================================================================= */
+window.WTNav = (() => {
+  "use strict";
+
+  const WINDOW = 15;   // metres either side of a bend used to measure the turn
+  const MIN_TURN = 30; // degrees; smaller bends are just the street curving
+  const MERGE = 22;    // metres; bends closer than this count as one turn
+
+  function create(line, { loop = false } = {}) {
+    const lat0 = line[0][0], lng0 = line[0][1];
+    const kx = 111320 * Math.cos((lat0 * Math.PI) / 180), ky = 110540;
+    const xy = ([lat, lng]) => [(lng - lng0) * kx, (lat - lat0) * ky];
+    const unxy = ([x, y]) => [lat0 + y / ky, lng0 + x / kx];
+
+    const P = line.map(xy);
+    const cum = [0];
+    for (let i = 1; i < P.length; i++) cum.push(cum[i - 1] + Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]));
+    const total = cum[cum.length - 1];
+    const wrap = (s) => (loop ? ((s % total) + total) % total : Math.min(Math.max(s, 0), total));
+
+    // Point (planar) at distance s along the line.
+    function at(s) {
+      s = wrap(s);
+      let lo = 0, hi = cum.length - 1;
+      while (hi - lo > 1) { const m = (lo + hi) >> 1; cum[m] <= s ? (lo = m) : (hi = m); }
+      const seg = cum[hi] - cum[lo] || 1, t = (s - cum[lo]) / seg;
+      return [P[lo][0] + (P[hi][0] - P[lo][0]) * t, P[lo][1] + (P[hi][1] - P[lo][1]) * t];
+    }
+    const bearing = (a, b) => ((Math.atan2(b[0] - a[0], b[1] - a[1]) * 180) / Math.PI + 360) % 360;
+    const diff = (a, b) => ((b - a + 540) % 360) - 180; // signed, -180..180, + = right
+    const headingAt = (s) => bearing(at(s - 3), at(s + 3));
+
+    // Turns: compare the heading 15 m before and 15 m after each vertex.
+    const cand = [];
+    for (let i = 1; i < P.length - 1; i++) {
+      const s = cum[i];
+      if (!loop && (s < WINDOW || s > total - WINDOW)) continue;
+      const angle = diff(bearing(at(s - WINDOW), P[i]), bearing(P[i], at(s + WINDOW)));
+      if (Math.abs(angle) >= MIN_TURN) cand.push({ s, angle });
+    }
+    const turns = [];
+    for (const c of cand) {
+      const last = turns[turns.length - 1];
+      if (last && c.s - last.s < MERGE && Math.sign(c.angle) === Math.sign(last.angle)) {
+        // One corner drawn with two vertices: measure it across both.
+        const s = (last.s + c.s) / 2;
+        last.s = s;
+        last.angle = diff(bearing(at(s - WINDOW - 6), at(s - 6)), bearing(at(s + 6), at(s + WINDOW + 6)));
+      } else if (last && c.s - last.s < MERGE && Math.abs(c.angle) > Math.abs(last.angle)) {
+        Object.assign(last, c);
+      } else if (!(last && c.s - last.s < MERGE)) {
+        turns.push({ ...c });
+      }
+    }
+    for (const t of turns) {
+      t.kind = kind(t.angle);
+      t.at = unxy(at(t.s));
+      t.inBearing = headingAt(t.s - WINDOW);
+      t.outBearing = headingAt(t.s + WINDOW);
+    }
+
+    function kind(a) {
+      const side = a > 0 ? "right" : "left", m = Math.abs(a);
+      if (m >= 155) return { side, word: "uturn", text: "Turn around" };
+      if (m >= 115) return { side, word: "sharp", text: `Sharp ${side}` };
+      if (m >= 55) return { side, word: "turn", text: `Turn ${side}` };
+      return { side, word: "slight", text: `Bear ${side}` };
+    }
+
+    // Snapping: project onto every segment and take the nearest. With an
+    // earlier reading, prefer a near-equal one that moves you forward a
+    // little, so a street the route uses twice keeps its continuity.
+    function project(latlng, prevS = null) {
+      const p = xy(latlng);
+      const hits = [];
+      for (let i = 1; i < P.length; i++) {
+        const a = P[i - 1], b = P[i];
+        const dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy || 1;
+        const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L2));
+        const q = [a[0] + dx * t, a[1] + dy * t];
+        hits.push({ d: Math.hypot(p[0] - q[0], p[1] - q[1]), s: cum[i - 1] + (cum[i] - cum[i - 1]) * t, q });
+      }
+      hits.sort((x, y) => x.d - y.d);
+      let best = hits[0];
+      if (prevS != null) {
+        const fwd = (s) => (loop ? wrap(s - prevS) : s - prevS);
+        const near = hits.filter((h) => h.d <= best.d + 12);
+        const ok = near.filter((h) => { const f = fwd(h.s); return f > -25 && f < 250; });
+        if (ok.length) best = ok.reduce((a, b) => (Math.abs(fwd(a.s)) <= Math.abs(fwd(b.s)) ? a : b));
+      }
+      return { s: best.s, off: best.d, snapped: unxy(best.q), heading: headingAt(best.s) };
+    }
+
+    // Next turn ahead of s (within `horizon` metres), and the distance to it.
+    function ahead(s, horizon = 400) {
+      for (const t of turns) {
+        const d = loop ? wrap(t.s - s) : t.s - s;
+        if (d > 2 && d <= horizon) return { turn: t, d };
+      }
+      if (loop && turns.length) {
+        const t = turns.reduce((a, b) => (wrap(a.s - s) < wrap(b.s - s) ? a : b));
+        const d = wrap(t.s - s);
+        if (d > 2 && d <= horizon) return { turn: t, d };
+      }
+      return null;
+    }
+
+    // Distance along the route from a to b, walking forward.
+    const along = (a, b) => (loop ? wrap(b - a) : b - a);
+
+    // A piece of the route as [lat, lng] points, from s1 to s2 (forward).
+    function slice(s1, s2) {
+      const out = [unxy(at(s1))];
+      const len = along(s1, s2);
+      for (let i = 0; i < cum.length; i++) {
+        const k = along(s1, cum[i]);
+        if (k > 0 && k < len) out.push({ k, p: line[i] });
+      }
+      const pts = out.slice(1).sort((a, b) => a.k - b.k).map((o) => o.p);
+      return [out[0], ...pts, unxy(at(s2))];
+    }
+
+    return { total, turns, project, ahead, along, slice, bearingTo: (from, to) => bearing(xy(from), xy(to)), headingAt, diff };
+  }
+
+  // 24px stroke paths for the banner icon (stroke-width 2.4, round caps).
+  const icons = {
+    left: "M15 19V11a3 3 0 0 0-3-3H6M9 4 5 8l4 4", right: "M9 19V11a3 3 0 0 1 3-3h6M15 4l4 4-4 4",
+    slightleft: "M15 20v-6L8 7M8 13V7h6", slightright: "M9 20v-6l7-7M16 13V7h-6",
+    sharpleft: "M15 4v8l-8 6M7 12v6h6", sharpright: "M9 4v8l8 6M17 12v6h-6",
+    uturnleft: "M16 20V9a4 4 0 0 0-8 0v6M5 12l3 3 3-3", uturnright: "M8 20V9a4 4 0 0 1 8 0v6M13 12l3 3 3-3",
+    straight: "M12 20V5M7 10l5-5 5 5", arrive: "m5 12.5 4.5 4.5L19 7.5",
+  };
+  const iconKey = (t) => (t.kind.word === "turn" ? t.kind.side : t.kind.word + t.kind.side);
+  // "now" under 15 m; 5 m steps under 100 m, 10 m steps above.
+  const distText = (m) => (m < 15 ? "now" : `in ${m < 100 ? Math.round(m / 5) * 5 : Math.round(m / 10) * 10} m`);
+
+  return { create, icons, iconKey, distText };
+})();
+/* NAV END */
+
+/* The guide's own examples, drawn with WTViz above. */
+(() => {
+  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const weeks = Array.from({ length: 12 }, (_, i) => `W${i + 33}`);
+  // Palette strip
+  const strip = document.getElementById("pal-cat");
+  if (strip) ["Violet", "Orange", "Teal", "Gold", "Rose", "Olive", "Sky", "Brick"].forEach((n, i) => {
+    const s = document.createElement("span"); s.style.flex = "1"; s.style.setProperty("--c", WTViz.color(i));
+    s.textContent = `${i + 1} ${n}`; if (i === 3) s.classList.add("dark-text"); strip.append(s);
+  });
+  // KPI tiles
+  const kpis = [
+    ["Sessions today", "14", "", "+3", "vs yesterday", "var(--wt-lime)", [6, 8, 7, 9, 11, 10, 14]],
+    ["Tokens this week", "2.4", "M", "+18%", "vs last week", "var(--wt-lime)", [1.2, 1.5, 1.4, 1.9, 2.0, 2.2, 2.4]],
+    ["Spend this week", "$38", "", "+$9", "vs last week", "var(--wt-butter)", [20, 24, 22, 29, 31, 35, 38]],
+    ["Waiting on you", "3", "sessions", "−2", "since 09:00", "var(--wt-lime)", [6, 5, 5, 4, 4, 3, 3]],
+  ];
+  const kHost = document.getElementById("kpis");
+  if (kHost) kpis.forEach(([l, n, u, d, vs, s, series]) => {
+    const tile = document.createElement("div"); tile.className = "kpi";
+    tile.innerHTML = `<div class="kpi__l"></div><div class="kpi__n"><span></span><small></small></div><div class="kpi__d"><i></i><span></span></div><svg></svg>`;
+    tile.querySelector(".kpi__l").textContent = l; tile.querySelector(".kpi__n span").textContent = n;
+    tile.querySelector(".kpi__n small").textContent = u; tile.querySelector(".kpi__d i").textContent = d;
+    tile.querySelector(".kpi__d i").style.setProperty("--s", s); tile.querySelector(".kpi__d span").textContent = vs;
+    kHost.append(tile); WTViz.spark(tile.querySelector("svg"), series);
+  });
+  const fig = (id) => document.getElementById(id);
+  if (fig("viz-line")) WTViz.line(fig("viz-line"), { title: "Tokens per day", sub: "Three busiest sessions, last 12 weeks", x: weeks,
+    series: [{ name: "claude-watchtower", values: [120, 140, 135, 180, 210, 190, 240, 260, 250, 300, 320, 360].map((v) => v * 1000) },
+             { name: "robot-app", values: [90, 100, 120, 110, 130, 150, 140, 160, 150, 170, 165, 180].map((v) => v * 1000) },
+             { name: "api-client", values: [40, 45, 60, 80, 70, 90, 95, 100, 120, 115, 130, 140].map((v) => v * 1000) }] });
+  if (fig("viz-area")) WTViz.line(fig("viz-area"), { title: "Spend", sub: "All sessions, last 12 weeks", x: weeks, area: true, unit: "$",
+    series: [{ name: "Spend", values: [22, 25, 24, 31, 35, 33, 40, 44, 41, 52, 55, 61] }] });
+  if (fig("viz-cols")) WTViz.columns(fig("viz-cols"), { title: "Turns per day", sub: "This week, today highlighted", x: days, highlight: 4,
+    series: [{ name: "Turns", values: [42, 51, 38, 60, 72, 18, 9] }], note: "One series: the day that matters in colour, the rest grey." });
+  if (fig("viz-stack")) WTViz.columns(fig("viz-stack"), { title: "Tool calls per day", sub: "Stacked by kind", x: days, stacked: true,
+    series: [{ name: "Read", values: [120, 140, 100, 160, 180, 40, 20] }, { name: "Edit", values: [60, 70, 50, 90, 110, 20, 10] }, { name: "Bash", values: [30, 40, 35, 50, 60, 10, 5] }] });
+  if (fig("viz-rank")) WTViz.ranked(fig("viz-rank"), { title: "Most edited files", sub: "Edits this week",
+    items: [{ label: "main.ts", value: 148 }, { label: "http.py", value: 96 }, { label: "owned.py", value: 71 }, { label: "chat.css", value: 52 }, { label: "README.md", value: 40 }, { label: "mcp.py", value: 33 }] });
+  if (fig("viz-scatter")) {
+    const rnd = (s) => () => (s = (s * 9301 + 49297) % 233280) / 233280;
+    const r = rnd(7), mk = (n, cx, cy, sx, sy) => Array.from({ length: n }, () => [Math.round(cx + (r() - .5) * sx), Math.round(cy + (r() - .5) * sy)]);
+    WTViz.scatter(fig("viz-scatter"), { title: "Turn length vs tokens", sub: "Every turn this week", xLabel: "seconds", yLabel: "tokens",
+      series: [{ name: "Opus", points: mk(18, 120, 60000, 140, 50000) }, { name: "Sonnet", points: mk(18, 60, 30000, 80, 30000) }, { name: "Haiku", points: mk(14, 20, 9000, 30, 12000) }] });
+  }
+  if (fig("viz-heat")) {
+    const hours = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
+    const vals = days.map((_, d) => hours.map((_, h) => { const work = h >= 8 && h <= 18 && d < 5; return Math.max(0, Math.round((work ? 30 : 4) * (0.6 + Math.sin(h * 1.3 + d) * 0.4) - (h < 7 ? 4 : 0))); }));
+    WTViz.heat(fig("viz-heat"), { title: "When sessions work", sub: "Turns by hour, last 4 weeks", rows: days, cols: hours, values: vals, unitName: "turns" });
+  }
+  // Choropleth: a grid of soft regions on the sequential ramp
+  const choro = document.getElementById("choro");
+  if (choro) {
+    const NS = "http://www.w3.org/2000/svg", vals = [1,2,2,3,4,2, 2,3,4,5,6,3, 1,3,5,6,5,4, 1,2,3,4,3,2];
+    vals.forEach((v, i) => { const x = (i % 6) * 50 + ((Math.floor(i / 6) % 2) * 0), y = Math.floor(i / 6) * 37.5;
+      const r = document.createElementNS(NS, "rect"); Object.entries({ x: x + .75, y: y + .75, width: 48.5, height: 36, rx: 8 }).forEach(([k, val]) => r.setAttribute(k, val));
+      r.style.fill = `var(--seq-${v})`; choro.append(r); });
+  }
+  // Map city blocks
+  const blocks = document.getElementById("blocks");
+  if (blocks) {
+    const NS = "http://www.w3.org/2000/svg";
+    for (let gx = 0; gx < 10; gx++) for (let gy = 0; gy < 5; gy++) {
+      const x = gx * 105 + 8, y = gy * 100 + 14; if ((gx < 3 && gy < 2) || y > 300 || (x > 690 && y < 230)) continue;
+      const r = document.createElementNS(NS, "rect"); Object.entries({ class: "block", x, y, width: 80, height: 70, rx: 10 }).forEach(([k, v]) => r.setAttribute(k, v)); blocks.append(r);
+    }
+  }
+  // Interactive bits: slider fill, stepper, drop zone, pins, sortable table
+  document.querySelectorAll(".range").forEach((r) => { const out = document.getElementById(r.id + "-out");
+    r.addEventListener("input", () => { r.style.setProperty("--v", `${r.value}%`); if (out) out.textContent = r.value; }); });
+  document.querySelectorAll("[data-stepper]").forEach((s) => { const out = s.querySelector("output"); const [dn, up] = s.querySelectorAll("button");
+    dn.addEventListener("click", () => { out.textContent = Math.max(0, +out.textContent - 1); }); up.addEventListener("click", () => { out.textContent = +out.textContent + 1; }); });
+  document.querySelectorAll("[data-drop]").forEach((d) => { d.addEventListener("dragover", (e) => { e.preventDefault(); d.classList.add("is-over"); });
+    ["dragleave", "drop"].forEach((t) => d.addEventListener(t, (e) => { e.preventDefault(); d.classList.remove("is-over"); })); });
+  const pop = document.getElementById("map-pop");
+  document.querySelectorAll("[data-pin]").forEach((p) => p.addEventListener("click", () => {
+    document.querySelectorAll("[data-pin]").forEach((q) => { q.setAttribute("aria-pressed", String(q === p)); q.classList.toggle("is-quiet", q !== p); });
+    if (pop) { pop.style.setProperty("--x", p.style.getPropertyValue("--x")); pop.style.setProperty("--y", p.style.getPropertyValue("--y"));
+      pop.querySelector(".map-pop__title").textContent = p.textContent.trim(); }
+  }));
+  document.querySelectorAll("table[data-sortable]").forEach((t) => t.querySelectorAll("th button").forEach((b, ci) => b.addEventListener("click", () => {
+    const th = b.parentElement, dir = th.getAttribute("aria-sort") === "ascending" ? "descending" : "ascending";
+    t.querySelectorAll("th").forEach((h) => h.removeAttribute("aria-sort")); th.setAttribute("aria-sort", dir);
+    const rows = [...t.tBodies[0].rows], key = (r) => { const s = r.cells[ci].dataset.v ?? r.cells[ci].textContent.replace(/[$,]/g, ""); const n = parseFloat(s); return isNaN(n) ? s : n; };
+    rows.sort((a, c) => (key(a) > key(c) ? 1 : -1) * (dir === "ascending" ? 1 : -1)).forEach((r) => t.tBodies[0].append(r));
+  })));
+  // Turn icons, and the locate button letting go when the map is dragged
+  const turnIcons = document.getElementById("turn-icons");
+  if (turnIcons && window.WTNav) Object.entries(WTNav.icons).forEach(([k, d]) => {
+    const cell = document.createElement("div");
+    cell.style.cssText = "display:flex;flex-direction:column;align-items:center;gap:6px;font-size:12px;color:var(--wt-text-2)";
+    cell.innerHTML = `<span style="width:40px;height:40px;border-radius:50%;display:grid;place-items:center;background:var(--wt-surface-2);color:var(--wt-text)"><svg viewBox="0 0 24 24" width="22" height="22"><path d="${d}" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`;
+    cell.append(k.replace(/^(slight|sharp|uturn)/, "$1 ")); turnIcons.append(cell);
+  });
+  const follow = document.getElementById("guide-follow");
+  if (follow) {
+    follow.closest(".map").querySelector("svg.base").addEventListener("pointerdown", () => follow.setAttribute("aria-pressed", "false"));
+    follow.addEventListener("click", () => follow.setAttribute("aria-pressed", "true"));
+  }
+})();
 </script>
 </body>
 </html>

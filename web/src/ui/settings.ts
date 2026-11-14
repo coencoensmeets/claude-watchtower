@@ -3,7 +3,7 @@
 import { Hct, TonalPalette, argbFromHex, hexFromArgb } from "/vendor/material-color-utilities.js";
 import { applyScheme, openSettings, persist } from "../main.js";
 import { app } from "../state.js";
-import { paintUpdateSetting } from "../views/update.js";
+import { paintUpdateSetting, panelVersion } from "../views/update.js";
 import { copyText } from "./clipboard.js";
 import { detailPane } from "./dom.js";
 import { escapeHtml } from "./format.js";
@@ -48,10 +48,49 @@ function renderSwatches() {
    up there read as a thing to flip often — it is not; it is picked once and
    left, like the base colour it belongs beside. */
 export function syncTheme() {
-  const toggle = detailPane.querySelector<HTMLInputElement>("#themeToggle");
-  if (!toggle) return;
-  toggle.checked = app.settings.dark;
-  detailPane.querySelector("#themeLabel").textContent = app.settings.dark ? "Dark" : "Light";
+  const box = detailPane.querySelector("#appearanceControls");
+  if (!box) return;
+  for (const button of box.querySelectorAll<HTMLElement>("[data-pref]")) {
+    button.setAttribute("aria-pressed", String(app.settings[button.dataset.pref] === button.dataset.value));
+  }
+  const note = box.querySelector("[data-note='themeMode']");
+  if (note) note.textContent = app.settings.themeMode === "system"
+    ? `Following this device — ${app.settings.dark ? "dark" : "light"} right now` : "";
+}
+
+/* The four appearance settings: each one choice from a short row of options. */
+const APPEARANCE = [
+  { key: "themeMode", title: "Theme", says: "Light, dark, or whatever this device is set to.",
+    options: [["light", "Light"], ["dark", "Dark"], ["system", "System"]] },
+  { key: "textSize", title: "Text size", says: "Every word in the panel; icons and layout stay put.",
+    options: [["small", "Small"], ["default", "Default"], ["large", "Large"], ["larger", "Larger"]] },
+  { key: "density", title: "Density", says: "Compact fits more sessions and messages on screen.",
+    options: [["comfortable", "Comfortable"], ["compact", "Compact"]] },
+  { key: "motion", title: "Motion", says: "System follows the device's reduce-motion setting.",
+    options: [["system", "System"], ["reduced", "Reduced"], ["off", "Off"]] },
+] as const;
+
+function renderAppearance() {
+  const box = detailPane.querySelector("#appearanceControls");
+  if (!box) return;
+  box.innerHTML = APPEARANCE.map((pref) => `
+    <section class="section appearance-pref">
+      <h3 class="section__title md-title-small">${pref.title}</h3>
+      <p class="appearance-pref__says md-body-small">${pref.says}</p>
+      <div class="segmented" role="group" aria-label="${pref.title}">
+        ${pref.options.map(([value, label]) => `<button class="segmented__item md-state" type="button"
+          data-pref="${pref.key}" data-value="${value}">${ICON.check}<span>${label}</span></button>`).join("")}
+      </div>
+      ${pref.key === "themeMode" ? `<p class="appearance-pref__note md-label-small" data-note="themeMode"></p>` : ""}
+    </section>`).join("");
+  for (const button of box.querySelectorAll<HTMLElement>("[data-pref]")) {
+    button.addEventListener("click", () => {
+      app.settings[button.dataset.pref] = button.dataset.value;
+      persist();
+      applyScheme();
+    });
+  }
+  syncTheme();
 }
 
 function renderContrast() {
@@ -184,20 +223,10 @@ function settingsPage() {
            other on a pane wide enough for both. The swatches take the row under
            them, because they wrap and a third of the pane makes them taller
            than the two settings above put together. -->
-      <div class="settings-row">
-        <section class="section">
-          <h3 class="section__title md-title-small">Theme</h3>
-          <label class="switch">
-            <input type="checkbox" id="themeToggle" aria-label="Dark theme">
-            <span class="switch__track"><span class="switch__thumb">
-              <svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
-            </span></span>
-            <span class="switch__label md-body-medium" id="themeLabel">Light</span>
-          </label>
-        </section>
-        <!-- No base colour or contrast any more: the Watchtower palette is
-             fixed, because its colours mean session states. -->
-      </div>
+      <!-- No base colour or contrast: the Watchtower palette is fixed,
+           because its colours mean session states. What can change is how
+           big, how dense and how lively it is, and when it goes dark. -->
+      <div class="appearance-grid" id="appearanceControls"></div>
     </div>
     <div class="tab-panel" role="tabpanel" id="settingsPanel-notify" aria-labelledby="settingsTab-notify"
       ${settingsTab === "notify" ? "" : "hidden"}>
@@ -240,6 +269,18 @@ function settingsPage() {
            code pointing at this morning's address is worse than none. -->
       <section class="section" id="reachSection" hidden></section>
     </div>
+    <div class="tab-panel" role="tabpanel" id="settingsPanel-skills" aria-labelledby="settingsTab-skills"
+      ${settingsTab === "skills" ? "" : "hidden"}>
+      <!-- Recommended add-ons for Claude Code itself, filled by paintSkills:
+           what is installed is read from Claude Code's own configuration, so
+           the switches say what is true rather than what was last pressed. -->
+      <section class="section">
+        <h3 class="section__title md-title-small">Claude skills</h3>
+        <p class="md-body-medium">Add-ons for every Claude Code session on this computer. Turning one
+          on installs it for you; turning it off removes it.</p>
+        <div class="skills" id="skillsList"><p class="md-body-small">Reading what is installed…</p></div>
+      </section>
+    </div>
     <div class="tab-panel" role="tabpanel" id="settingsPanel-panel" aria-labelledby="settingsTab-panel"
       ${settingsTab === "panel" ? "" : "hidden"}>
       <!-- Which release the panel is on, and a button to go and ask. Empty
@@ -248,7 +289,44 @@ function settingsPage() {
            or names the reason a checkout is being left alone — and it is
            filled by views/update.ts, which is what knows. -->
       <section class="section" id="updateSection" hidden></section>
+    </div>
+    <div class="tab-panel" role="tabpanel" id="settingsPanel-about" aria-labelledby="settingsTab-about"
+      ${settingsTab === "about" ? "" : "hidden"}>
+      ${aboutPanel()}
     </div>`;
+}
+
+/* What the panel is, who made it, and where to go about it. Static apart from
+   the version, which is whatever the update check last said. */
+const REPO = "https://github.com/coencoensmeets/claude-watchtower";
+function aboutPanel(): string {
+  const version = panelVersion();
+  const links: [string, string, string][] = [
+    [REPO, "Source on GitHub", "globe"],
+    [`${REPO}/issues`, "Report a bug or ask for a feature", "ask"],
+    [REPO, "Leave a star", "sparkle"],
+    ["https://www.paypal.com/donate/?hosted_button_id=JFMLJWDVTZRUY", "Buy the author a coffee", "coin"],
+  ];
+  return `<section class="section about">
+      <div class="about__hero">
+        <span class="about__mark">${ICON.tower}</span>
+        <div class="about__text">
+          <h3 class="md-headline-small">Claude Watchtower</h3>
+          <p class="md-body-medium">A live web panel for every Claude Code session running on this machine.</p>
+          ${version ? `<span class="about__version md-label-medium">Version <span class="md-mono">${escapeHtml(version)}</span></span>` : ""}
+        </div>
+      </div>
+      <div class="about__links">
+        ${links.map(([href, label, icon]) => `<a class="about__link md-state md-label-large" href="${href}"
+            target="_blank" rel="noopener">${ICON[icon] || ""}<span>${label}</span>${ICON.focus}</a>`).join("")}
+      </div>
+      <div class="settings-notice about__note">
+        <p class="md-body-small">An independent project by a community member, not an official Anthropic
+          product. It reads Claude Code's own session files and per-session sockets, neither of which is a
+          documented interface, so an update to Claude Code can change what the panel sees.</p>
+      </div>
+      <p class="about__legal md-label-medium">MIT License · © 2026 Ir. Coen Smeets</p>
+    </section>`;
 }
 
 /* The tabs, in the order they are worth reaching for. The one last open is
@@ -259,7 +337,9 @@ const SETTINGS_TABS = [
   { key: "notify", label: "Notifications", icon: "bell" },
   { key: "sessions", label: "Sessions", icon: "terminal" },
   { key: "phone", label: "Phone", icon: "phone" },
+  { key: "skills", label: "Claude skills", icon: "sparkle" },
   { key: "panel", label: "Panel", icon: "info" },
+  { key: "about", label: "About", icon: "tower" },
 ];
 let settingsTab = (() => {
   try {
@@ -316,19 +396,14 @@ export function paintSettings() {
   detailPane.dataset.signature = "settings:page";
   detailPane.innerHTML = settingsPage();
   wireSettingsTabs();
-  syncTheme();
+  renderAppearance();
   renderSwatches();
   renderContrast();
   renderNotify();
   paintUpdateSetting();
   paintReach();
   paintTerminal();
-  const themeToggle = detailPane.querySelector<HTMLInputElement>("#themeToggle");
-  themeToggle.addEventListener("change", () => {
-    app.settings.dark = themeToggle.checked;
-    persist();
-    applyScheme();
-  });
+  paintSkills();
   const editorToggle = detailPane.querySelector<HTMLInputElement>("#editorToggle");
   editorToggle.checked = app.settings.showEditor;
   editorToggle.addEventListener("change", () => {
@@ -339,8 +414,7 @@ export function paintSettings() {
   detailPane.querySelector("#resetTheme")?.addEventListener("click", () => {
     // Colours only. The button sits under the notification switches, and wiping
     // those as well would be a surprise the label does not warn about.
-    app.settings = { ...app.settings, seed: DEFAULT_SEED,
-      dark: matchMedia("(prefers-color-scheme: dark)").matches, contrast: "standard" };
+    app.settings = { ...app.settings, seed: DEFAULT_SEED, themeMode: "system", contrast: "standard" };
     persist(); applyScheme(); renderSwatches(); renderContrast(); showSnackbar("Colours reset");
   });
 }
@@ -360,6 +434,64 @@ export function paintSettings() {
    it, because a button saying *Copy the install command* hides the one thing
    worth reading.
    ========================================================================== */
+/* Settings → Claude skills. Each switch installs or removes one add-on and
+   repaints from what the server reads back, so a refusal leaves the switch
+   where it really is. Only this computer may flip them; elsewhere they show
+   but cannot be pressed. */
+type SkillItem = { id: string; title: string; description: string; on: boolean; blocked?: string; requires?: string };
+
+function drawSkills(box: HTMLElement, items: SkillItem[], local: boolean) {
+  box.innerHTML = items.map((item) => `<div class="skill">
+      <label class="switch">
+        <input type="checkbox" data-skill="${escapeHtml(item.id)}" ${item.on ? "checked" : ""}
+          ${!local || (item.blocked && !item.on) ? "disabled" : ""}>
+        <span class="switch__track"><span class="switch__thumb">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+        </span></span>
+        <span class="switch__label md-body-medium">${escapeHtml(item.title)}<span
+          class="switch__says md-label-small">${escapeHtml(item.description)}</span></span>
+      </label>
+      ${item.blocked ? `<p class="skill__blocked md-body-small">${escapeHtml(item.blocked)}</p>` : ""}
+    </div>`).join("")
+    + (local ? "" : `<p class="md-body-small">These can only be changed from the computer the panel runs on.</p>`);
+  for (const input of box.querySelectorAll<HTMLInputElement>("[data-skill]")) {
+    input.addEventListener("change", async () => {
+      for (const other of box.querySelectorAll<HTMLInputElement>("[data-skill]")) other.disabled = true;
+      let data;
+      try {
+        const response = await fetch("/api/skills", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: input.dataset.skill, on: input.checked }),
+        });
+        data = await response.json().catch(() => ({}));
+      } catch (error) {
+        data = { ok: false, message: "Could not reach the server" };
+      }
+      showSnackbar(data.message || (data.ok ? "Done" : "That did not work"));
+      if (box.isConnected) {
+        if (Array.isArray(data.items)) drawSkills(box, data.items, local);
+        else paintSkills();
+      }
+    });
+  }
+}
+
+async function paintSkills() {
+  const box = detailPane.querySelector<HTMLElement>("#skillsList");
+  if (!box) return;
+  let data;
+  try {
+    data = await (await fetch("/api/skills", { cache: "no-store" })).json();
+  } catch (error) {
+    return;                       // the poll will say the panel is unreachable
+  }
+  if (!box.isConnected || !Array.isArray(data?.items)) return;
+  // The server checks this for itself; this only saves offering a switch that
+  // would be refused.
+  const local = ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
+  drawSkills(box, data.items, local);
+}
+
 async function paintTerminal() {
   const box = detailPane.querySelector<HTMLElement>("#terminalHint");
   if (!box) return;

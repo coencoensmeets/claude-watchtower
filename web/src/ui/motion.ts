@@ -8,7 +8,11 @@
    that just appeared or changed state, a header whose state colour moved, a
    tab that was just chosen. The look of each is in styles/motion.css. */
 
-const still = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+/* Still when the system asks for less motion, or Settings → Appearance does. */
+export const still = () => {
+  const asked = document.documentElement.dataset.motion;
+  return asked === "reduced" || asked === "off" || matchMedia("(prefers-reduced-motion: reduce)").matches;
+};
 
 /* Adds a class for one run of its animation, then takes it off again so the
    element is not left claiming to be arriving. A fallback timer covers an

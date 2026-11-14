@@ -18,3 +18,113 @@
   .detail-window-actions { display: flex; gap: var(--md-sys-spacing-2); flex-wrap: wrap; }
   .row__grow { flex: 1 1 auto; min-width: 0; }
 
+
+  /* ============================================== details, redesigned */
+  /* At a glance first (four tiles), then the switches as cards with a round
+     icon, then the facts, then the one destructive act set apart in rose. */
+  .about-tab { display: flex; flex-direction: column; gap: var(--md-sys-spacing-4); container-type: inline-size; width: 100%; }
+
+  .about-glance { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--md-sys-spacing-3); }
+  .about-glance__tile {
+    display: flex; flex-direction: column; gap: 4px; min-width: 0;
+    padding: var(--md-sys-spacing-4) var(--md-sys-spacing-5);
+    border-radius: var(--md-sys-shape-corner-large);
+    background: var(--md-sys-color-surface-container-low);
+  }
+  .about-glance__l { display: flex; align-items: center; gap: 6px; font-size: 0.8125rem; font-weight: 600;
+    color: var(--md-sys-color-on-surface-variant); }
+  .about-glance__l svg { width: 16px; height: 16px; flex: none; }
+  .about-glance__n {
+    font-family: var(--md-ref-typeface-brand); font-size: 1.625rem; line-height: 1.1; margin-top: 4px;
+    font-weight: 600; letter-spacing: -0.03em; font-variant-numeric: tabular-nums;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .about-glance__n .md-mono { font-family: inherit; }
+  .about-glance__note { font-size: 0.75rem; font-weight: 500; color: var(--md-sys-color-on-surface-variant); }
+  /* The process tile carries its state the way a row's lamp does. */
+  .about-glance__tile[data-tone="live"] { background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); }
+  .about-glance__tile[data-tone="live"] .about-glance__l,
+  .about-glance__tile[data-tone="live"] .about-glance__note { color: inherit; opacity: 0.8; }
+  .about-glance__tile[data-tone="off"] { background-color: var(--md-sys-color-surface-container-low); background-image: var(--wt-hatch-fine); }
+
+  .about-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--md-sys-spacing-3); }
+  .about-card {
+    display: flex; flex-direction: column; gap: var(--md-sys-spacing-3); min-width: 0;
+    padding: var(--md-sys-spacing-5);
+    border-radius: var(--md-sys-shape-corner-extra-large);
+    background: var(--md-sys-color-surface-container-low);
+  }
+  .about-card__head { display: flex; align-items: center; gap: 10px; }
+  .about-card__icon {
+    width: 36px; height: 36px; flex: none; display: grid; place-items: center;
+    border-radius: 50%; background: var(--md-sys-color-surface); color: var(--md-sys-color-on-surface);
+  }
+  .about-card__icon svg { width: 18px; height: 18px; }
+  .about-card--ok .about-card__icon { background: var(--wt-lime); color: var(--wt-on-state); }
+  .about-card__title { margin: 0; font-size: 1.0625rem; font-weight: 650; letter-spacing: -0.01em; }
+  .about-card__body { margin: 0; font-size: 0.875rem; line-height: 1.45; color: var(--md-sys-color-on-surface-variant); }
+  .about-card__actions { display: flex; flex-wrap: wrap; gap: var(--md-sys-spacing-2); margin-top: auto; }
+  .about-chip {
+    display: inline-flex; align-items: center; max-width: 100%; padding: 3px 10px; margin-top: 2px;
+    border-radius: var(--md-sys-shape-corner-full); background: var(--md-sys-color-surface);
+    color: var(--md-sys-color-on-surface); font-size: 0.8125rem; overflow-wrap: anywhere;
+  }
+  .about-candidates { margin: 0; padding-left: var(--md-sys-spacing-5); font-size: 0.8125rem; }
+
+  .about-switches { display: flex; flex-direction: column; gap: var(--md-sys-spacing-3); }
+  .about-switch { align-items: flex-start; }
+  .about-switch__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding-top: 4px; }
+  .about-switch__text .switch__label { margin: 0; }
+  .about-switch__note { font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); }
+  .about-switch input:disabled ~ .about-switch__text { opacity: 0.6; }
+
+  /* ---- facts: label over value, two to a row where there is room */
+  .about-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 6px; margin: 0; }
+  .about-fact {
+    min-width: 0; padding: 10px 14px; border-radius: var(--md-sys-shape-corner-medium);
+    background: var(--md-sys-color-surface);
+  }
+  .about-fact dt { font-size: 0.75rem; font-weight: 600; color: var(--md-sys-color-on-surface-variant); }
+  .about-fact dd { margin: 2px 0 0; display: flex; align-items: center; gap: 6px; min-width: 0;
+    font-size: 0.875rem; font-weight: 600; }
+  .about-fact__v { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+  .about-fact .fact-copy { flex: none; margin: -6px -6px -6px 0; }
+  .about-branch { display: inline-flex; align-items: center; gap: 6px; }
+  .about-branch svg { width: 15px; height: 15px; flex: none; color: var(--wt-lilac); }
+  .about-ver {
+    display: inline-flex; padding: 1px 9px; border-radius: var(--md-sys-shape-corner-full);
+    background: var(--wt-lilac); color: var(--wt-on-state); font-size: 0.75rem; font-weight: 700;
+  }
+
+  /* ---- the one destructive act, set apart */
+  .about-danger {
+    display: flex; align-items: center; gap: var(--md-sys-spacing-4);
+    padding: var(--md-sys-spacing-4) var(--md-sys-spacing-5);
+    border-radius: var(--md-sys-shape-corner-extra-large);
+    background: color-mix(in srgb, var(--wt-rose) 14%, var(--md-sys-color-surface));
+    box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--wt-rose) 45%, transparent);
+  }
+  .about-danger__icon { width: 40px; height: 40px; flex: none; display: grid; place-items: center;
+    border-radius: 50%; background: var(--wt-rose); color: var(--wt-on-state); }
+  .about-danger__icon svg { width: 20px; height: 20px; }
+  .about-danger__text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .about-danger .about-card__body { color: var(--md-sys-color-on-surface); opacity: 0.8; }
+  .about-danger .button { flex: none; }
+
+  /* ---- a way to the panel's own settings, as a row you can press */
+  .about-settings {
+    display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; cursor: pointer;
+    padding: 14px 18px; border: 0; border-radius: var(--md-sys-shape-corner-full);
+    background: var(--md-sys-color-surface-container-low); color: inherit; font: inherit;
+  }
+  .about-settings > svg { width: 20px; height: 20px; flex: none; }
+  .about-settings > svg:last-child { margin-left: auto; transform: rotate(-90deg); color: var(--md-sys-color-on-surface-variant); }
+  .about-settings > span { display: flex; flex-direction: column; }
+  .about-settings b { font-weight: 650; font-size: 0.9375rem; }
+  .about-settings > span > span { font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); }
+
+  @container (max-width: 640px) {
+    .about-glance { grid-template-columns: 1fr 1fr; }
+    .about-danger { flex-wrap: wrap; }
+    .about-danger .button { margin-left: 56px; }
+  }

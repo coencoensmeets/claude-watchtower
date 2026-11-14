@@ -128,6 +128,11 @@ function whereWeAre() {
   return "an untagged commit";
 }
 
+/* The same, for the About tab: empty until the first check has answered. */
+export function panelVersion(): string {
+  return whereWeAre();
+}
+
 function paintUpdateDialog() {
   const head = document.getElementById("updateHead");
   const body = document.getElementById("updateBody");
