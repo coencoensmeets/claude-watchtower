@@ -77,6 +77,53 @@ export function stopVoice() {
   paintButton();
 }
 
+/* What each refusal means, in terms of what to do about it. They used to share
+   one sentence, and "blocked" covers three different fixes in three different
+   places — the site, the phone's own app permissions, and which browser it is. */
+const PHONE = /Android|iPhone|iPad/i.test(navigator.userAgent);
+const VOICE_TROUBLE: Record<string, string> = {
+  "not-allowed": PHONE
+    ? "The microphone is refused. Allow it for this site (the icon left of the address → Permissions → Microphone), and for Chrome itself in the phone's Settings → Apps → Chrome → Permissions"
+    : "The microphone is refused — allow it for this site from the icon left of the address",
+  "service-not-allowed": "This browser will not do speech recognition for a page — open the panel in Chrome, Edge or Safari",
+  "audio-capture": "No microphone could be opened — another app may be using it",
+  "network": "Speech recognition needs the internet, and could not reach it",
+  "language-not-supported": `Speech recognition does not support ${navigator.language}`,
+};
+
+/* Ask for the microphone the ordinary way before speech recognition starts.
+   On Android, recognition refused with a bare not-allowed when the site had
+   never been asked, rather than raising the prompt itself; getUserMedia always
+   raises it, and its answer says which refusal it was. The stream is closed at
+   once — recognition opens its own. */
+async function askForMicrophone(): Promise<boolean> {
+  try {
+    const state = await (navigator as any).permissions?.query({ name: "microphone" });
+    if (state?.state === "granted") return true;
+    if (state?.state === "denied") {
+      showSnackbar(VOICE_TROUBLE["not-allowed"]);
+      return false;
+    }
+  } catch (error) {
+    // Not every browser can be asked about the microphone; ask for it instead.
+  }
+  if (!navigator.mediaDevices?.getUserMedia) return true;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    for (const track of stream.getTracks()) track.stop();
+    return true;
+  } catch (error) {
+    const name = (error as DOMException)?.name;
+    showSnackbar(name === "NotFoundError" || name === "NotReadableError"
+      ? VOICE_TROUBLE["audio-capture"] : VOICE_TROUBLE["not-allowed"]);
+    return false;
+  }
+}
+
+async function startVoiceAsked(sessionId: string) {
+  if (await askForMicrophone()) startVoice(sessionId);
+}
+
 function startVoice(sessionId: string) {
   stopVoice();
   const box = detailPane.querySelector<HTMLTextAreaElement>("#sayField");
@@ -112,13 +159,8 @@ function startVoice(sessionId: string) {
   };
   recognizer.onerror = (event) => {
     const why = event?.error;
-    if (why === "not-allowed" || why === "service-not-allowed") {
-      showSnackbar("The microphone is blocked — allow it in the browser's settings for this site");
-    } else if (why === "network") {
-      showSnackbar("Speech recognition needs the internet, and could not reach it");
-    } else if (why && why !== "no-speech" && why !== "aborted") {
-      showSnackbar(`Listening stopped — ${why}`);
-    }
+    if (why === "no-speech" || why === "aborted") return;
+    showSnackbar(VOICE_TROUBLE[why] || `Listening stopped — ${why || "no reason given"}`);
   };
   // Phones stop on their own after a silence. That is the end of the stretch,
   // not something to restart behind your back.
@@ -149,7 +191,7 @@ export function wireVoice(sessionId: string) {
   paintButton();
   button.addEventListener("click", () => {
     if (live.recognizer && live.sessionId === sessionId) stopVoice();
-    else startVoice(sessionId);
+    else startVoiceAsked(sessionId);
     detailPane.querySelector<HTMLTextAreaElement>("#sayField")?.focus();
   });
   for (const send of detailPane.querySelectorAll<HTMLElement>(".composer__send")) {
