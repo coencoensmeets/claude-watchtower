@@ -1,43 +1,151 @@
-<br />
+<!-- The pictures here are made, not drawn by hand: tools/readme/ stands up a demo machine and captures it. -->
 <p align="center">
   <a href="https://github.com/coencoensmeets/claude-watchtower">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="docs/assets/claude-watchtower-transparent-dark.svg">
-      <img src="docs/assets/claude-watchtower-transparent.svg" alt="Logo" height="170">
+      <source media="(prefers-color-scheme: dark)" srcset="docs/readme/hero-dark.svg">
+      <img src="docs/readme/hero-light.svg" alt="Claude Watchtower: every Claude Code session at a glance" width="100%">
     </picture>
   </a>
-
-  <h3 align="center">Claude WatchTower</h3>
-
-  <p align="center">
-    A live web panel for every Claude Code session running on this machine
-    <br />
-    <a href="#what-it-shows"><strong>Explore the panel »</strong></a>
-    <br />
-    <br />
-    <a href="#quick-start">Quick start</a>
-    ·
-    <a href="https://github.com/coencoensmeets/claude-watchtower/issues">Report Bug</a>
-    ·
-    <a href="https://github.com/coencoensmeets/claude-watchtower/issues">Request Feature</a>
-  </p>
 </p>
-
-> **Disclaimer:** This project is an independent effort by a community member and is not an official Anthropic product. It reads Claude Code's own session files and per-session sockets, neither of which is a documented interface, so an update to Claude Code can change what the panel sees.
 
 <p align="center">
-  <a href="https://github.com/coencoensmeets/claude-watchtower"><img src="https://img.shields.io/badge/Leave%20a%20star-⭐️-yellow?style=for-the-badge" alt="Leave a star"></a>
-  <a href="https://www.paypal.com/donate/?hosted_button_id=JFMLJWDVTZRUY"><img src="https://img.shields.io/badge/Donate%20a%20coffee-☕️-blue?style=for-the-badge" alt="Donate a cup of coffee"></a>
-  <a href="#what-it-shows"><img src="https://img.shields.io/badge/Docs-Read%20the%20docs-green?style=for-the-badge" alt="Docs"></a>
+  <a href="#quick-start"><img src="https://img.shields.io/badge/quick%20start-30%20seconds-CBDA72?style=for-the-badge&labelColor=1E1F24" alt="Quick start"></a>
+  <img src="https://img.shields.io/badge/python-standard%20library%20only-A59FE2?style=for-the-badge&labelColor=1E1F24" alt="Python, standard library only">
+  <img src="https://img.shields.io/badge/npm%20install-nothing-F28C4E?style=for-the-badge&labelColor=1E1F24" alt="Nothing to npm install">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-F5CD62?style=for-the-badge&labelColor=1E1F24" alt="MIT licence"></a>
 </p>
 
-See at a glance which session is working, which finished, and which is waiting on you — then click **Focus window** to jump to the terminal or editor that owns it.
+<p align="center">
+  <b>A live web panel for every Claude Code session on your machine.</b><br>
+  See which one is working, which one has finished, and which one is waiting on you.<br>
+  Read what they said, answer what they ask, and check in from your phone.
+</p>
 
-Python standard library only, no packages to install, nothing leaves the machine.
+<p align="center">
+  <a href="#quick-start"><strong>Quick start</strong></a> ·
+  <a href="#a-tour">Tour</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#the-manual">The manual</a> ·
+  <a href="https://github.com/coencoensmeets/claude-watchtower/issues">Report a bug</a>
+</p>
 
-The panel's frontend is TypeScript, so it is built before it is served — but there is still nothing to install for it. Node strips TypeScript types itself, so the build needs a Node binary and no npm packages at all, and `python3 server.py` runs it for you when anything under `web/` has changed. If Node is not on the machine and cannot be put there, `python3 -m venv .venv && .venv/bin/pip install nodejs-wheel-binaries` puts one in the project instead.
+<br>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/tour-dark.gif">
+  <img src="docs/readme/tour-light.gif" alt="A tour of the panel: switching sessions, the Git, History and Usage tabs, a session turning ember when it needs an answer, and a preview resized to a phone" width="100%">
+</picture>
+
+<br>
+
+## Why
+
+You start a Claude Code session in one terminal, another in VS Code, a third in tmux. Ten minutes later one of them has asked you a question and is sitting there, blocked, behind three other windows.
+
+Watchtower is the one place that shows them all. It reads the files Claude Code already writes, works out what each session is doing, and puts the one that needs you at the top in ember. There is nothing to install in your sessions and nothing to configure. Start it, and every session on the machine is already there.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/states-dark.svg">
+  <img src="docs/readme/states-light.svg" alt="The four states: needs an answer (ember), working (lilac), waiting on you (lime), closed (hatched)" width="100%">
+</picture>
+
+Colour means state and nothing else. The list updates every second and only animates what really changed:
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/readme/states-dark.gif">
+    <img src="docs/readme/states-light.gif" alt="The session list as sessions start and finish work: avatars pop and change colour" width="380">
+  </picture>
+</p>
+
+> [!NOTE]
+> This is an independent community project, not an official Anthropic product. It reads Claude Code's session files and per-session sockets, which are not a documented interface, so a Claude Code update can change what the panel sees.
+
+## A tour
+
+### Read every conversation, edits included
+
+Each session's conversation as it happens: what you asked, what Claude said, every tool it ran, and each file it changed as a real diff. Long answers keep their tables and code. Select a passage to quote it back with a comment.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/conversation-dark.png">
+  <img src="docs/readme/conversation-light.png" alt="A working session's conversation, with an edit shown as a diff" width="100%">
+</picture>
+
+### See what it is stuck on
+
+A blocked session goes ember, moves up, and shows the question it is asking, with every option. Sessions the panel runs can be answered right here, and sent messages, stopped, or switched to another mode.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/overview-dark.png">
+  <img src="docs/readme/overview-light.png" alt="A session that needs an answer, showing its multiple-choice question" width="100%">
+</picture>
+
+### Git and History, without leaving the panel
+
+Stage, commit and push in the editor's own Source Control layout. The sparkle writes the commit message for you. History draws the commit graph from the real ancestry, branches and merges included.
+
+<table>
+  <tr>
+    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/git-dark.png"><img src="docs/readme/git-light.png" alt="The Git tab with two changed files"></picture></td>
+    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/history-dark.png"><img src="docs/readme/history-light.png" alt="The History tab with a merged feature branch"></picture></td>
+  </tr>
+</table>
+
+### What it costs, and how full it is
+
+Tokens in and out, cache hits, cost at list price and per hour, and how much of the context window the conversation fills. The app bar shows how much of your plan's session and weekly limits has gone.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/usage-dark.png">
+  <img src="docs/readme/usage-light.png" alt="The Usage tab: cost so far, requests, cache hits, tokens and the context bar" width="100%">
+</picture>
+
+### Open what a session made
+
+When a session builds something you can look at, such as a page, a report, a styleguide or a dev server, it hands it to the panel. It opens in a Preview tab that you can size to a desktop, a tablet or a phone. Star it to keep it in the sidebar after the session has gone.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/preview-dark.png">
+  <img src="docs/readme/preview-light.png" alt="The Preview tab showing a page the session built, with device sizes and a star" width="100%">
+</picture>
+
+### In your pocket
+
+The same panel on your phone. Scan the code in Settings on the same wifi, or reach it from anywhere over Tailscale with https. Notifications tell you when a session needs you.
+
+<table>
+  <tr>
+    <td width="34%" align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/phone-dark.gif"><img src="docs/readme/phone-light.gif" alt="The panel on a phone: opening a session, its question and its usage"></picture></td>
+    <td width="33%" align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/phone-question-dark.png"><img src="docs/readme/phone-question-light.png" alt="A question on the phone"></picture></td>
+    <td width="33%" align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/phone-conversation-dark.png"><img src="docs/readme/phone-conversation-light.png" alt="A conversation on the phone"></picture></td>
+  </tr>
+</table>
+
+### Let Claude drive it
+
+Watchtower is also an MCP server. Switch on **Watchtower tools** and any session can list the others, read what they said, message them, start new ones or stop a turn. That makes one Claude a coordinator for the rest. **Settings → Claude skills** also installs a house style, a preview skill and a research method for every session on the machine.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/skills-dark.png">
+  <img src="docs/readme/skills-light.png" alt="Settings, Claude skills: switches for the MCP tools and the skills" width="100%">
+</picture>
+
+### Yours to tune
+
+Light, dark or follow the system. Four text sizes, a compact density, and motion you can turn down or off.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/settings-dark.png">
+  <img src="docs/readme/settings-light.png" alt="Settings, Appearance: theme, text size, density and motion" width="100%">
+</picture>
 
 ## Quick start
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/terminal-dark.svg">
+  <img src="docs/readme/terminal-light.svg" alt="git clone the repository, cd into it, and run python3 server.py; it prints the addresses to open" width="100%">
+</picture>
 
 1. Clone the repository:
 
@@ -58,7 +166,25 @@ python3 server.py
 
 5. Optional: `sudo apt install xdotool` to enable **Focus window** under X11, and see [Keeping it running](#keeping-it-running) for the bundled systemd user unit.
 
-## Documentation
+**What it needs.** Linux, or Windows through WSL. Python 3, standard library only: no packages, and nothing leaves the machine. The frontend is TypeScript, built before it is served, but there is still nothing to install for it. Node 22.6 or later strips the types itself, so the build needs a Node binary and no npm packages, and `python3 server.py` runs it for you when anything under `web/` has changed. If Node is not on the machine and cannot be put there, `python3 -m venv .venv && .venv/bin/pip install nodejs-wheel-binaries` puts one in the project instead.
+
+## How it works
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/architecture-dark.svg">
+  <img src="docs/readme/architecture-light.svg" alt="Sessions write status and transcripts under ~/.claude; the panel reads them every second and serves your browser, your phone and Claude itself; it talks back to sessions to send, answer, stop and start them" width="100%">
+</picture>
+
+Claude Code keeps a small file per running session and a transcript per conversation. The panel reads both every second. A session's status alone is not enough: Claude Code never writes "waiting for you", so the panel also checks whether the process is burning CPU and whether its transcript is still growing. [What it shows](#what-it-shows) explains how. Messages, answers and stops go back to the sessions through the panel. Nothing goes to a server anywhere else.
+
+<p align="center">
+  <a href="https://github.com/coencoensmeets/claude-watchtower"><img src="https://img.shields.io/badge/Leave%20a%20star-⭐️-CBDA72?style=for-the-badge&labelColor=1E1F24" alt="Leave a star"></a>
+  <a href="https://www.paypal.com/donate/?hosted_button_id=JFMLJWDVTZRUY"><img src="https://img.shields.io/badge/Donate%20a%20coffee-☕️-A59FE2?style=for-the-badge&labelColor=1E1F24" alt="Donate a cup of coffee"></a>
+</p>
+
+## The manual
+
+Everything below is the full reference: how each part works, and why it works that way.
 
 | Section | What's inside |
 |---|---|
@@ -963,6 +1089,8 @@ The unit names no port and no host, so the service is on this install's remember
 | `watchtower/` | The panel itself — `config`, `proc`, `sessions`, `rows`, `store`, `transcript`, `usage`, `catalog`, `windows`, `control`, `input`, `owned`, `paste`, `plan`, `update`, `mcp`, `previews`, `route`, `skills`, `git/`, `http` |
 | `watchtower/build.py` | Finds Node and runs the frontend build when `web/` has changed |
 | `tools/build.mjs` | The build: strips types, concatenates stylesheets, copies assets |
+| `tools/readme/` | Makes the README's pictures: `stage.sh` stands up a demo machine (made-up sessions under `/home/sam`, in a private namespace, on port 8790), `capture.mjs` takes the screenshots and GIFs, and `art.py` draws the animated SVGs |
+| `docs/readme/` | The README's pictures, each in a light and a dark version |
 | `tools/style_kit.py` | Cuts the house-style skill's `watchtower.css`, `watchtower-viz.js` and `watchtower-nav.js` out of the styleguide; `--check` says whether they are stale |
 | `web/index.html` | The page shell — markup only |
 | `web/styles/` | The stylesheet, Material 3 |
