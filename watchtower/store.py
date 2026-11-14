@@ -37,7 +37,9 @@ from watchtower.transcript import (
     transcript_paths,
 )
 from watchtower.usage import context_window, scan_usage
-from watchtower.windows import WINDOWS, load_names, load_pairs, save_pairs, window_exists, window_title
+from watchtower.windows import (
+    WINDOWS, load_names, load_pairs, save_pairs, shown_name, window_exists, window_title,
+)
 
 
 def status_age(data: dict, now: float) -> float | None:
@@ -455,11 +457,13 @@ class SessionStore:
                 status = "offline"
             chain = ancestors(pid) if isinstance(pid, int) else []
             agents_now = self._agents(session_id, cwd, now) if cwd else None
+            title = self._title(session_id, cwd) if cwd else None
             session = {
                 "sessionId": session_id,
                 "pid": pid,
-                # A name you typed wins over the one the session reports.
-                "name": names.get(session_id) or data.get("name") or f"session {pid}",
+                # A name you typed wins over the one the session reports, and a
+                # default name gives way to what the session is about.
+                "name": shown_name(names.get(session_id), data.get("name") or f"session {pid}", cwd, title),
                 "givenName": names.get(session_id),
                 "defaultName": data.get("name") or f"session {pid}",
                 "cwd": cwd,
@@ -488,7 +492,7 @@ class SessionStore:
                 "permissionMode": self._mode(session_id, cwd) if cwd else None,
                 # What Claude says this session is about, for the line under its
                 # name — the detail pane reads the same thing off the transcript.
-                "title": self._title(session_id, cwd) if cwd else None,
+                "title": title,
                 # How full the conversation is. The detail header draws it, and
                 # offers to compact once it is past halfway. See _context.
                 "context": self._context(session_id, cwd) if cwd else None,
@@ -559,10 +563,11 @@ class SessionStore:
                 continue
             cwd = entry.get("cwd") or ""
             agents_now = self._agents(session_id, cwd, now) if cwd else None
+            title = self._title(session_id, cwd) if cwd else None
             out.append({
                 "sessionId": session_id,
                 "pid": None,
-                "name": names.get(session_id) or entry.get("name") or "kept session",
+                "name": shown_name(names.get(session_id), entry.get("name") or "kept session", cwd, title),
                 "givenName": names.get(session_id),
                 "defaultName": entry.get("name") or "kept session",
                 "cwd": cwd,
@@ -595,7 +600,7 @@ class SessionStore:
                 # For a stopped session these are the mode it was last in and
                 # the last thing it was working on.
                 "permissionMode": self._mode(session_id, cwd) if cwd else None,
-                "title": self._title(session_id, cwd) if cwd else None,
+                "title": title,
                 # How full the conversation is. The detail header draws it, and
                 # offers to compact once it is past halfway. See _context.
                 "context": self._context(session_id, cwd) if cwd else None,

@@ -341,7 +341,7 @@ await evaluate(`document.querySelector('[data-tab="about"]').click()`);
 await sleep(800);
 const about = JSON.parse(await evaluate(`JSON.stringify({
   selected: document.querySelector('[data-tab="about"]').getAttribute('aria-selected'),
-  facts: document.querySelectorAll('.facts dt').length,
+  facts: document.querySelectorAll('.about-facts dt').length,
   window: !!document.querySelector('[data-act="pair"], [data-act="unpair"]'),
   mute: !!document.getElementById('muteToggle'),
 })`));
@@ -371,8 +371,8 @@ await evaluate(`document.querySelector('[data-tab="usage"]').click()`);
 await sleep(1200);
 const use = JSON.parse(await evaluate(`JSON.stringify({
   selected: document.querySelector('[data-tab="usage"]').getAttribute('aria-selected'),
-  tiles: document.querySelectorAll('.use-tile').length,
-  cost: document.querySelector('.use-tile--lead .use-tile__value')?.textContent.trim() || "",
+  tiles: document.querySelectorAll('.spend-stat').length,
+  cost: document.querySelector('.spend-hero__n')?.textContent.trim() || "",
   rows: document.querySelectorAll('.use-table tbody tr').length,
   note: document.querySelector('.git-empty')?.textContent.trim().slice(0, 40) || "",
   wide: document.documentElement.scrollWidth > document.documentElement.clientWidth,
@@ -414,8 +414,8 @@ const totals = JSON.parse(await evaluate(`(async () => {
   box.innerHTML = html;
   return JSON.stringify({
     error,
-    tiles: box.querySelectorAll(".use-tile").length,
-    cost: (box.querySelector(".use-tile--lead .use-tile__value")?.textContent || "").trim(),
+    tiles: box.querySelectorAll(".spend-stat").length,
+    cost: (box.querySelector(".spend-hero__n")?.textContent || "").trim(),
     rows: box.querySelectorAll(".use-table tbody tr").length,
   });
 })()`));
@@ -753,8 +753,8 @@ if (planState.status === 403) {
   await sleep(900);
   const dialog = JSON.parse(await evaluate(`JSON.stringify({
     open: planScrim.dataset.open,
-    bars: document.querySelectorAll('#planBody .plan-limit').length,
-    fills: [...document.querySelectorAll('#planBody .use-bar__fill')].map(f => f.style.width),
+    bars: document.querySelectorAll('#planBody .wt-meter').length,
+    fills: [...document.querySelectorAll('#planBody .wt-meter__fill')].map(f => f.style.width),
     age: document.getElementById('planAge').textContent,
     refresh: !!document.getElementById('planRefresh'),
   })`));
@@ -766,7 +766,7 @@ if (planState.status === 403) {
   check("the dialog offers a refresh", dialog.refresh);
   const planContrast = JSON.parse(await evaluate(`JSON.stringify((() => {
     const out = [];
-    for (const el of document.querySelectorAll('#planHead, .plan-limit__pct, .plan-limit__resets, .plan-block li, .plan-note')) {
+    for (const el of document.querySelectorAll('#planHead, .plan-hero__n, .plan-card__n, .plan-reset, .plan-share__what, .plan-share__how, .plan-tops dt, .plan-why__note')) {
       const fg = window.__hex(getComputedStyle(el).color);
       out.push({ ratio: Math.round(window.__ratio(fg, window.__bgOf(el)) * 100) / 100 });
     }

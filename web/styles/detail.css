@@ -166,8 +166,11 @@
      belong to, and they would ride the animation away from their own text. */
   .panel-wrap--entering { animation: panel-enter var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-standard); }
   @keyframes panel-enter { from { opacity: 0; } }
-  .tab-panel { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
-    padding: var(--md-sys-spacing-4) var(--md-sys-spacing-6) var(--md-sys-spacing-6); }
+  /* The side padding is a property so a view that bleeds to the pane's edges
+     (a subagent, a comparison) can undo exactly what is there at this width. */
+  .tab-panel { --tab-pad-inline: var(--md-sys-spacing-6);
+    flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+    padding: var(--md-sys-spacing-4) var(--tab-pad-inline) var(--md-sys-spacing-6); }
 
   /* Both floating buttons ride in one right-anchored row. The row is laid out
      left to right and ends at the right edge, so the round button keeping its

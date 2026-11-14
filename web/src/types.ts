@@ -209,6 +209,32 @@ export interface Feed {
       patches the entry it already has so the chips move under your finger
       before the next poll confirms it. See pickMode in views/owned.ts. */
   owned?: Record<string, Partial<Owned>>;
+  /** Session id -> what it has shown you, newest first. See views/previews.ts. */
+  previews?: Record<string, Preview[]>;
+  /** Previews you starred: listed under the sessions, with no session attached. */
+  starred?: Starred[];
+}
+
+/** A starred preview. A copy rather than a pointer, so it outlives the session
+    that showed it; `from` is that session, `cwd` where a chat about it starts. */
+export interface Starred extends Preview {
+  from?: string;
+  cwd?: string;
+}
+
+/** Something a session made for you to look at: a page on disk the panel
+    serves, or the address of a server it started. */
+export interface Preview {
+  id: string;
+  kind: "file" | "url";
+  title: string;
+  /** Seconds. Moves every time the session shows it again. */
+  at: number;
+  shown?: number;
+  token?: string;
+  entry?: string;
+  path?: string;
+  url?: string;
 }
 
 /* --------------------------------------------------------------- conversation */

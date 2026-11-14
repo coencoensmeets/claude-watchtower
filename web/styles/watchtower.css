@@ -202,6 +202,173 @@
     background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); }
   .menu { box-shadow: var(--wt-float); }
 
+  /* ===================================================== styleguide kit */
+  /* The component recipes from the styleguide's Forms, Feedback, Navigation and
+     Tables sections, laid over the panel's own markup: filled pill fields with
+     a lilac focus ring, the ink-and-lime switch, ink toasts, alerts on a tint
+     with a round icon, menus and dialogs at the guide's radii, hatched tracks
+     under meters, and the hatched circle that means "nothing here yet". */
+  :root {
+    --wt-lilac: var(--md-extended-color-busy-color, #A59FE2);
+    --wt-lime: var(--md-extended-color-idle-color, #CBDA72);
+    --wt-ember: var(--md-extended-color-waiting-color, #F28C4E);
+    --wt-butter: #F5CD62;
+    --wt-rose: #E9839B;
+    --wt-on-state: #1E1F24;
+    --wt-field: var(--md-sys-color-surface-container);
+    --wt-line: var(--md-sys-color-outline-variant);
+    --wt-hatch-ink: color-mix(in srgb, var(--md-sys-color-on-surface) 9%, transparent);
+    --wt-hatch-fine: repeating-linear-gradient(-45deg, var(--wt-hatch-ink) 0 2px, transparent 2px 7px);
+  }
+
+  /* ---- fields: filled pills, a lilac ring on focus */
+  .dialog__field, .scm-commit__field, .ccard__field, .composer__field, .folder-dialog__path input {
+    border: 0; background: var(--wt-field); color: var(--md-sys-color-on-surface);
+    transition: box-shadow var(--md-sys-motion-duration-short4) var(--wt-ease, ease),
+                background-color var(--md-sys-motion-duration-short4) var(--wt-ease, ease);
+  }
+  .dialog__field { height: 52px; padding: 0 20px; border-radius: var(--md-sys-shape-corner-full); }
+  .scm-commit__field, .ccard__field { border-radius: var(--md-sys-shape-corner-large); padding: 14px 18px; }
+  .scm-commit__field { padding-right: 48px; }
+  .composer__field { border: 0; }
+  .dialog__field:hover, .scm-commit__field:hover:not(:disabled), .ccard__field:hover, .composer__field:hover {
+    background: color-mix(in srgb, var(--wt-field) 70%, var(--wt-line));
+  }
+  .dialog__field:focus-visible, .scm-commit__field:focus-visible, .ccard__field:focus-visible,
+  .composer__field:focus-visible, .composer__field:focus {
+    outline: none; background: var(--md-sys-color-surface-container-lowest);
+    box-shadow: 0 0 0 3px var(--wt-lilac);
+  }
+  .dialog__field::placeholder, .scm-commit__field::placeholder, .ccard__field::placeholder,
+  .composer__field::placeholder { color: var(--md-sys-color-outline); }
+
+  /* ---- switch: a hairline-ringed track; on, it is lime with an ink knob */
+  .switch__track {
+    border: 0; background: var(--wt-field); box-shadow: inset 0 0 0 1.5px var(--wt-line);
+  }
+  .switch__thumb {
+    top: 4px; left: 4px; transform: none; width: 24px; height: 24px;
+    background: var(--md-sys-color-outline);
+    transition: translate 250ms var(--wt-spring, cubic-bezier(.34, 1.56, .64, 1)),
+                background var(--md-sys-motion-duration-short4) var(--wt-ease, ease);
+  }
+  .switch__thumb svg { display: none; }
+  .switch input:checked + .switch__track { background: var(--wt-lime); box-shadow: none; }
+  .switch input:checked + .switch__track .switch__thumb {
+    left: 4px; width: 24px; height: 24px; translate: 20px 0; background: var(--wt-on-state);
+  }
+  .switch input:focus-visible + .switch__track { outline: 3px solid var(--wt-lilac); outline-offset: 3px; }
+
+  /* ---- toast: an ink pill floating over the page */
+  /* A fixed 28px radius is a full pill on one line (56px tall) and a rounded
+     card when the words wrap; corner-full turned long messages into a circle.
+     max-content stops it shrink-wrapping to the half screen right of left:50%. */
+  .snackbar {
+    min-height: 56px; padding: 14px 24px;
+    width: max-content; max-width: min(560px, calc(100vw - 32px)); box-sizing: border-box;
+    line-height: 1.4; text-wrap: pretty;
+    border-radius: 28px;
+    background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);
+    box-shadow: var(--wt-float); font-weight: 500;
+  }
+
+  /* ---- alerts: a tint, a round icon, the words; error is rose */
+  .notify-permission, .settings-notice {
+    position: relative; padding: 14px 18px 14px 64px; min-height: 64px; justify-content: center;
+    border-radius: var(--md-sys-shape-corner-large);
+    background: var(--md-extended-color-busy-tint, var(--md-sys-color-surface-container-high));
+    color: var(--md-sys-color-on-surface);
+  }
+  .notify-permission::before, .settings-notice::before {
+    content: "i"; position: absolute; left: 14px; top: 14px;
+    width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center;
+    background: var(--wt-lilac); color: var(--wt-on-state); font-weight: 800; font-size: 15px;
+  }
+  .notify-permission[data-state="denied"], .notify-permission[data-state="unsupported"],
+  .notify-permission[data-state="insecure"], .settings-notice[data-state="missing"] {
+    background: color-mix(in srgb, var(--wt-rose) 20%, var(--md-sys-color-surface));
+    color: var(--md-sys-color-on-surface);
+  }
+  .notify-permission[data-state="denied"]::before, .notify-permission[data-state="unsupported"]::before,
+  .notify-permission[data-state="insecure"]::before, .settings-notice[data-state="missing"]::before {
+    content: "!"; background: var(--wt-rose);
+  }
+
+  /* ---- menus: a rounded sheet, pill rows, the danger glyph in rose */
+  .menu {
+    padding: 6px; border-radius: var(--md-sys-shape-corner-large);
+    background: var(--md-sys-color-surface); box-shadow: var(--wt-float);
+  }
+  .menu__title { padding: 8px 14px 6px; }
+  .menu__item { min-height: 44px; padding: 0 14px; border-radius: 18px; }
+  .menu__item:hover:not([disabled]) { background: var(--wt-field); }
+  .menu__item:focus-visible { outline: 3px solid var(--wt-lilac); outline-offset: -3px; }
+  .menu__icon { color: var(--md-sys-color-on-surface-variant); }
+  .menu__item--danger { color: var(--md-sys-color-on-surface); }
+  .menu__item--danger .menu__icon { color: var(--wt-rose); }
+  .menu__divider { margin: 4px 10px; }
+
+  /* ---- dialogs: the biggest container on chalk; the page dims to ink */
+  .scrim { background: color-mix(in srgb, #1E1F24 40%, transparent); }
+  .dialog {
+    background: var(--md-sys-color-surface); border-radius: var(--md-sys-shape-corner-extra-large);
+    box-shadow: var(--wt-float);
+  }
+  .dialog__headline { font-weight: 650; letter-spacing: -0.01em; }
+
+  /* ---- key and value: no rules, the value carries the weight */
+  .facts { gap: 10px 24px; grid-template-columns: max-content 1fr; }
+  .facts dt, .facts dd { border-top: 0; padding: 0; }
+  .facts dt { font-weight: 500; }
+  .facts dd { font-weight: 600; color: var(--md-sys-color-on-surface); }
+
+  /* ---- meters: the empty part of a track is hatched */
+  .use-bar, .ctx__bar {
+    background-color: var(--wt-field); background-image: var(--wt-hatch-fine);
+  }
+  .ctx__bar { height: 8px; background-color: color-mix(in srgb, var(--md-sys-color-surface) 70%, transparent); }
+  .use-bar__fill[data-tight="2"], .ctx__fill[data-tight="2"] { background: var(--wt-rose); }
+
+  /* ---- headline numbers: the styleguide's KPI tile */
+  .use-tile { padding: var(--md-sys-spacing-5); border-radius: var(--md-sys-shape-corner-large);
+    background: var(--md-sys-color-surface-container-low); }
+  .use-tile__label { font-weight: 600; }
+  .use-tile__value { font-family: var(--md-ref-typeface-brand); font-size: 1.75rem; line-height: 1.05;
+    font-weight: 600; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+  .use-tile--lead .use-tile__value { font-size: 2.5rem; }
+
+  /* ---- badges and keys */
+  .tab__count, .pv-badge {
+    min-width: 22px; height: 22px; padding: 0 7px; display: inline-grid; place-items: center;
+    border-radius: var(--md-sys-shape-corner-full);
+    font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1;
+  }
+  .tab__count { background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); }
+  kbd {
+    font: 600 12px/1 var(--md-ref-typeface-mono); padding: 4px 7px; border-radius: 7px;
+    background: var(--wt-field); color: var(--md-sys-color-on-surface-variant);
+    box-shadow: inset 0 -1.5px 0 var(--wt-line);
+  }
+
+  /* ---- empty states: a hatched circle with the glyph, a heading, a line */
+  .pv-empty__art, .detail-empty__art {
+    width: 96px; height: 96px; margin: 0 auto var(--md-sys-spacing-4); border-radius: 50%;
+    display: grid; place-items: center;
+    background-color: var(--wt-field); background-image: var(--wt-hatch);
+    color: var(--md-sys-color-on-surface);
+  }
+  .pv-empty__art svg, .detail-empty__art svg { width: 36px; height: 36px; }
+  .pv-empty h3, .detail-empty h2 { font-size: 1.25rem; font-weight: 650; margin: 0 0 6px; color: var(--md-sys-color-on-surface); }
+  .list-empty, .git-empty {
+    margin: var(--md-sys-spacing-2) 0; border-radius: var(--md-sys-shape-corner-large);
+    box-shadow: inset 0 0 0 1.5px var(--wt-line); background-image: var(--wt-hatch);
+    padding: var(--md-sys-spacing-5) var(--md-sys-spacing-4); text-align: center;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .switch__thumb { transition: none; }
+  }
+
   /* ---------------------------------------------------------- narrow panes */
   @media (max-width: 899px) {
     .detail-pane { margin: 0 var(--md-sys-spacing-2) var(--md-sys-spacing-2); border-radius: var(--md-sys-shape-corner-extra-large); }

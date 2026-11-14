@@ -81,7 +81,8 @@ python3 server.py
 | [Focusing a window](#focusing-a-window) | Matching by pid, identifying over the pty, pairing by hand |
 | [Ending a session](#ending-a-session) | SIGTERM, force quit, and the stale-pid check |
 | [Keeping a session](#keeping-a-session-after-it-closes) | Rows that outlive their process, and resuming them |
-| [Design](#design) | Dynamic colour, MD3 tokens, typography, components |
+| [Letting Claude drive the panel](#letting-claude-drive-the-panel) | The MCP server, Settings → Claude skills that installs it, its tools, and what it will not do |
+| [Design](#design) | The Watchtower look: state colours, Urbanist, shapes and motion |
 | [Options](#options) | Flags, URL overrides, fixture sessions |
 | [Keeping it running](#keeping-it-running) | The bundled systemd user unit |
 | [Tests](#tests) | What `tests/ui-check.mjs` asserts over CDP |
@@ -289,6 +290,10 @@ A question a subagent asked is left out: it is not one you can answer.
 *In a terminal instead* is still there, at the foot of the menu, and says what it costs: a session a terminal runs cannot have its mode picked here and cannot have its prompts answered here. It is the exception now rather than the only door.
 
 Under those, **Another folder…** reaches anywhere on the disk, and still without being told a path: it opens your desktop's own folder chooser — `zenity`, `kdialog`, or the one Python's `tkinter` draws, whichever is installed — and starts the session where you picked. The browser asks for the dialog; what comes back out of it never passed through the browser at all, so `/api/new` keeps its rule that a folder comes off a session on screen and never off a request. Cancelling is an ordinary outcome and says so.
+
+**Describe it…** is at the top of the menu when **Watchtower tools** is on. Say what you want to do, and a quick headless Claude (Haiku, no tools) looks at the projects on this computer and answers either *open in ~/robot-app* or *new project ~/coffee-roastery-landing*, with a reason. Nothing happens until you press **Start**, and you can point it at another folder first. Start makes the new folder if there is one, starts a session there, names it, and sends your words as its first turn. For a new project it first asks the session to set the project up. The answer is checked: only folders inside your home, and a new folder only under one that exists.
+
+A session started from **+ New** is pinned from the start, so it survives a panel restart. Unpin it from the row. *In a terminal instead* is not pinned, because the terminal starts it.
 
 Both need the loopback gate that sending needs, for the same reason: they run a command on this machine. A desktop with none of the three choosers, or a panel with no display to draw on, says so on the menu item rather than offering a button that cannot work.
 
@@ -539,6 +544,8 @@ A session arrives with the name Claude Code gives it, which says nothing about w
 
 The name you type shows in the list as well and is kept in `~/.config/claude-watchtower/names.json`, keyed by session id, so it survives a restart of both the panel and the session. Window matching still goes by the session's own name — a name you typed here means nothing to a window title.
 
+A session still on its default name — the folder and a tag, like `claude-watchtower-1d` — goes by the title Claude gives the conversation once it has one, in the list and the header, and follows it as it changes. A name you typed, or one set with `/rename`, still wins. Clear a typed name and the title comes back.
+
 ## Focusing a window
 
 Claude Code sessions do not know which window they live in, so the panel works it out: it walks the session's parent-process chain and looks for a window whose `_NET_WM_PID` sits on that chain, corroborating with the window title — the session's folder, its full path as a terminal writes it (`~/work/thing`), or the name Claude Code gave it. The detail pane labels the result **matched**, **best guess**, **confirmed**, **paired by you**, or **can't tell yet**.
@@ -783,21 +790,69 @@ Two things it will not do:
 
 The turn is launched and let go of: the panel does not sit holding it. What comes back appears in the conversation above like any other turn, because it is read from the transcript like any other turn, and the composer says a turn is running while one is. If it fails, the reason is kept and shown under **Runs in** until the next one.
 
+## Letting Claude drive the panel
+
+The panel is also an MCP server, so a Claude session can do what you do here: see every session on the machine, read what one has been saying, send it a message, start a new one, stop a turn, answer a question, and so on. Turn on **Watchtower tools** in **Settings → Claude skills** and the panel registers it with Claude Code for you, user-wide; turning it off removes it. By hand it is:
+
+```bash
+claude mcp add --scope user watchtower -- python3 /path/to/claude-watchtower/mcp_server.py
+```
+
+### Settings → Claude skills
+
+Recommended add-ons for Claude Code itself, each behind a switch. Nothing is installed until you turn it on.
+
+| Switch | What turning it on does |
+|---|---|
+| **Watchtower tools** | `claude mcp add --scope user watchtower …`, pointing at this checkout's `mcp_server.py` |
+| **Let Claude approve other sessions' tools** | Registers the same server again with `CLAUDE_WATCHTOWER_MCP_APPROVALS=1`; see below for why it is separate |
+| **Watchtower skill** | Links `skills/watchtower` from this checkout into `~/.claude/skills/`, a skill telling Claude when the tools are worth using. A link rather than a copy, so it follows the panel when it updates |
+| **Preview skill** | Links `skills/watchtower-preview` the same way: whenever Claude builds something you can look at — a page, a styleguide, a report, a site, a dev server — it hands it to the panel with `show_preview` |
+| **Watchtower house style** | Links `skills/watchtower-style`: the look in `docs/design/styleguide.html` becomes the default for every page, site, report or UI Claude makes, unless you ask for another style. The skill carries `watchtower.css`, `watchtower-viz.js` (house-style charts) and `watchtower-nav.js` (turn-by-turn along a route, for pages with live location), all cut from the guide by `tools/style_kit.py` — run it after changing the guide; a test fails while they are stale — and a link to the full guide |
+| **Research skill** | Links `skills/watchtower-research`: when you ask Claude to research or look something up online, it frames the question, searches from several angles, reads primary sources rather than snippets, cross-checks claims, and reports with a citation per claim and how sure it is |
+
+The switches show what is really installed, read from `~/.claude.json` and `~/.claude/skills/` each time the tab opens, so a server removed with `claude mcp remove` shows as off. Writes to `~/.claude.json` go through the `claude` CLI, because Claude Code rewrites that file itself and a second writer would race it. A `watchtower` server or skill that is not this panel's is reported and left alone. Only this computer can flip the switches, since they change Claude Code for every session on it. Sessions already open need a restart to pick up a change.
+
+### The tools
+
+`mcp_server.py` starts nothing and keeps nothing. It speaks MCP over stdio, standard library only, and turns each tool into a request or two to the panel that is already running on this machine. It reaches it on loopback, where no key is asked, at the port in `~/.config/claude-watchtower/listen.json` (or `CLAUDE_WATCHTOWER_PORT`). So the tools can do exactly what the panel can and no more, and when the panel is not running they say so rather than starting a second one.
+
+| Tool | What it does |
+|---|---|
+| `list_sessions` | Every session: name, id, state, folder, branch, subject, mode, what it is waiting on. `isYou` marks the session asking |
+| `read_conversation` | A session's latest messages, oldest first, with tool calls if asked, and the question or permission it is standing at |
+| `send_message` | A message to another session, as a new turn, the way the composer sends it: down its socket, or as a turn the panel runs |
+| `start_session` | A new session the panel runs, in a folder inside your home, optionally with a first message |
+| `stop_turn` | Stop a panel-run turn |
+| `answer_question` | Answer the multiple-choice question a panel-run session is asking |
+| `answer_permission` | Allow or deny the tool a panel-run session is asking to use. Allowing is off by default; see below |
+| `set_mode` | Manual, Auto, Plan or Accept edits, for a panel-run session's next turns |
+| `rename_session`, `focus_window`, `end_session` | What the header's own buttons do |
+| `show_preview` | Show you something the session made: an HTML page, a folder with an `index.html`, or a dev server's address. It appears in that session's **Preview** tab |
+
+### Previews
+
+A session that builds something viewable — a styleguide, a report, a static site — calls `show_preview`, and the page turns up in a **Preview** tab on that session, with a lamp on the tab and an icon on the session's row until you have looked. The tab shows it in a frame you can size to a desktop, a tablet or a phone, reload, copy the link of, or **Open** on its own; on a phone the frame simply fills the screen. Showing the same page again moves it to the top and reloads it, and the frame is kept through the pane's own repaints, so a working session does not reload the page under you.
+
+A page on disk is served by the panel from the folder it is in, at `/preview/<token>/…`, so its own stylesheets and pictures load beside it (link them relatively — a path starting with `/` points outside the folder). The token is the access check, 128 random bits reaching only that folder, because the page is served with `Content-Security-Policy: sandbox`: scripts run, but the page gets an origin of its own and cannot read the panel's cookie or call its API as the panel — and a browser does not send the key's cookie with the requests such a page makes for its own files. The same sandbox means `localStorage` throws inside a preview. A page must sit in a folder of its own, not straight in your home or the temporary folder, since the whole folder is what its address can read. A dev server is kept as its address; opened from a phone, `localhost` is swapped for the panel's host name, so a server listening on every interface (`--host`) is reached.
+
+**Starred sites.** The star on the Preview tab keeps a preview in **Starred sites** at the bottom of the sidebar. A tap opens it in a tab of its own. Right-click or hold it for **Open**, **Copy link**, **Open a chat with it** (a new session in its folder, with the site named in the box), **Show the session it came from**, **Rename…** and **Unstar**. A starred site is a copy, kept in `~/.config/claude-watchtower/starred.json`, so it outlives the session and its previews.
+
+**A message says who sent it.** It goes in the cross-session envelope the panel already reads, so in the conversation it is labelled with the sending session's name rather than shown as yours. The server knows which session it belongs to from `CLAUDE_CODE_SESSION_ID`, which Claude Code hands to what it starts, and failing that from its parent process. That is also how it refuses to send to, answer for, or end the session that is using it.
+
+**Approving another session's tools is off by default.** A session that can say yes to another's permission prompts can run anything through it, and a passage it has just read out of some other conversation is enough to steer it into doing so. So `answer_permission` can always deny, but only allows when the server was registered with `CLAUDE_WATCHTOWER_MCP_APPROVALS=1` in its environment: the **Let Claude approve other sessions' tools** switch, or `claude mcp add --scope user watchtower -e CLAUDE_WATCHTOWER_MCP_APPROVALS=1 -- …` by hand (the name before `-e`, which otherwise takes it as another variable). Questions are not gated: an answer to one only picks between the options the session offered. Each tool call still goes through the calling session's own permission prompt like any other MCP tool, so you see what it is about to do unless you have allowed that tool.
+
 ## Design
 
-The interface follows Material Design 3. Nothing about it is hand-picked colour:
+The panel has a look of its own, Watchtower, written down in full in [`docs/design/styleguide.html`](docs/design/styleguide.html). It is laid over Material Design 3 structure — the `--md-sys-*` tokens, the components, the state layers — but the colours are fixed rather than generated.
 
-**Dynamic colour.** The whole palette is generated in the browser from a single seed by `@material/material-color-utilities` — the same library Material uses — and written to the document as `--md-sys-color-*` custom properties. Open **Settings** (the gear in the app bar, which opens a page in the detail pane) for light or dark, contrast, and the base colour from a preset or any colour at all; every surface, container, outline, and state colour is derived from it and the choice is remembered. The scheme uses the `SchemeVibrant` variant, which keeps the seed's hue with strong accents while leaving containers at the pastel tones that guarantee contrast against their `on-` roles.
+**Colour means state.** Ember for a session that needs an answer, lilac for one that is working, lime for one waiting on you, and hatching for one that is closed. They are mid-tones with ink on them, the same in light and dark. Everything else is neutral, and whatever you can press is ink in light mode and chalk in dark. There is no base colour to pick: a generated palette could make two states look alike, and these colours are the states.
 
-Settings also exposes MD3's three **contrast levels** (standard, medium, high), which widen the tonal distance between paired roles for legibility.
+**Typography** is Urbanist, self-hosted in `web/assets/fonts`, with Roboto behind it for any letter it lacks. **Shapes** are pills and circles for controls, and containers round off more the bigger they are; a shape inside another keeps an even gap to it.
 
-**State colours.** Each session state gets a legal MD3 role pair — the container tone fills the avatar and the detail header, the matching `on-` tone draws every glyph on it, so contrast is guaranteed by construction. `working` uses the scheme's own primary, so it always matches your base colour. `waiting`, `running`, and `ready` are extended custom colours with semantic base hues (warm, teal, indigo) that are nudged to the nearest hue keeping at least 35° from the primary and from each other. That is why no two states ever look alike, whichever base colour you pick.
+**Motion** comes in three kinds, all in `web/styles/motion.css`. Response: presses give and spring back, rows lean toward the pointer, the tab pill slides. Arrival: a new message rises in, a row that changes state pops its avatar, the header's new colour grows over the old. Ambient: an arc circles a working avatar and a sheen crosses its header, and a session that needs an answer nudges its icon. The list and pane are rebuilt on every poll, so `web/src/ui/motion.ts` marks only what is really new; a poll that changed nothing moves nothing. `prefers-reduced-motion` stills all of it.
 
-**Typography** is Roboto, MD3's typeface, self-hosted in `web/assets/fonts` with the baseline type scale as `--md-sys-typescale-*` tokens. Shapes come from the shape scale (chips small/8dp, chat bubbles large/16dp, list rows and buttons full, dialog extra-large/28dp) and elevation is expressed as container tone rather than shadow, with shadows reserved for the scrolled app bar, the dialog, and the snackbar.
-
-**Motion** comes from the same token set — `--md-sys-motion-duration-*` and `--md-sys-motion-easing-*` — and one rule governs everything that floats over the panel: it arrives and it leaves, rather than arriving and then blinking out. The jump buttons over the transcript, the context menu, and the quote bar all rise into place and shrink away on the standard 200ms; the panel below the tab strip fades in when it changes tab or session, and pointedly *not* when a poll rebuilds it, so a working session never has what you are reading pulsing at you. Anyone whose system asks for less of it gets none of it, smooth scrolling included: `prefers-reduced-motion` is honoured globally.
-
-Components used: top app bar, navigation-drawer style list items, filter chips, primary tabs, filled/tonal/text/outlined buttons, icon button, switch, segmented button, dialog, divider, snackbar, state layers and ripples. Everything is one static HTML file — no build step, no network at runtime.
+**Settings → Appearance** has four choices, each remembered per browser. **Theme**: Light, Dark or System, which follows the device as it changes. **Text size**: Small, Default, Large or Larger. **Density**: Comfortable or Compact. **Motion**: System, Reduced (nothing loops or flies in) or Off. The colours stay fixed, because they are the states.
 
 ## Options
 
@@ -903,9 +958,12 @@ The unit names no port and no host, so the service is on this install's remember
 | Path | What's inside |
 |---|---|
 | `server.py` | The way in: arguments, the frontend build, the polling thread, serve |
-| `watchtower/` | The panel itself — `config`, `proc`, `sessions`, `rows`, `store`, `transcript`, `usage`, `catalog`, `windows`, `control`, `input`, `owned`, `paste`, `plan`, `update`, `git/`, `http` |
+| `mcp_server.py` | The panel as an MCP server for Claude Code; the work is in `watchtower/mcp.py` |
+| `skills/` | Claude Code skills the panel can install from **Settings → Claude skills** (`watchtower/skills.py`) |
+| `watchtower/` | The panel itself — `config`, `proc`, `sessions`, `rows`, `store`, `transcript`, `usage`, `catalog`, `windows`, `control`, `input`, `owned`, `paste`, `plan`, `update`, `mcp`, `previews`, `route`, `skills`, `git/`, `http` |
 | `watchtower/build.py` | Finds Node and runs the frontend build when `web/` has changed |
 | `tools/build.mjs` | The build: strips types, concatenates stylesheets, copies assets |
+| `tools/style_kit.py` | Cuts the house-style skill's `watchtower.css`, `watchtower-viz.js` and `watchtower-nav.js` out of the styleguide; `--check` says whether they are stale |
 | `web/index.html` | The page shell — markup only |
 | `web/styles/` | The stylesheet, Material 3 |
 | `web/src/` | The panel's TypeScript: `main.ts` orchestrates, `views/` are the tabs, `ui/` the pieces they share |
@@ -1035,6 +1093,15 @@ PANEL_URL=http://127.0.0.1:8787 node tests/ui-check.mjs
 | `POST /api/reach/tls` | Ask `tailscale cert` for the tailnet name's certificate again now and serve it — after switching HTTPS on in the admin console. Loopback only |
 | `POST /api/reach/tailnet` | `{"on": true\|false}` — `tailscale up` or `tailscale down`, answering with the new state and, when signing in is needed, the link. Loopback only, whatever the key |
 | `POST /api/reach/firewall` | Ask Windows to let the network in to the panel's port, for a panel running in WSL: raises a UAC prompt on the desktop, and answers with the firewall's new state. Behind the same gate as the update button, and only when the panel listens beyond loopback |
+| `GET /api/skills` | The recommended Claude Code add-ons in **Settings → Claude skills**, each with whether it is installed — read from `~/.claude.json` and `~/.claude/skills/`, not remembered — and why it cannot be switched when it cannot |
+| `POST /api/skills` | `{"id": "mcp"\|"mcp-approvals"\|"skill"\|"preview-skill"\|"style-skill"\|"research-skill", "on": true\|false}` — install or remove one, answering with the list as it now is. Changes Claude Code's configuration for every session, so this computer only, whatever the key |
+| `POST /api/previews` | `{"sessionId", "target", "title"?}` — a session showing you something it made, from the `show_preview` MCP tool: a path to an HTML page or a folder with an `index.html` (inside your home, the session's folder or the temporary folder, and not one of those folders itself), or an http(s) address. It lands in that session's **Preview** tab; showing the same thing again moves it to the top and keeps its address |
+| `POST /api/previews/remove` | `{"sessionId", "id"}` — take one off the Preview tab. The page itself is left alone |
+| `POST /api/previews/star` | `{"sessionId", "id"}` — star one of that session's previews: a copy goes into **Starred sites** under the sessions, kept in `~/.config/claude-watchtower/starred.json`, and outlives the session |
+| `POST /api/starred/remove` | `{"id"}` — unstar a site. The page itself is left alone |
+| `POST /api/starred/rename` | `{"id", "title"}` — rename a starred site |
+| `POST /api/route` | `{"text"}` — **+ New → Describe it…**: a headless Claude (`haiku`, no tools) is shown what you want and the projects on this computer, and answers where it should run — an existing folder, or a new project folder to make — with a reason. Decides only |
+| `POST /api/route/start` | `{"text", "action", "folder", "setup"?, "title"?}` — act on that decision: make the new project's folder (inside home, new), start a session the panel runs there, send it your words as its first turn (for a new project, prefixed with "set it up first"), and name it |
 | `GET /api/terminal` | Whether *Open in terminal* can work on this machine: the terminal the panel would open, whether `claude` is on the PATH it would open it with, and the line that installs a terminal when there is none |
 | `POST /api/update` | `{"tag": "v1.4.0"}` — check that release out, rebuild the frontend and restart the panel on it. The tag is checked against what the server reads for itself rather than trusted; loopback only |
 | `POST /api/update/channel` | `{"channel": "release"|"development"}` — which line this install follows: the release tags, or the tip of the development branch. Remembered outside the checkout, since an update replaces the checkout. Loopback only, like the update it decides the target of |
