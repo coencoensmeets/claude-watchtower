@@ -36,7 +36,7 @@ import sys
 import threading
 from http.server import ThreadingHTTPServer
 
-from watchtower import build, config, listen
+from watchtower import build, config, listen, wslnet
 from watchtower.config import SESSION_DIR
 from watchtower.http import Handler
 from watchtower.input import is_loopback
@@ -151,6 +151,22 @@ def main() -> None:
                 say("                  or scan the code in Settings — it is the same address")
         else:
             say(f"on this network  → this machine's own address, port {port}{key}")
+        if where:
+            # In a thread: it is powershell.exe, which takes seconds, and it
+            # also warms the answer the settings page will ask for.
+            def wsl_warning() -> None:
+                reach = wslnet.phone_reach(port)
+                if not reach:
+                    return
+                if reach.get("firewall") == "blocked":
+                    say(f"warning: the WSL firewall on Windows blocks port {port}, so a phone will "
+                        "not get in. Allow it from Settings, or in an administrator PowerShell:\n"
+                        f"         {reach['command']}")
+                elif reach.get("mode") == "nat":
+                    say(f"warning: WSL is in NAT mode, so {where} is not reachable from a phone. "
+                        "Set networkingMode=mirrored under [wsl2] in %UserProfile%\\.wslconfig "
+                        "and run `wsl --shutdown`")
+            threading.Thread(target=wsl_warning, daemon=True).start()
         if not config.ACCESS_KEY:
             say("note: --no-key, so anyone who can reach that port can read every conversation")
         elif not listen.key_is_remembered(config.ACCESS_KEY):

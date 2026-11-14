@@ -47,6 +47,7 @@ from watchtower.paste import (DROP_MAX_BYTES, PASTE_MAX_BYTES, POST_MAX_BYTES,
                               save_dropped_file, save_pasted_image)
 from watchtower.plan import read_plan
 from watchtower.listen import lan_address
+from watchtower.wslnet import allow_port, phone_reach
 from watchtower.proc import proc_gone
 from watchtower.qr import svg as qr_svg
 from watchtower.rows import (
@@ -404,7 +405,23 @@ class Handler(BaseHTTPRequestHandler):
             "port": config.SERVE_PORT,
             "key": key,
             "url": url,
+            # Under WSL, what Windows does with a phone's connection before
+            # Linux sees it — the usual reason the code scans and nothing opens.
+            "wsl": phone_reach(config.SERVE_PORT) if where else None,
         })
+
+    @route("POST", "/api/reach/firewall")
+    def _post_reach_firewall(self, payload: dict, session_id: str) -> None:
+        """Ask Windows to let the network in to this port. Raises a UAC prompt
+        on the desktop, so it only ever happens with someone at the machine
+        saying yes — and behind the same gate as the update button, since it
+        changes the machine rather than reading it."""
+        if not config.SAY_ENABLED or not config.SERVE_LAN:
+            self._json({"ok": False, "message": "Not available on this panel"}, 403)
+            return
+        ok, message = allow_port(config.SERVE_PORT)
+        self._json({"ok": ok, "message": message,
+                    "wsl": phone_reach(config.SERVE_PORT)}, 200 if ok else 409)
 
     @route("GET", "/api/terminal")
     def _get_terminal(self) -> None:
