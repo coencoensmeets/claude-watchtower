@@ -12,3 +12,8 @@ __pycache__/
 # Built frontend — regenerated from web/ by `python3 server.py`.
 dist/
 .dist-build/
+
+# A virtualenv in the checkout — where the build looks for a Node binary from
+# nodejs-wheel-binaries when the machine has none of its own.
+.venv/
+venv/
