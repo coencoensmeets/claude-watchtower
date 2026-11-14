@@ -1,0 +1,45 @@
+  /* =============================== appearance ============================== */
+  /* Settings → Appearance: the four choices, and what Compact and the motion
+     setting do. Last in the cascade, because density and motion are overrides
+     of everything above them. Text size needs no rule here: it is the root
+     font size, set from appearance in main.ts, and the type scale is in rem. */
+
+  .appearance-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+    gap: var(--md-sys-spacing-6) var(--md-sys-spacing-5); margin-bottom: var(--md-sys-spacing-6);
+  }
+  .appearance-grid > .section { margin-bottom: 0; }
+  .appearance-pref__says { color: var(--md-sys-color-on-surface-variant); margin: 0 0 var(--md-sys-spacing-3); }
+  .appearance-pref__note { color: var(--md-sys-color-on-surface-variant); margin: var(--md-sys-spacing-2) 0 0; min-height: 1em; }
+  .appearance-pref .segmented { max-width: 100%; }
+  .appearance-pref .segmented__item { min-width: 0; }
+  /* A phone: each choice spans the width in equal parts, and the tick goes —
+     the filled segment already says which is chosen, and four labels and a
+     tick do not fit in 340px. */
+  @media (max-width: 600px) {
+    .appearance-pref .segmented { display: flex; width: 100%; }
+    .appearance-pref .segmented__item { flex: 1 1 0; justify-content: center; padding-inline: 6px; }
+    .appearance-pref .segmented__item[aria-pressed="true"] svg { display: none; }
+  }
+
+  /* ---- Compact: shorter rows, tighter conversation, smaller chrome. */
+  html[data-density="compact"] .session-list { gap: 3px; }
+  html[data-density="compact"] .session-item { padding-block: 3px; gap: var(--md-sys-spacing-2); }
+  html[data-density="compact"] .session-item__avatar { width: 32px; height: 32px; }
+  html[data-density="compact"] .session-item__avatar svg { width: 16px; height: 16px; }
+  html[data-density="compact"] .session-item__lamp { width: 10px; height: 10px; }
+  html[data-density="compact"] .session-item__subject { display: none; }
+  html[data-density="compact"] .chat { gap: var(--md-sys-spacing-2); }
+  html[data-density="compact"] .msg { padding: 9px 14px; }
+  html[data-density="compact"] .detail-header { padding-block: var(--md-sys-spacing-4) var(--md-sys-spacing-3); }
+  html[data-density="compact"] .tab { height: 34px; }
+  html[data-density="compact"] .tab-panel { padding-top: var(--md-sys-spacing-3); }
+  html[data-density="compact"] .menu__item { min-height: 38px; }
+
+  /* ---- Motion. Reduced: nothing loops or arrives, colours still ease. Off: nothing moves. */
+  html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-motion="reduced"] *::after {
+    animation: none !important; scroll-behavior: auto !important;
+  }
+  html[data-motion="off"] *, html[data-motion="off"] *::before, html[data-motion="off"] *::after {
+    animation: none !important; transition: none !important; scroll-behavior: auto !important;
+  }

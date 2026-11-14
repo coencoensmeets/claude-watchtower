@@ -46,7 +46,12 @@ const STYLE_ORDER = [
   "controls.css",     // buttons, switches, segmented buttons, the context menu
   "comments.css",     // the rail, its cards, and the quote chip
   "dialog.css",       // scrims, dialogs, the snackbar
+  "route.css",        // + New → Describe it…: Claude picks the folder
+  "watchtower.css",   // the Watchtower look over the components above
+  "previews.css",     // the Preview tab: pages a session made, in a sized frame
+  "motion.css",       // response, arrival and ambient motion over the look
   "responsive.css",   // last: it narrows what everything above laid out
+  "appearance.css",   // after even that: density and motion override all of it
 ];
 
 async function* walk(dir) {

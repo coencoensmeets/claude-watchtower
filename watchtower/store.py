@@ -28,16 +28,21 @@ from watchtower.control import can_pick_folder
 from watchtower.errands import is_own_errand
 from watchtower.git.read import git_branch, git_root
 from watchtower.owned import OWNED_ASK, OWNED_BUSY, owned_running, owned_moved, owned_state
-from watchtower.proc import ancestors, cpu_seconds, proc_gone, proc_name, proc_starttime, session_tty
+from watchtower.proc import (
+    ancestors, cpu_seconds, descendants, proc_gone, proc_name, proc_starttime, session_tty, started_at,
+)
 from watchtower.rows import kept_rows, refresh_row
 from watchtower.input import session_alive, session_listening
 from watchtower.sessions import PEER_PROTOCOL, child_sessions, peer_protocols
+from watchtower.tmux import pane_of, read_mode, screen, terminal_ask
 from watchtower.transcript import (
-    has_conversation, last_activity, read_ai_title, read_pending_question, read_permission_mode,
-    transcript_paths,
+    has_conversation, last_activity, read_ai_title, read_pending_question, read_pending_tool,
+    read_permission_mode, transcript_paths,
 )
 from watchtower.usage import context_window, scan_usage
-from watchtower.windows import WINDOWS, load_names, load_pairs, save_pairs, window_exists, window_title
+from watchtower.windows import (
+    WINDOWS, load_names, load_pairs, save_pairs, shown_name, window_exists, window_title,
+)
 
 
 def status_age(data: dict, now: float) -> float | None:
@@ -93,6 +98,31 @@ def inferred_status(live: bool) -> str:
     return "busy" if live else "idle"
 
 
+# How long a tool call may sit open, with nothing running for it, before the
+# session is taken to be asking whether it may run it. Most tools that ask are
+# done in well under a second once allowed, or start a process the moment they
+# are, so a few seconds of an open call with no new process is a prompt. Some
+# work in-process and talk to the network or an MCP server for as long as they
+# take, and those get much longer before the same silence counts.
+INFERRED_ASK_SECONDS = 4.0
+SLOW_TOOL_ASK_SECONDS = 45.0
+SLOW_TOOLS = ("WebFetch", "WebSearch")
+# Tools whose open call means something else is working, never that a prompt is
+# up: a subagent writes its own transcript, and a question is read separately.
+NEVER_ASKS = ("Task", "Agent", "AskUserQuestion")
+
+
+def iso_seconds(stamp: object) -> float | None:
+    """A transcript timestamp as an epoch, or None if it is not one."""
+    if not isinstance(stamp, str) or not stamp:
+        return None
+    from datetime import datetime
+    try:
+        return datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
 def is_headless(data: dict) -> bool:
     """Is this session file a headless run rather than a session to watch."""
     return str(data.get("entrypoint") or "").startswith("sdk-")
@@ -112,6 +142,9 @@ class SessionStore:
         self._title_cache: dict[str, tuple[float, str | None]] = {}
         # session id -> (read at, transcript mtime then, the question or None)
         self._question_cache: dict[str, tuple[float, float | None, dict | None]] = {}
+        self._pending_cache: dict[str, tuple[float, float | None, dict | None]] = {}
+        # sessionId -> (mode, when) as last read off its tmux pane's footer.
+        self._live_mode: dict[str, tuple[str, float]] = {}
         self._first_seen: dict[str, float] = {}
         # pid -> (sampled at, cpu seconds then, was it working)
         self._cpu: dict[int, tuple[float, float, bool]] = {}
@@ -265,6 +298,66 @@ class SessionStore:
         self._question_cache[session_id] = (now, touched, value)
         return value
 
+    def _pending_tool(self, session_id: str, cwd: str, now: float) -> dict | None:
+        """The open tool call, cached on the transcript's mtime like _question."""
+        touched = self._transcript_touched(session_id, cwd, now)
+        hit = self._pending_cache.get(session_id)
+        if hit and hit[1] == touched and now - hit[0] < 30:
+            return hit[2]
+        value = read_pending_tool(session_id, cwd)
+        self._pending_cache[session_id] = (now, touched, value)
+        return value
+
+    def _inferred_wait(self, data: dict, session_id: str, now: float) -> dict | None:
+        """What a session that reports no status is blocked on, if anything —
+        or that it is running a tool, which looks just as quiet from outside.
+
+        The VS Code extension never writes a status, so the panel infers one
+        from CPU and the transcript — and both are just as quiet when a turn is
+        over as when it is stopped at a permission prompt. What does differ is
+        the transcript's last tool call: a finished turn has answered every one,
+        and a prompt is a call with no result yet.
+
+        An open call is also what a running tool looks like, though, and a long
+        build is quiet in the session's own process too. The process tree is what
+        separates them: a tool that is running has nearly always started a
+        process since it was called, and one that is waiting to be allowed has
+        started nothing. Processes from before the call — MCP servers, a language
+        server — are older than it and do not count.
+
+        A question is the other way to be blocked, and that is read separately,
+        from the call itself; see read_pending_question.
+        """
+        cwd = data.get("cwd") or ""
+        pid = data.get("pid")
+        if not cwd or not isinstance(pid, int):
+            return None
+        if self._question(session_id, cwd, now):
+            return {"status": "waiting", "waitingFor": "input needed"}
+        pending = self._pending_tool(session_id, cwd, now)
+        if not pending or pending["name"] in NEVER_ASKS:
+            return None
+        called = iso_seconds(pending.get("at"))
+        if called is None:
+            return None
+        patience = SLOW_TOOL_ASK_SECONDS if (
+            pending["name"] in SLOW_TOOLS or pending["name"].startswith("mcp__")
+        ) else INFERRED_ASK_SECONDS
+        # Checked before the patience below: a tool that has started its
+        # process is running however young the call is.
+        for child in descendants(pid):
+            began = started_at(child)
+            # A second of slack for the two clocks: the transcript's stamp is
+            # written just after the process the tool starts may already exist.
+            if began is not None and began >= called - 1:
+                # Running, then — and that is worth saying too: the session's
+                # own process sits idle while its tool works, so without this a
+                # long build in such a session read as a finished turn.
+                return {"status": "busy"}
+        if now - called < patience:
+            return None
+        return {"status": "waiting", "waitingFor": "permission prompt", "waitingTool": pending["name"]}
+
     def _agents_touched(self, session_id: str, cwd: str, now: float) -> float | None:
         """When a subagent was last spawned or cleared away."""
         hit = self._agents_dir_cache.get(session_id)
@@ -398,7 +491,16 @@ class SessionStore:
         for data in self._read_files():
             session_id = data.get("sessionId") or str(data.get("pid"))
             seen.add(session_id)
-            status = effective_status(data, now, self._alive(data, session_id, now))
+            live = self._alive(data, session_id, now)
+            status = effective_status(data, now, live)
+            if not data.get("status") and not live:
+                # A session that never reports a state cannot report being
+                # blocked either, so that is inferred too; see _inferred_wait.
+                inferred = self._inferred_wait(data, session_id, now)
+                if inferred:
+                    status = inferred.pop("status")
+                    if status == "waiting":
+                        data = {**data, **inferred, "waitingInferred": True}
             with self._lock:
                 self._first_seen.setdefault(session_id, now)
                 trace = self._history.setdefault(session_id, [])
@@ -422,6 +524,8 @@ class SessionStore:
                         self._mode_cache.pop(session_id, None)
                         self._title_cache.pop(session_id, None)
                         self._question_cache.pop(session_id, None)
+                        self._pending_cache.pop(session_id, None)
+                        self._live_mode.pop(session_id, None)
                         self._alive_at.pop(session_id, None)
                         self._cpu.pop(gone.get("pid"), None)
 
@@ -455,11 +559,13 @@ class SessionStore:
                 status = "offline"
             chain = ancestors(pid) if isinstance(pid, int) else []
             agents_now = self._agents(session_id, cwd, now) if cwd else None
+            title = self._title(session_id, cwd) if cwd else None
             session = {
                 "sessionId": session_id,
                 "pid": pid,
-                # A name you typed wins over the one the session reports.
-                "name": names.get(session_id) or data.get("name") or f"session {pid}",
+                # A name you typed wins over the one the session reports, and a
+                # default name gives way to what the session is about.
+                "name": shown_name(names.get(session_id), data.get("name") or f"session {pid}", cwd, title),
                 "givenName": names.get(session_id),
                 "defaultName": data.get("name") or f"session {pid}",
                 "cwd": cwd,
@@ -488,7 +594,7 @@ class SessionStore:
                 "permissionMode": self._mode(session_id, cwd) if cwd else None,
                 # What Claude says this session is about, for the line under its
                 # name — the detail pane reads the same thing off the transcript.
-                "title": self._title(session_id, cwd) if cwd else None,
+                "title": title,
                 # How full the conversation is. The detail header draws it, and
                 # offers to compact once it is past halfway. See _context.
                 "context": self._context(session_id, cwd) if cwd else None,
@@ -496,6 +602,15 @@ class SessionStore:
                 # row can show what is being asked rather than only that
                 # something is. See read_pending_question.
                 "question": self._question(session_id, cwd, now) if cwd and alive else None,
+                # What a waiting session is waiting for, as Claude Code words it
+                # in the session file (`permission prompt`, `input needed`), or as
+                # the panel inferred it for a session that writes no status, in
+                # which case it says so and may name the tool. Absent otherwise.
+                **({"waitingFor": data["waitingFor"]}
+                   if status == "waiting" and isinstance(data.get("waitingFor"), str) else {}),
+                **({"waitingInferred": True} if status == "waiting" and data.get("waitingInferred") else {}),
+                **({"waitingTool": data["waitingTool"]}
+                   if status == "waiting" and isinstance(data.get("waitingTool"), str) else {}),
                 # The pane holding this session's prompt open, and so whether its
                 # question can be answered from here at all. A session under a
                 # bare terminal emulator has no pane and reads as null, which is
@@ -548,6 +663,27 @@ class SessionStore:
                     save_pairs(pairs)
                 match = WINDOWS.match(session)
                 session["window"] = match
+            # For a session in a tmux pane, the mode as its footer shows it now,
+            # which beats the transcript's reading: that one is written down only
+            # now and then, never when the mode changes. A screen with a dialog
+            # over the footer says nothing, so the last footer seen stands.
+            pane = pane_of(pid) if alive and isinstance(pid, int) else None
+            if pane:
+                session["tmux"] = True
+                seen = read_mode(screen(pane))
+                if seen:
+                    self._live_mode[session_id] = (seen, now)
+                live = self._live_mode.get(session_id)
+                if live:
+                    session["permissionMode"] = live[0]
+                    session["modeLive"] = True
+            # The prompt itself, read off the screen, for a waiting session in a
+            # tmux pane — the one kind of terminal the panel can press keys in
+            # without risking the wrong session. See watchtower/tmux.py.
+            if status == "waiting" and alive and isinstance(pid, int) and config.SAY_ENABLED:
+                ask = terminal_ask(pid, data.get("waitingFor"))
+                if ask:
+                    session["terminalAsk"] = ask
             out.append(session)
 
         # A kept session whose process has gone still gets a row: same id, same
@@ -559,10 +695,11 @@ class SessionStore:
                 continue
             cwd = entry.get("cwd") or ""
             agents_now = self._agents(session_id, cwd, now) if cwd else None
+            title = self._title(session_id, cwd) if cwd else None
             out.append({
                 "sessionId": session_id,
                 "pid": None,
-                "name": names.get(session_id) or entry.get("name") or "kept session",
+                "name": shown_name(names.get(session_id), entry.get("name") or "kept session", cwd, title),
                 "givenName": names.get(session_id),
                 "defaultName": entry.get("name") or "kept session",
                 "cwd": cwd,
@@ -595,7 +732,7 @@ class SessionStore:
                 # For a stopped session these are the mode it was last in and
                 # the last thing it was working on.
                 "permissionMode": self._mode(session_id, cwd) if cwd else None,
-                "title": self._title(session_id, cwd) if cwd else None,
+                "title": title,
                 # How full the conversation is. The detail header draws it, and
                 # offers to compact once it is past halfway. See _context.
                 "context": self._context(session_id, cwd) if cwd else None,
@@ -659,6 +796,7 @@ class SessionStore:
             self._transcript_cache.pop(session_id, None)
             self._mode_cache.pop(session_id, None)
             self._question_cache.pop(session_id, None)
+            self._pending_cache.pop(session_id, None)
 
     def raw(self, session_id: str) -> dict | None:
         """The session file as last read — including the fields the UI never sees."""

@@ -79,12 +79,11 @@ const parsedTokens = JSON.parse(tokens);
 check("all md-sys / md-extended tokens resolve",
   Object.values(parsedTokens).every((v) => /^#[0-9a-f]{6}$/i.test(v)), `${Object.keys(parsedTokens).length} tokens`);
 check("first paint is not blocked", await evaluate(`document.documentElement.dataset.schemeReady === 'true'`));
-check("Roboto actually loaded", await evaluate(`document.fonts.check('16px Roboto')`));
+check("Urbanist actually loaded", await evaluate(`document.fonts.check('16px Urbanist')`));
 
 const distinct = await evaluate(`(() => {
   const s = getComputedStyle(document.documentElement);
-  const hexes = ['waiting','idle'].map(n => s.getPropertyValue('--md-extended-color-'+n+'-container').trim())
-    .concat([s.getPropertyValue('--md-sys-color-primary-container').trim()]);
+  const hexes = ['waiting','busy','idle'].map(n => s.getPropertyValue('--md-extended-color-'+n+'-container').trim());
   return JSON.stringify({hexes, unique: new Set(hexes).size});
 })()`);
 check("three state containers are distinct", JSON.parse(distinct).unique === 3, JSON.parse(distinct).hexes.join(" "));
@@ -342,7 +341,7 @@ await evaluate(`document.querySelector('[data-tab="about"]').click()`);
 await sleep(800);
 const about = JSON.parse(await evaluate(`JSON.stringify({
   selected: document.querySelector('[data-tab="about"]').getAttribute('aria-selected'),
-  facts: document.querySelectorAll('.facts dt').length,
+  facts: document.querySelectorAll('.about-facts dt').length,
   window: !!document.querySelector('[data-act="pair"], [data-act="unpair"]'),
   mute: !!document.getElementById('muteToggle'),
 })`));
@@ -372,8 +371,8 @@ await evaluate(`document.querySelector('[data-tab="usage"]').click()`);
 await sleep(1200);
 const use = JSON.parse(await evaluate(`JSON.stringify({
   selected: document.querySelector('[data-tab="usage"]').getAttribute('aria-selected'),
-  tiles: document.querySelectorAll('.use-tile').length,
-  cost: document.querySelector('.use-tile--lead .use-tile__value')?.textContent.trim() || "",
+  tiles: document.querySelectorAll('.spend-stat').length,
+  cost: document.querySelector('.spend-hero__n')?.textContent.trim() || "",
   rows: document.querySelectorAll('.use-table tbody tr').length,
   note: document.querySelector('.git-empty')?.textContent.trim().slice(0, 40) || "",
   wide: document.documentElement.scrollWidth > document.documentElement.clientWidth,
@@ -415,8 +414,8 @@ const totals = JSON.parse(await evaluate(`(async () => {
   box.innerHTML = html;
   return JSON.stringify({
     error,
-    tiles: box.querySelectorAll(".use-tile").length,
-    cost: (box.querySelector(".use-tile--lead .use-tile__value")?.textContent || "").trim(),
+    tiles: box.querySelectorAll(".spend-stat").length,
+    cost: (box.querySelector(".spend-hero__n")?.textContent || "").trim(),
     rows: box.querySelectorAll(".use-table tbody tr").length,
   });
 })()`));
@@ -754,8 +753,8 @@ if (planState.status === 403) {
   await sleep(900);
   const dialog = JSON.parse(await evaluate(`JSON.stringify({
     open: planScrim.dataset.open,
-    bars: document.querySelectorAll('#planBody .plan-limit').length,
-    fills: [...document.querySelectorAll('#planBody .use-bar__fill')].map(f => f.style.width),
+    bars: document.querySelectorAll('#planBody .wt-meter').length,
+    fills: [...document.querySelectorAll('#planBody .wt-meter__fill')].map(f => f.style.width),
     age: document.getElementById('planAge').textContent,
     refresh: !!document.getElementById('planRefresh'),
   })`));
@@ -767,7 +766,7 @@ if (planState.status === 403) {
   check("the dialog offers a refresh", dialog.refresh);
   const planContrast = JSON.parse(await evaluate(`JSON.stringify((() => {
     const out = [];
-    for (const el of document.querySelectorAll('#planHead, .plan-limit__pct, .plan-limit__resets, .plan-block li, .plan-note')) {
+    for (const el of document.querySelectorAll('#planHead, .plan-hero__n, .plan-card__n, .plan-reset, .plan-share__what, .plan-share__how, .plan-tops dt, .plan-why__note')) {
       const fg = window.__hex(getComputedStyle(el).color);
       out.push({ ratio: Math.round(window.__ratio(fg, window.__bgOf(el)) * 100) / 100 });
     }
@@ -791,28 +790,44 @@ check("settings opens in the detail pane", await evaluate(
    && document.getElementById('settingsButton').getAttribute('aria-pressed') === 'true'`));
 check("no row claims to be current while it shows", await evaluate(
   `!document.querySelector('.session-item[aria-current="true"]')`));
-check("the page has swatches, a contrast group and a switch per kind", await evaluate(
-  `document.querySelectorAll('#swatches .swatch').length >= 6
-   && document.querySelectorAll('#contrastGroup .segmented__item').length === 3
+/* The palette is fixed — its colours mean session states — so the page has a
+   theme switch and no base colour or contrast to pick. */
+check("the page has a theme switch, no palette picker, and a switch per kind", await evaluate(
+  `!!document.getElementById('themeToggle')
+   && !document.getElementById('swatches') && !document.getElementById('contrastGroup')
    && document.querySelectorAll('#notifySwitches [data-notify]').length === 4`));
 
-const primaryBefore = await evaluate(`getComputedStyle(document.documentElement).getPropertyValue('--md-sys-color-primary').trim()`);
-await evaluate(`[...document.querySelectorAll('#swatches .swatch')][2].click()`);
-await sleep(700);
-const primaryAfter = await evaluate(`getComputedStyle(document.documentElement).getPropertyValue('--md-sys-color-primary').trim()`);
-check("changing the base colour regenerates the scheme", primaryBefore !== primaryAfter, `${primaryBefore} -> ${primaryAfter}`);
-check("base colour persists", await evaluate(`localStorage.getItem('cbu-seed') === '#00A18F'`));
-check("states stay distinct after the seed change", await evaluate(`(() => {
-  const s = getComputedStyle(document.documentElement);
-  const hexes = ['waiting','idle'].map(n => s.getPropertyValue('--md-extended-color-'+n+'-container').trim())
-    .concat([s.getPropertyValue('--md-sys-color-primary-container').trim()]);
-  return new Set(hexes).size === 3; })()`));
+/* Tabs rather than one long page: one panel shows at a time, the strip says
+   which, and the choice survives leaving and coming back. */
+check("settings is split into five tabs, one panel showing", await evaluate(`(() => {
+  const tabs = document.querySelectorAll('#detailPane [data-settings-tab]');
+  const shown = [...document.querySelectorAll('#detailPane [id^="settingsPanel-"]')].filter(p => !p.hidden);
+  return tabs.length === 5 && shown.length === 1; })()`));
+await evaluate(`document.querySelector('#detailPane [data-settings-tab="phone"]').click()`);
+await sleep(200);
+check("picking a tab shows its panel and marks it selected", await evaluate(
+  `!document.getElementById('settingsPanel-phone').hidden
+   && document.getElementById('settingsPanel-appearance').hidden
+   && document.querySelector('[data-settings-tab="phone"]').getAttribute('aria-selected') === 'true'`));
+check("the tab is remembered", await evaluate(`sessionStorage.getItem('watchtower.settingsTab') === 'phone'`));
+await evaluate(`document.querySelector('#detailPane [data-settings-tab="appearance"]').click()`);
+await sleep(200);
 
-const onSurfaceBefore = await evaluate(`getComputedStyle(document.documentElement).getPropertyValue('--md-sys-color-on-surface').trim()`);
-await evaluate(`[...document.querySelectorAll('#contrastGroup .segmented__item')][2].click()`);
-await sleep(600);
-check("high contrast changes the scheme", onSurfaceBefore !==
-  await evaluate(`getComputedStyle(document.documentElement).getPropertyValue('--md-sys-color-on-surface').trim()`));
+/* The theme switch flips the action colour between ink and chalk, and leaves
+   the state colours exactly where they were: a card reads the same in both. */
+const themeBefore = await evaluate(`(() => { const s = getComputedStyle(document.documentElement);
+  return JSON.stringify({ primary: s.getPropertyValue('--md-sys-color-primary').trim(),
+    busy: s.getPropertyValue('--md-extended-color-busy-color').trim() }); })()`);
+await evaluate(`document.getElementById('themeToggle').click()`);
+await sleep(500);
+const themeAfter = await evaluate(`(() => { const s = getComputedStyle(document.documentElement);
+  return JSON.stringify({ primary: s.getPropertyValue('--md-sys-color-primary').trim(),
+    busy: s.getPropertyValue('--md-extended-color-busy-color').trim() }); })()`);
+check("the theme switch flips the action colour", JSON.parse(themeBefore).primary !== JSON.parse(themeAfter).primary,
+  `${JSON.parse(themeBefore).primary} -> ${JSON.parse(themeAfter).primary}`);
+check("state colours are the same in both themes", JSON.parse(themeBefore).busy === JSON.parse(themeAfter).busy);
+await evaluate(`document.getElementById('themeToggle').click()`);
+await sleep(500);
 
 /* Each switch is its own setting, and turning one off leaves the rest alone. */
 await evaluate(`document.querySelector('#notifySwitches [data-notify="done"]').click()`);

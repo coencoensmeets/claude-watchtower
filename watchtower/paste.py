@@ -15,10 +15,14 @@ session's own folder is the useful half of that.
 from __future__ import annotations
 
 import base64
+import json
 import re
+import threading
 import time
 import uuid
 from pathlib import Path
+
+from watchtower import config
 
 
 
@@ -32,7 +36,13 @@ from pathlib import Path
 # comes back to the conversation tomorrow, and not the panel's own config dir,
 # which a session may not be allowed to read: it goes in the session's own
 # folder, under .claude, because that is a place the session already reads from
-# and already has permission for.
+# and already has permission for. Measured, not assumed: a headless session
+# asked to Read a file under ~/.cache answers that it was denied, and a session
+# the panel runs has nobody to approve the prompt.
+#
+# Being in the project is why git must never see it: each folder is given a
+# .gitignore of its own saying `*`, so it stays out of `git status` in every
+# repository without anybody adding a line to theirs.
 PASTE_DIR_NAME = ".claude/watchtower-images"
 # What a browser hands over when a screenshot is pasted, and nothing else. The
 # extension is taken from this list rather than from anything the request says,
@@ -48,13 +58,18 @@ PASTE_TYPES = {
 # clipboard cannot fill the disk one paste at a time.
 PASTE_MAX_BYTES = 12 * 1024 * 1024
 # A pasted picture is worth keeping as long as the conversation that mentions
-# it is being read, and no longer. Each paste sweeps what an earlier one left
-# behind, so the folder does not grow for the rest of the machine's life.
-PASTE_KEEP_SECONDS = 14 * 24 * 3600
+# it is being read, and no longer. Five days covers coming back to a session
+# after a weekend; pictures off a phone camera are several MB each, and a
+# fortnight of them was a folder worth noticing. Swept on every paste, and by
+# sweep_everywhere at startup and every few hours across every folder written to.
+PASTE_KEEP_SECONDS = 5 * 24 * 3600
+SWEEP_EVERY_SECONDS = 6 * 3600
+# What keeps a scratch folder out of git: ignore everything, this file included.
+SCRATCH_GITIGNORE = "# Written by claude-watchtower: scratch for one message, swept after five days.\n*\n"
 
 # A dropped file that had no path, kept apart from the pictures: what is in the
 # images folder is all thumbnailable and all disposable, and a 30 MB archive
-# dragged out of a download is neither. Same parent, same fortnight, same reason
+# dragged out of a download is neither. Same parent, same five days, same reason
 # for being under .claude — the session already reads there.
 DROP_DIR_NAME = ".claude/watchtower-files"
 # Larger than a screenshot's ceiling, because this is whatever was downloaded: a
@@ -77,7 +92,11 @@ def paste_dir(cwd: str) -> Path:
 
 
 def sweep_pastes(folder: Path) -> None:
-    """Drop pictures older than PASTE_KEEP_SECONDS. Failure is not worth a word."""
+    """Drop files older than PASTE_KEEP_SECONDS. Failure is not worth a word.
+
+    Dotfiles are left: the .gitignore is as old as the folder, and sweeping it
+    would put the next paste in `git status`.
+    """
     cutoff = time.time() - PASTE_KEEP_SECONDS
     try:
         entries = list(folder.iterdir())
@@ -85,10 +104,83 @@ def sweep_pastes(folder: Path) -> None:
         return
     for entry in entries:
         try:
-            if entry.is_file() and entry.stat().st_mtime < cutoff:
+            if not entry.name.startswith(".") and entry.is_file() and entry.stat().st_mtime < cutoff:
                 entry.unlink()
         except OSError:
             pass
+
+
+_scratch_lock = threading.Lock()
+
+
+def _scratch_folders() -> list[str]:
+    try:
+        found = json.loads(config.SCRATCH_FILE.read_text())
+    except (OSError, ValueError):
+        return []
+    return [f for f in found if isinstance(f, str)] if isinstance(found, list) else []
+
+
+def _keep_scratch_folders(folders: list[str]) -> None:
+    try:
+        config.SCRATCH_FILE.parent.mkdir(parents=True, exist_ok=True)
+        config.SCRATCH_FILE.write_text(json.dumps(sorted(set(folders)), indent=2) + "\n")
+    except OSError:
+        pass
+
+
+def prepare_scratch(folder: Path) -> None:
+    """Make the folder, keep it out of git, and remember it for the sweep.
+
+    Raises OSError only when the folder itself cannot be made; the .gitignore
+    and the note are worth trying, not worth failing a paste over.
+    """
+    folder.mkdir(parents=True, exist_ok=True)
+    ignore = folder / ".gitignore"
+    if not ignore.exists():
+        try:
+            ignore.write_text(SCRATCH_GITIGNORE)
+        except OSError:
+            pass
+    with _scratch_lock:
+        known = _scratch_folders()
+        if str(folder) not in known:
+            _keep_scratch_folders([*known, str(folder)])
+
+
+def sweep_everywhere() -> None:
+    """Sweep every folder the panel has written into, and forget — and remove —
+    the ones left with nothing in them but their .gitignore."""
+    with _scratch_lock:
+        kept = []
+        for name in _scratch_folders():
+            folder = Path(name)
+            if not folder.is_dir():
+                continue
+            sweep_pastes(folder)
+            try:
+                left = [e for e in folder.iterdir() if e.name != ".gitignore"]
+            except OSError:
+                kept.append(name)
+                continue
+            if left:
+                kept.append(name)
+                continue
+            try:
+                (folder / ".gitignore").unlink(missing_ok=True)
+                folder.rmdir()
+            except OSError:
+                kept.append(name)
+        _keep_scratch_folders(kept)
+
+
+def start_sweeping() -> None:
+    """At startup and every SWEEP_EVERY_SECONDS after, in the background."""
+    def loop() -> None:
+        while True:
+            sweep_everywhere()
+            time.sleep(SWEEP_EVERY_SECONDS)
+    threading.Thread(target=loop, daemon=True, name="scratch-sweep").start()
 
 
 def save_pasted_image(cwd: str, mime: str, data: str) -> tuple[bool, str, str]:
@@ -111,7 +203,7 @@ def save_pasted_image(cwd: str, mime: str, data: str) -> tuple[bool, str, str]:
         return False, "", f"That picture is larger than {PASTE_MAX_BYTES // (1024 * 1024)} MB"
     folder = paste_dir(cwd)
     try:
-        folder.mkdir(parents=True, exist_ok=True)
+        prepare_scratch(folder)
     except OSError as error:
         return False, "", f"Could not write into that session's folder — {error}"
     sweep_pastes(folder)
@@ -166,7 +258,7 @@ def save_dropped_file(cwd: str, name: str, data: str) -> tuple[bool, str, str]:
         return False, "", f"That file is larger than {DROP_MAX_BYTES // (1024 * 1024)} MB"
     folder = drop_dir(cwd)
     try:
-        folder.mkdir(parents=True, exist_ok=True)
+        prepare_scratch(folder)
     except OSError as error:
         return False, "", f"Could not write into that session's folder — {error}"
     sweep_pastes(folder)

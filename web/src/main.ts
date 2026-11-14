@@ -5,18 +5,20 @@
    the parts that are about the app as a whole — the index and its groups, the
    composer, the session menu, the dialogs, and boot. */
 
-import { Hct, SchemeVibrant, TonalPalette, argbFromHex, hexFromArgb } from "/vendor/material-color-utilities.js";
 import { run } from "./net.js";
 import { isAmbiguous, windowSays } from "./sessions/facts.js";
 import { ASK_ICON, ASK_WORD, STATE, STATE_ORDER, displaySince, drawnStateOf, standingAsk, stateKeyOf } from "./sessions/state.js";
 import type { StateKey } from "./sessions/state.js";
 import { CHAT_LIMIT_MAX, CHAT_PAGE, app, chat, loadKeySet, mutedSessions, quietWhenDone, readJson, repo, sayDrafts, selected, sessionById, sidebar, spend, ui } from "./state.js";
 import { askConfirm, askScrim, closeAsk } from "./ui/ask.js";
+import { browseFolder, onThisMachine } from "./ui/folders.js";
+import { openRoute, refreshRouteEnabled, routeEnabled } from "./ui/route.js";
 import { backButton, barNudge, barNudgeIcon, barNudgeLink, barNudgeText, barSupporting, chipSet, control, detailPane, endScrim, hitClosest, hitElement, linkChip, linkChipText, listEmpty, panes, pickBar, pickClear, pickCount, pickGroup, sessionList, settingsButton } from "./ui/dom.js";
 import { duration, escapeHtml, shorten, tokens } from "./ui/format.js";
 import { ICON, hostOf } from "./ui/icons.js";
-import { attachPicture, dropImage, imagesStamp, picturesOn, sendMessage } from "./ui/images.js";
+import { attachPicture, choosePictures, dropImage, imagesStamp, picturesOn, sendMessage } from "./ui/images.js";
 import { wireDrop } from "./ui/dropped.js";
+import { stopVoice, wireVoice } from "./ui/voice.js";
 import { closeSessionMenu, menuIsOpen, openMenu, sessionMenu } from "./ui/menu.js";
 import { onLongPress } from "./ui/press.js";
 import type { MenuItem } from "./ui/menu.js";
@@ -24,16 +26,19 @@ import { announce, paintFavicon } from "./ui/notify.js";
 import { conceal, reveal } from "./ui/overlay.js";
 import { paintSettings, syncTheme } from "./ui/settings.js";
 import { copyText } from "./ui/clipboard.js";
+import { afterDetail, beforeDetail, listDone, rowPainted, still } from "./ui/motion.js";
 import { showSnackbar } from "./ui/snackbar.js";
-import { CONTRAST_LEVELS, MAX_CUSTOM_CHROMA, NOTIFY_KINDS, STATE_BASE_HUES, SYS_ROLES, customRoles, firstFreeHue, kebab } from "./ui/theme.js";
+import { CONTRAST_LEVELS, NOTIFY_KINDS, SYS_ROLES, WT_INK, WT_PAGE, WT_PLENTY, WT_SCHEME, WT_STATE, WT_TINT, kebab } from "./ui/theme.js";
 import { changeBusy, chatPanel, hideChange, showChange } from "./views/change.js";
 import { agentBusy, hideAgent, refreshAgent, showAgent } from "./views/subagent.js";
 import { IDENTIFY_NOTE, commentIsOpen, markCommented, paintTrace, questionCard, renderRail, startRename, wireTrace } from "./views/chat.js";
 import { closeDiff, fetchGit, gitPanel, gitStamp, historyPanel, wireGit } from "./views/git.js";
-import { askPicksFor, compactPct, composer, detailHeader, ownedFor, pickMode, runsHere, sendAskAnswer } from "./views/owned.js";
+import { askPicksFor, compactPct, composer, detailHeader, ownedFor, pickMode, pickTmuxMode, runsHere, sendAskAnswer } from "./views/owned.js";
 import { fetchPlan, openPlan, planScrim } from "./views/plan.js";
 import { fetchUpdate, openUpdate, updateScrim } from "./views/update.js";
 import { aboutPanel, usagePanel } from "./views/usage.js";
+import { previewPanel, previewStamp, previewUnseen, previewsOf, stageKey, wirePreviews } from "./views/previews.js";
+import { renderStarred, wireStarred } from "./views/starred.js";
 import "./ui/markdown.js";
 /* Loaded for its own sake: it wires the message context menu — download or copy
    a message as markdown — onto the detail pane and exports nothing. */
@@ -45,7 +50,14 @@ function loadSettings() {
   const seed = params.get("seed") || localStorage.getItem("cbu-seed");
   if (seed && /^#[0-9a-f]{6}$/i.test(seed)) app.settings.seed = seed;
   const theme = params.get("theme") || localStorage.getItem("cbu-theme");
-  if (theme === "dark" || theme === "light") app.settings.dark = theme === "dark";
+  if (theme === "dark" || theme === "light" || theme === "system") app.settings.themeMode = theme;
+  const pick = <T extends string>(key: string, allowed: readonly T[], fallback: T): T => {
+    const v = localStorage.getItem(key) as T;
+    return allowed.includes(v) ? v : fallback;
+  };
+  app.settings.textSize = pick("wt-text-size", ["small", "default", "large", "larger"] as const, "default");
+  app.settings.density = pick("wt-density", ["comfortable", "compact"] as const, "comfortable");
+  app.settings.motion = pick("wt-motion", ["system", "reduced", "off"] as const, "system");
   const contrast = params.get("contrast") || localStorage.getItem("cbu-contrast");
   if (CONTRAST_LEVELS.some((l) => l.key === contrast)) app.settings.contrast = contrast;
   // Read key by key rather than taken whole: a kind added in a later version
@@ -62,31 +74,51 @@ function loadSettings() {
 }
 export function persist() {
   localStorage.setItem("cbu-seed", app.settings.seed);
-  localStorage.setItem("cbu-theme", app.settings.dark ? "dark" : "light");
+  localStorage.setItem("cbu-theme", app.settings.themeMode);
+  localStorage.setItem("wt-text-size", app.settings.textSize);
+  localStorage.setItem("wt-density", app.settings.density);
+  localStorage.setItem("wt-motion", app.settings.motion);
   localStorage.setItem("cbu-contrast", app.settings.contrast);
   localStorage.setItem("cbu-notify", JSON.stringify(app.settings.notify));
   localStorage.setItem("cbu-editor-button", app.settings.showEditor ? "on" : "off");
 }
 
+const systemDark = matchMedia("(prefers-color-scheme: dark)");
+// Following the device: a phone that turns dark at sunset takes the panel with it.
+systemDark.addEventListener("change", () => { if (app.settings.themeMode === "system") applyScheme(); });
+
+/* Root font size per step. The type scale is in rem, so this moves every word
+   and leaves icons, hit targets and the layout grid where they are. */
+const TEXT_SIZES = { small: "93.75%", default: "100%", large: "112.5%", larger: "125%" };
+
 export function applyScheme() {
   const root = document.documentElement;
-  const seedArgb = argbFromHex(app.settings.seed);
-  const level = CONTRAST_LEVELS.find((l) => l.key === app.settings.contrast) || CONTRAST_LEVELS[0];
-  const scheme = new SchemeVibrant(Hct.fromInt(seedArgb), app.settings.dark, level.value);
+  app.settings.dark = app.settings.themeMode === "system" ? systemDark.matches : app.settings.themeMode === "dark";
+  root.style.fontSize = TEXT_SIZES[app.settings.textSize] || "100%";
+  root.dataset.density = app.settings.density;
+  if (app.settings.motion === "system") delete root.dataset.motion;
+  else root.dataset.motion = app.settings.motion;
+  // The Watchtower palette is fixed (see theme.ts): the M3 role names stay, so
+  // every stylesheet that reads them keeps working, but the values are ours.
+  const mode = app.settings.dark ? "dark" : "light";
+  const scheme = WT_SCHEME[mode];
   for (const role of SYS_ROLES) {
     if (scheme[role] === undefined) continue;
-    root.style.setProperty(`--md-sys-color-${kebab(role)}`, hexFromArgb(scheme[role]));
+    root.style.setProperty(`--md-sys-color-${kebab(role)}`, scheme[role]);
   }
-  const occupied = [Hct.fromInt(scheme.primary).hue];
-  for (const [name, baseHex] of Object.entries(STATE_BASE_HUES)) {
-    const base = Hct.fromInt(argbFromHex(baseHex));
-    const hue = firstFreeHue(base.hue, occupied);
-    occupied.push(hue);
-    const palette = TonalPalette.fromHueAndChroma(hue, Math.min(base.chroma, MAX_CUSTOM_CHROMA));
-    for (const [role, argb] of Object.entries(customRoles(palette, app.settings.dark))) {
-      root.style.setProperty(`--md-extended-color-${name}-${kebab(role)}`, hexFromArgb(argb));
+  // A state's colour and its container are the same mid-tone with ink on it:
+  // the avatar, the header and the ask badge are all the state, said loudly.
+  for (const [name, hex] of Object.entries(WT_STATE)) {
+    const roles = { color: hex, onColor: WT_INK, container: hex, onContainer: WT_INK, tint: WT_TINT[mode][name] };
+    for (const [role, value] of Object.entries(roles)) {
+      root.style.setProperty(`--md-extended-color-${name}-${kebab(role)}`, value);
     }
   }
+  for (const [role, value] of Object.entries(WT_PLENTY[mode])) {
+    root.style.setProperty(`--md-extended-color-plenty-${kebab(role)}`, value);
+  }
+  root.style.setProperty("--wt-page", WT_PAGE[mode]);
+  root.dataset.theme = mode;
   root.style.colorScheme = app.settings.dark ? "dark" : "light";
   root.dataset.schemeReady = "true";
   // The switch lives on the settings page, which is only sometimes on screen —
@@ -644,6 +676,7 @@ function renderNudge(counts: Record<string, number>) {
 
 /* --------------------------------------------------------------- rendering */
 function render() {
+  renderStarred();
   const counts: Record<string, number> = {};
   for (const session of app.feed.sessions) {
     const key = stateKeyOf(session.status);
@@ -799,6 +832,7 @@ function renderList(visible) {
     const count = item.querySelector(".group__count");
     if (count) count.textContent = inside ? `${inside} of ${block.sessions.length}` : String(block.sessions.length);
   }
+  listDone(visible.length);
   syncPickBar();
 }
 
@@ -870,7 +904,8 @@ function paintListItem(item, session) {
   // question: a compacting session and a working one share a status, and the row
   // says different words for them.
   const signature = [stateKeyOf(session.status), state.short, session.name, session.folder, host.label,
-                     isSelected, session.pinned, subject, nested, ask?.kind, ask?.label, fanned].join(" ");
+                     isSelected, session.pinned, subject, nested, ask?.kind, ask?.label, fanned,
+                     previewsOf(session).length, previewUnseen(session)].join(" ");
   if (item.dataset.signature !== signature) {
     item.dataset.signature = signature;
     item.innerHTML = `
@@ -880,7 +915,10 @@ function paintListItem(item, session) {
         <span class="session-item__text">
           <span class="session-item__headline md-title-small">${
             session.pinned ? `<span class="session-item__pin" title="Pinned — survives a panel restart">${ICON.pin}</span>` : ""
-          }${escapeHtml(session.name)}</span>
+          }<span class="session-item__name">${escapeHtml(session.name)}</span>${previewsOf(session).length
+            ? `<span class="session-item__preview md-label-small" data-new="${previewUnseen(session)}" title="${
+                previewUnseen(session) ? "Shown you something new" : "Has something to preview"}">${ICON.preview}${
+                previewsOf(session).length > 1 ? `<span>${previewsOf(session).length}</span>` : ""}</span>` : ""}</span>
           ${subject ? `<span class="session-item__subject md-body-small">${escapeHtml(subject)}</span>` : ""}
           <span class="session-item__supporting md-body-small">${supporting}</span>
         </span>
@@ -901,11 +939,13 @@ function paintListItem(item, session) {
     // The id, not the session: the object is replaced on every poll, the row is not.
     const id = session.sessionId;
     button.addEventListener("click", (event) => onRowClick(id, event));
+    rowPainted(button, id, stateKeyOf(session.status), true);
   } else {
     const button = item.firstElementChild;
     button.setAttribute("aria-current", String(isSelected));
     button.dataset.picked = String(isPicked);
     button.dataset.status = stateKeyOf(session.status);
+    rowPainted(button, session.sessionId, stateKeyOf(session.status), false);
   }
   const trailing = item.querySelector("[data-since]");
   if (trailing) trailing.dataset.since = displaySince(session);
@@ -1096,20 +1136,46 @@ function openNewMenu(button) {
     disabled: !app.feed.canSend,
     run: (el) => startOwnedSession({ from: session }, el),
   }));
+  // Say what you want and let Claude pick the folder, or set up a new project.
+  // First, because it is the one door that needs no folder in mind; offered
+  // while the Watchtower tools are on, as part of Claude driving the panel.
+  if (routeEnabled() && app.feed.canSend) {
+    items.unshift({
+      key: "route",
+      icon: ICON.sparkle,
+      label: "Describe it…",
+      hint: "Claude picks the project, or starts a new one",
+      run: () => openRoute(async (sessionId) => {
+        app.selectedId = sessionId;
+        localStorage.setItem("cbu-selected", sessionId);
+        setTab("chat");
+        await poll();
+      }),
+    }, { divider: true });
+  }
+  refreshRouteEnabled();
   // Anywhere else on the disk. The panel will not be told a path — /api/new
   // refuses one and this endpoint asks for a chooser rather than sending one —
   // so the folder is picked in a window the desktop draws, on the machine the
   // session will run on. It stays last: the folders above are the answer most
   // of the time.
   if (items.length) items.push({ divider: true });
+  // Off this machine — a phone — the desktop's chooser would open on a screen
+  // nobody holding the phone can see, so the panel lists the folders itself.
+  // It does the same on a desktop with no chooser to open.
+  const browse = !onThisMachine() || app.feed.canPickFolder === false;
   items.push({
     key: "pick",
     icon: ICON.folder,
     label: "Another folder…",
     hint: !app.feed.canSend ? "needs loopback"
-      : app.feed.canPickFolder === false ? "no chooser on this desktop" : "opens a folder chooser",
-    disabled: !app.feed.canSend || app.feed.canPickFolder === false,
-    run: (el) => startOwnedSession({ pick: true }, el),
+      : browse ? "browse this computer's folders" : "opens a folder chooser",
+    disabled: !app.feed.canSend,
+    run: async (el) => {
+      if (!browse) return startOwnedSession({ pick: true }, el);
+      const cwd = await browseFolder();
+      if (cwd) startOwnedSession({ cwd }, el);
+    },
   });
   items.push({ divider: true });
   items.push({
@@ -1358,6 +1424,17 @@ function anchorIdOf(node, after) {
   return (after ? rows[rows.length - 1] : rows[0])?.dataset.id ?? null;
 }
 
+/* Only a mouse carries a row. A phone's browser starts its own drag on a long
+   press of anything draggable — Chrome on Android and Safari on iOS both do —
+   and that drag cancels the pointer, so the hold that opens the row's menu
+   (onLongPress below) never gets to fire. Deciding per press, before the
+   browser does, keeps the drag for the mouse and the menu for the finger.
+   Capture, so it is settled before anything on the row hears the press. */
+sessionList.addEventListener("pointerdown", (event) => {
+  const button = hitClosest(event, ".session-item") as HTMLElement | null;
+  if (button) button.draggable = event.pointerType === "mouse";
+}, true);
+
 sessionList.addEventListener("dragstart", (event) => {
   const row = hitClosest(event, "li[data-id]");
   if (!row || !hitClosest(event, ".session-item")) return;
@@ -1483,7 +1560,8 @@ function renderDetail(force = false) {
   if (!session) {
     detailPane.dataset.signature = "";
     detailPane.innerHTML = `<div class="detail-empty">
-      <div><h2 class="md-headline-small">Nothing selected</h2>
+      <div><div class="detail-empty__art" aria-hidden="true">${ICON.tower}</div>
+      <h2 class="md-headline-small">Nothing selected</h2>
       <p class="md-body-medium">Pick a session on the left to see its conversation and settings.</p></div></div>`;
     return;
   }
@@ -1492,6 +1570,8 @@ function renderDetail(force = false) {
   // A session outside a repository has no Git tab to show, so a tab left over
   // from the last session you looked at falls back rather than showing nothing.
   if (isGitTab(app.tab) && !session.repoRoot) app.tab = "chat";
+  // The same for Preview, on a session that has never shown anything.
+  if (app.tab === "preview" && !previewsOf(session).length) app.tab = "chat";
   const signature = [
     session.sessionId, session.name, stateKeyOf(session.status), session.branch, session.window?.confidence,
     host.label, app.tab, chat.transcript?.messages?.length ?? -1, chat.transcript?.title ?? "",
@@ -1499,10 +1579,15 @@ function renderDetail(force = false) {
     spend.usageFor === session.sessionId ? usageStamp(spend.usage) : "",
     mutedSessions.has(session.sessionId), app.feed.canFocus, app.feed.canSend, session.canSay,
     session.pinned, session.kept,
-    session.permissionMode ?? "", session.title ?? "", session.parentName ?? "",
+    session.permissionMode ?? "", session.modeLive ?? "", session.title ?? "", session.parentName ?? "",
+    // What it has shown you, and which of it is on screen.
+    previewStamp(session),
     // A question going up or being answered has to redraw the pane; the tool use
     // it came in on is what tells one question from the next.
     session.question?.toolUseId ?? "",
+    // A prompt read off a tmux pane is keyed on what was on screen, so the next
+    // question of several, or the screen after an answer, redraws too.
+    session.terminalAsk?.requestId ?? "",
     // What is pasted into the box but not sent yet. The strip is drawn from a
     // map rather than from the server, so nothing else here would move when a
     // picture lands or finishes saving.
@@ -1611,12 +1696,23 @@ function renderDetail(force = false) {
   // order, so a data-tab here answers every [data-tab="…"] lookup meant for the
   // buttons inside it — including the ones the tests click.
   const cameFrom = `${detailPane.dataset.sessionId || ""}/${detailPane.dataset.showing || ""}`;
+  beforeDetail(detailPane, session.sessionId);
   detailPane.dataset.sessionId = session.sessionId;
   detailPane.dataset.showing = app.tab;
-  detailPane.innerHTML = `
+  // A preview frame that is still showing the same page is kept through the
+  // rebuild — rebuilt, it would reload the page under you on every repaint.
+  // It never leaves the document, which is what keeps it from reloading:
+  // everything around it is replaced and it is left where it stands.
+  const keptWrap = app.tab === "preview"
+    ? detailPane.querySelector<HTMLElement>(`.panel-wrap:has(> .tab-panel > .pv[data-stage-key="${CSS.escape(stageKey(session))}"])`)
+    : null;
+  const detailHtml = `
     ${detailHeader(session, state, host)}
     <div class="tabs" role="tablist">
       <button class="tab md-state md-label-large" role="tab" data-tab="chat" aria-selected="${app.tab === "chat"}">${ICON.chat}Conversation</button>
+      ${previewsOf(session).length ? `<button class="tab tab--preview md-state md-label-large" role="tab" data-tab="preview" aria-selected="${app.tab === "preview"}">${ICON.preview}Preview${
+        previewUnseen(session) && app.tab !== "preview" ? `<span class="tab__lamp" aria-label="New"></span>`
+        : previewsOf(session).length > 1 ? `<span class="tab__count md-label-small">${previewsOf(session).length}</span>` : ""}</button>` : ""}
       ${session.repoRoot ? `
         <button class="tab md-state md-label-large" role="tab" data-tab="git" aria-selected="${app.tab === "git"}">${ICON.branch}Git</button>
         <button class="tab md-state md-label-large" role="tab" data-tab="history" aria-selected="${app.tab === "history"}">${ICON.history}History</button>` : ""}
@@ -1624,8 +1720,9 @@ function renderDetail(force = false) {
       <button class="tab md-state md-label-large" role="tab" data-tab="about" aria-selected="${app.tab === "about"}">${ICON.info}Details</button>
     </div>
     <div class="panel-wrap">
-      <div class="tab-panel" id="chatScroll" role="tabpanel">
+      <div class="tab-panel${app.tab === "preview" ? " tab-panel--preview" : ""}" id="chatScroll" role="tabpanel">
         ${app.tab === "chat" ? chatPanel(session)
+          : app.tab === "preview" ? previewPanel(session)
           : app.tab === "git" ? gitPanel(session)
           : app.tab === "history" ? historyPanel(session)
           : app.tab === "usage" ? usagePanel(session)
@@ -1639,11 +1736,24 @@ function renderDetail(force = false) {
     </div>
     ${app.tab === "chat" ? questionCard(session) : ""}
     ${app.tab === "chat" ? composer(session) : ""}`;
+  if (keptWrap) {
+    for (const child of [...detailPane.childNodes]) if (child !== keptWrap) child.remove();
+    const made = document.createElement("template");
+    made.innerHTML = detailHtml;
+    const nodes = [...made.content.childNodes];
+    const at = nodes.findIndex((n) => n instanceof HTMLElement && n.classList.contains("panel-wrap"));
+    keptWrap.before(...nodes.slice(0, at));
+    keptWrap.after(...nodes.slice(at + 1));
+  } else {
+    detailPane.innerHTML = detailHtml;
+  }
 
   const header = detailPane.querySelector<HTMLElement>(".detail-header");
   header.style.setProperty("--state-colour", state.colour);
   header.style.setProperty("--state-container", state.container);
   header.style.setProperty("--state-on-container", state.onContainer);
+  afterDetail(detailPane, session.sessionId, stateKeyOf(session.status), state.container,
+              chat.transcriptFor === session.sessionId);
 
   paintTrace(header, session);
   wireTrace(header);
@@ -1670,12 +1780,6 @@ function renderDetail(force = false) {
   // terminal. The pane repaints off the next poll, by which point the row is a
   // terminal session again and offers Make interactive instead.
   detailPane.querySelector("[data-act='terminal']")?.addEventListener("click", (e) => run("/api/start", session, control(e)));
-  // The same hand-back with Remote Control switched on. It is the only way the
-  // panel can give a session Remote Control: that needs an interactive session,
-  // and a session the panel runs is `claude --print` down a pipe, where
-  // /remote-control is answered with "not available in this environment".
-  detailPane.querySelector("[data-act='remote']")?.addEventListener("click", (e) =>
-    run("/api/start", session, control(e), null, { remoteControl: true }));
   detailPane.querySelector("#stickyToggle")?.addEventListener("change", (event) =>
     run("/api/sticky", session, control(event), null,
         { pinned: control<HTMLInputElement>(event).checked }));
@@ -1751,6 +1855,7 @@ function renderDetail(force = false) {
         // only [data-act=own], and looking for [data-act=say] alone found
         // nothing — so Enter did nothing at all on the sessions the panel runs.
         const here = detailPane.querySelector("[data-act='own']");
+        stopVoice();
         sendMessage(session, here || detailPane.querySelector("[data-act='say']"), !!here);
       }
     });
@@ -1769,6 +1874,12 @@ function renderDetail(force = false) {
   // Leaving out a picture that was pasted by mistake. The file it saved stays
   // where it is — the sweep on the next paste is what clears it — and all this
   // drops is the panel's intention to name it.
+  detailPane.querySelector("[data-act='pick-picture']")?.addEventListener("click",
+    () => choosePictures(session, false));
+  detailPane.querySelector("[data-act='take-picture']")?.addEventListener("click",
+    () => choosePictures(session, true));
+  // The microphone: drawn hidden, shown where the browser will lend it.
+  wireVoice(session.sessionId);
   for (const drop of detailPane.querySelectorAll<HTMLElement>("[data-act='unattach']")) {
     drop.addEventListener("click", () => dropImage(session.sessionId, drop.dataset.id));
   }
@@ -1787,7 +1898,7 @@ function renderDetail(force = false) {
   detailPane.querySelector("[data-act='resume']")?.addEventListener("click", (e) =>
     run("/api/owned/resume", session, control(e)));
   // Answering the prompt a panel turn is standing on.
-  const standing = ownedFor(session).ask;
+  const standing = ownedFor(session).ask || session.terminalAsk;
   if (standing) {
     const picks = askPicksFor(standing);
     for (const pick of detailPane.querySelectorAll<HTMLElement>(".ask--live [data-answer]")) {
@@ -1832,9 +1943,14 @@ function renderDetail(force = false) {
   for (const chip of detailPane.querySelectorAll("[data-mode]")) {
     chip.addEventListener("click", () => pickMode(session, chip));
   }
+  // A terminal session in tmux: picking presses Shift+Tab there.
+  for (const chip of detailPane.querySelectorAll("[data-tmux-mode]")) {
+    chip.addEventListener("click", () => pickTmuxMode(session, chip));
+  }
 
   // Both git tabs carry the same header, and the header has buttons in it.
   if (isGitTab(app.tab)) wireGit(session);
+  if (app.tab === "preview") wirePreviews(session, () => renderDetail(true));
 
   detailPane.querySelector("[data-act='more']")?.addEventListener("click", showMoreChat);
   // A change opens on the bar or on the folded patch itself — the whole block is
@@ -1866,6 +1982,7 @@ function renderDetail(force = false) {
     chat.chatGrew = false;
   } else if (chatAfter && app.tab === "chat" && wasAtBottom) {
     chatAfter.scrollTop = chatAfter.scrollHeight;
+    stickToBottom(chatAfter);
   } else if (chatAfter && app.tab === "chat" && sameSession) {
     chatAfter.scrollTop = chatWas;
   }
@@ -2010,12 +2127,51 @@ function setFold(folded, byHand = false) {
   button.title = what;
 }
 
+/* Holding the conversation at its newest message while it finishes drawing.
+
+   The pane is placed at the bottom the moment it is rebuilt, but a picture in a
+   message loads after that (lazily, with no size known up front) and so does
+   anything drawn late, like maths. Each one grew the conversation under a
+   bottom that had already been chosen, and the newest message ended up below
+   the fold. So for a while after a rebuild, growth keeps it at the bottom —
+   until you scroll away yourself, which always wins. */
+let bottomHold: ResizeObserver | null = null;
+const BOTTOM_HOLD_MS = 4000;
+function stickToBottom(scroller: HTMLElement) {
+  bottomHold?.disconnect();
+  const content = scroller.firstElementChild;
+  if (!content || typeof ResizeObserver === "undefined") return;
+  let held = true;
+  const hold = new ResizeObserver(() => {
+    if (held && scroller.isConnected) scroller.scrollTop = scroller.scrollHeight;
+  });
+  bottomHold = hold;
+  hold.observe(content);
+  // Wheel, touch and keys are you; a scroll event alone may be our own.
+  const letGo = () => { held = false; hold.disconnect(); };
+  for (const kind of ["wheel", "touchstart", "keydown", "pointerdown"]) {
+    scroller.addEventListener(kind, letGo, { once: true, passive: true });
+  }
+  setTimeout(() => { if (bottomHold === hold) { hold.disconnect(); bottomHold = null; } }, BOTTOM_HOLD_MS);
+  // A picture that finishes after the hold has ended still lands at the
+  // bottom, as long as you were at the bottom when it did.
+  for (const img of scroller.querySelectorAll<HTMLImageElement>("img")) {
+    if (img.complete) continue;
+    img.addEventListener("load", () => {
+      if (!held || !scroller.isConnected) return;
+      scroller.scrollTop = scroller.scrollHeight;
+    }, { once: true });
+  }
+}
+
 function wireHeaderFold(scroller) {
   detailPane.querySelector<HTMLElement>(".fold-button")?.addEventListener("click", () => {
     foldHeld = true;
     setFold(!ui.headerFolded, true);
   });
-  if (!scroller) return;
+  // A kept preview frame brings its scroller through the rebuild; wired once.
+  if (!scroller || scroller.dataset.foldWired) return;
+  scroller.dataset.foldWired = "1";
   const sync = () => {
     if (!onPhone()) return;
     const room = scroller.scrollHeight - scroller.clientHeight;
@@ -2028,7 +2184,7 @@ function wireHeaderFold(scroller) {
 
 /* Smooth scrolling is motion like any other, and someone who has asked their
    system for less of it means this too. */
-const glide = () => (matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth");
+const glide = () => (still() ? "auto" : "smooth");
 
 /* One line, matching the send button beside it. */
 const COMPOSER_MIN = 48;
@@ -2264,10 +2420,11 @@ function cmdNote(asked, session) {
   // /remote-control down in a session the panel runs — Remote Control wants an
   // interactive session and this one is `claude --print` down a pipe — and
   // "does not list a /remote-control" is true but reads as *this cannot be
-  // done*, when in fact the panel has a button for it two inches away.
+  // done*, when it is one step away: hand it to a terminal and type it there.
   if (asked.name.toLowerCase() === "remote-control" && session && runsHere(session)) {
     return `Remote Control needs a session in a terminal, and this one runs down the panel's
-      pipe. <b>Remote Control</b> in the header hands it to a terminal with that switched on.`;
+      pipe. <b>Open in terminal</b> in the header hands it over — type
+      <span class="md-mono">/remote-control</span> there.`;
   }
   if (terminalOnly(asked.name, session)) {
     return `<span class="md-mono">/${escapeHtml(asked.name)}</span> only works at this session's
@@ -2408,13 +2565,21 @@ function closeEndDialog() {
    names the session itself — `--session-id` takes a uuid of our choosing — so
    the row exists the moment it is started and the first message is the first
    thing you type into it, in the session, like any other. */
-async function startOwnedSession(where, item) {
+/* A starred site's "Open a chat with it": a new session in the folder it came
+   from, with the site already named in the box for you to finish the sentence. */
+wireStarred({
+  startChat: (cwd, prefill, item) => startOwnedSession({ cwd }, item, prefill),
+  showSession: (id) => selectSession(id),
+});
+
+async function startOwnedSession(where, item, prefill = "") {
   if (item) item.disabled = true;
   showSnackbar(where.pick ? "Pick a folder in the chooser…" : "Starting it…", 300000);
   try {
     const response = await fetch("/api/owned/new", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(where.pick ? { pick: true } : { sessionId: where.from.sessionId }),
+      body: JSON.stringify(where.pick ? { pick: true }
+        : where.cwd ? { cwd: where.cwd } : { sessionId: where.from.sessionId }),
     });
     const data = await response.json().catch(() => ({}));
     showSnackbar(data.message || (response.ok ? "Started" : "That did not start"));
@@ -2423,7 +2588,14 @@ async function startOwnedSession(where, item) {
       localStorage.setItem("cbu-selected", data.sessionId);
       setTab("chat");
       await poll();
-      detailPane.querySelector<HTMLTextAreaElement>("#sayField")?.focus();
+      const field = detailPane.querySelector<HTMLTextAreaElement>("#sayField");
+      if (field && prefill) {
+        field.value = prefill;
+        // So the draft is kept and the box sized, as if it had been typed.
+        field.dispatchEvent(new Event("input", { bubbles: true }));
+        field.setSelectionRange(prefill.length, prefill.length);
+      }
+      field?.focus();
     }
   } catch (error) {
     showSnackbar("Could not reach the server");
@@ -2700,7 +2872,7 @@ document.addEventListener("click", (event) => {
 document.addEventListener("pointerdown", (event) => {
   const target = hitClosest<HTMLButtonElement>(event, ".md-state");
   if (!target || target.disabled) return;
-  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  if (still()) return;
   const box = target.getBoundingClientRect();
   const size = Math.max(box.width, box.height);
   const ripple = document.createElement("span");

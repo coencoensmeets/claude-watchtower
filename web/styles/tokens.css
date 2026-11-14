@@ -9,6 +9,22 @@
     font-weight: 100 900;
     font-display: swap;
   }
+  /* Urbanist: the Watchtower face. Geometric with round bowls, to match the
+     pill shapes. Two subsets so a page in plain Latin loads only the first. */
+  @font-face {
+    font-family: "Urbanist";
+    src: url("/fonts/Urbanist.woff2") format("woff2");
+    font-weight: 100 900;
+    font-display: swap;
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+  }
+  @font-face {
+    font-family: "Urbanist";
+    src: url("/fonts/Urbanist-ext.woff2") format("woff2");
+    font-weight: 100 900;
+    font-display: swap;
+    unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+  }
   @font-face {
     font-family: "Roboto Mono";
     src: url("/fonts/RobotoMono.woff2") format("woff2");
@@ -18,19 +34,21 @@
 
   :root {
     /* --- md.ref.typeface --- */
-    --md-ref-typeface-brand: "Roboto", system-ui, sans-serif;
-    --md-ref-typeface-plain: "Roboto", system-ui, sans-serif;
+    /* Roboto stays behind Urbanist for anything Urbanist has no glyph for. */
+    --md-ref-typeface-brand: "Urbanist", "Roboto", system-ui, sans-serif;
+    --md-ref-typeface-plain: "Urbanist", "Roboto", system-ui, sans-serif;
     --md-ref-typeface-mono: "Roboto Mono", ui-monospace, monospace;
 
     /* --- md.sys.shape.corner --- */
     --md-sys-shape-corner-none: 0;
-    --md-sys-shape-corner-extra-small: 4px;
-    --md-sys-shape-corner-small: 8px;
-    --md-sys-shape-corner-medium: 12px;
-    --md-sys-shape-corner-large: 16px;
-    --md-sys-shape-corner-large-increased: 20px;
-    --md-sys-shape-corner-extra-large: 28px;
-    --md-sys-shape-corner-extra-large-increased: 32px;
+    /* Watchtower radii: rounder than M3's, growing with the size of the thing. */
+    --md-sys-shape-corner-extra-small: 6px;
+    --md-sys-shape-corner-small: 10px;
+    --md-sys-shape-corner-medium: 16px;
+    --md-sys-shape-corner-large: 24px;
+    --md-sys-shape-corner-large-increased: 28px;
+    --md-sys-shape-corner-extra-large: 32px;
+    --md-sys-shape-corner-extra-large-increased: 44px;
     --md-sys-shape-corner-full: 9999px;
 
     /* --- md.sys.motion --- */

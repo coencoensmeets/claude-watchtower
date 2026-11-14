@@ -208,7 +208,6 @@
        single wide display makes the whole panel scroll sideways. */
     overflow-x: auto; overflow-y: hidden;
     overscroll-behavior-x: contain;
-    scrollbar-width: thin;
     margin: var(--md-sys-spacing-3) 0;
     text-align: center;
   }
@@ -306,7 +305,7 @@
      thing you can still type into is the thing in the panel's first colour. */
   .agent-panel {
     display: flex; flex-direction: column; min-height: 100%;
-    margin: calc(var(--md-sys-spacing-4) * -1) calc(var(--md-sys-spacing-6) * -1)
+    margin: calc(var(--md-sys-spacing-4) * -1) calc(var(--tab-pad-inline, var(--md-sys-spacing-6)) * -1)
             calc(var(--md-sys-spacing-6) * -1);
     /* Deeper than the conversation it stands in front of, not merely a
        different hue. A scheme built from one seed makes the secondary ramp a

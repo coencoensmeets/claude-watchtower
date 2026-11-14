@@ -92,6 +92,9 @@ AGENT_DOCK_MAX = 6
 # branch. Kept beside the file above rather than in the checkout, because it is a
 # fact about this install and an update replaces the checkout under it.
 CHANNEL_FILE = HOME / ".config" / "claude-watchtower" / "channel.json"
+# Every folder the panel has written a pasted picture or a dropped file into,
+# so the five-day sweep reaches a project nobody has pasted into since.
+SCRATCH_FILE = HOME / ".config" / "claude-watchtower" / "scratch.json"
 
 # The branch the development channel follows. Not configurable from the browser:
 # a name from a request is a name the panel would check out.

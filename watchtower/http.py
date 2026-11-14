@@ -17,13 +17,17 @@ must be inside your home folder or the session's own. See _resolve_under.
 from __future__ import annotations
 
 import json
+import mimetypes
 import os
 import secrets
+import socket
+import ssl
 import tempfile
+import threading
 import time
-from http.server import BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from watchtower import config
 from watchtower.agents import list_subagents, read_subagent
@@ -38,7 +42,7 @@ from watchtower.input import (
     deliver_later, end_process, is_loopback, say_to_session, session_listening,
 )
 from watchtower.owned import (
-    OWNED_ASK, OWNED_BUSY, OWNED_COMPACT, OWNED_MODES, OWNED_QUEUE, _OWNED_LOCK,
+    OWNED_ASK, OWNED_BUSY, OWNED_COMPACT, NEW_SESSION_MODE, OWNED_MODES, OWNED_QUEUE, _OWNED_LOCK,
     answer_from_panel, load_owned, owned_clear, owned_hold, owned_interrupt, owned_new,
     owned_queued, owned_release, owned_resume, owned_running, owned_say, owned_set_mode,
     owned_unqueue, save_owned,
@@ -47,12 +51,19 @@ from watchtower.paste import (DROP_MAX_BYTES, PASTE_MAX_BYTES, POST_MAX_BYTES,
                               save_dropped_file, save_pasted_image)
 from watchtower.plan import read_plan
 from watchtower.listen import lan_address
+from watchtower.wslnet import allow_port, phone_reach
+from watchtower import tailnet
 from watchtower.proc import proc_gone
 from watchtower.qr import svg as qr_svg
+from watchtower.skills import read_skills, set_skill
+from watchtower import previews
+from watchtower import route as router
 from watchtower.rows import (
     _KEPT, _KEPT_LOCK, drop_unpinned_row, forget_row, keep_row, kept_rows, pin_row, unpin_row,
 )
 from watchtower.store import STORE
+from watchtower.tmux import answer_permission, answer_question, pane_of, skip_question
+from watchtower.tmux import set_mode as set_tmux_mode
 from watchtower.transcript import (
     TRANSCRIPT_LIMIT_MAX, has_conversation, read_change, read_transcript,
 )
@@ -60,7 +71,7 @@ from watchtower.update import do_update, read_channel, read_update, write_channe
 from watchtower.usage import read_usage
 from watchtower.windows import (
     WINDOWS, activate, clean_name, identify_and_pair, load_names, load_pairs, resolve_window,
-    save_names, save_pairs, select_window, window_title,
+    save_names, save_pairs, select_window, shown_name, window_title,
 )
 
 
@@ -123,6 +134,29 @@ NO_KEY_PAGE = """<!doctype html>
 </div></body></html>
 """.encode()
 
+
+
+# How many folders one listing hands back. A home folder with thousands of
+# entries is somebody's downloads, not a place to scroll a phone through.
+FOLDER_LIST_MAX = 500
+
+
+def _home_folder(raw: str) -> tuple[Path | None, str]:
+    """A folder named in a request, resolved and held inside your home — or None
+    and why not. What the panel's folder browser lists and starts a session in.
+    Resolved before it is judged, so a symlink out of home is outside it."""
+    if not raw:
+        return None, "No folder given"
+    try:
+        spot = Path(raw).expanduser().resolve()
+        home = Path(HOME).resolve()
+    except (OSError, RuntimeError):
+        return None, "That folder cannot be read"
+    if spot != home and home not in spot.parents:
+        return None, "Only folders inside your home folder can be opened"
+    if not spot.is_dir():
+        return None, f"That is not a folder: {spot}"
+    return spot, ""
 
 
 def _resolve_under(raw: str, cwd: str, repo_root: str,
@@ -319,6 +353,11 @@ class Handler(BaseHTTPRequestHandler):
     # unknown /api/ path is a 404 rather than a file read.
 
     def do_GET(self) -> None:
+        # A preview's token is its own key; see watchtower/previews.py for why
+        # it cannot lean on the panel's.
+        if self.path.startswith("/preview/"):
+            self._serve_preview()
+            return
         if not self._key_shown():
             self._no_key()
             return
@@ -361,7 +400,150 @@ class Handler(BaseHTTPRequestHandler):
 
     @route("GET", "/api/state")
     def _get_state(self) -> None:
-        self._json(STORE.snapshot())
+        self._json({**STORE.snapshot(), "previews": previews.read_previews(),
+                    "starred": previews.read_starred()})
+
+    # --- previews: pages a session made, for you to look at
+
+    PREVIEW_MAX = 64 * 1024 * 1024
+    # Scripts run, forms post, links open — but the page gets an origin of its
+    # own, so it cannot read the panel's cookie or call the panel's API as the
+    # panel. A page Claude wrote is still a page that loads things off the web.
+    PREVIEW_SANDBOX = ("sandbox allow-scripts allow-forms allow-popups allow-modals "
+                       "allow-downloads allow-popups-to-escape-sandbox")
+
+    @route("POST", "/api/previews")
+    def _post_previews(self, payload: dict, session_id: str) -> None:
+        """A session showing you something it made. `target` is a path to a page
+        or a folder with an index.html, or an http(s) address.
+
+        A path is fenced like /api/file's: it must exist and sit inside your
+        home folder, the session's own folder or the temporary folder. And the
+        folder it is in must not be one of those roots itself, because that
+        whole folder is what the preview's address can read."""
+        if not config.SAY_ENABLED:
+            self._json({"ok": False, "message": OFF_HERE}, 403)
+            return
+        session = self._session_by_id(session_id)
+        entry = kept_rows().get(session_id) or {}
+        if not session and not entry:
+            self._json({"ok": False, "message": "No session with that id"}, 404)
+            return
+        cwd = (session or {}).get("cwd") or entry.get("cwd") or ""
+        target = str(payload.get("target") or "").strip()
+        spot = None
+        if not target.startswith(("http://", "https://")):
+            spot, refused = _resolve_under(target, cwd, (session or {}).get("repoRoot") or "", temp=True)
+            if spot is None:
+                self._json({"ok": False, "message": refused}, 404)
+                return
+            folder = spot if spot.is_dir() else spot.parent
+            broad = {Path(HOME).resolve(), Path(tempfile.gettempdir()).resolve(), Path("/").resolve()}
+            if folder in broad:
+                self._json({"ok": False, "message":
+                            f"{folder} is too broad to serve; put the page in a folder of its own"}, 409)
+                return
+        made, refused = previews.make_entry(target, spot, str(payload.get("title") or ""))
+        if made is None:
+            self._json({"ok": False, "message": refused}, 409)
+            return
+        row = previews.add_preview(session_id, made)
+        out = {"ok": True, "preview": row, "message": f"Shown in the panel as {row['title']!r}"}
+        if row["kind"] == "file":
+            out["path"] = previews.preview_path(row)
+        self._json(out)
+
+    @route("POST", "/api/previews/remove")
+    def _post_previews_remove(self, payload: dict, session_id: str) -> None:
+        if not config.SAY_ENABLED:
+            self._json({"ok": False, "message": OFF_HERE}, 403)
+            return
+        gone = previews.remove_preview(session_id, str(payload.get("id") or ""))
+        self._json({"ok": gone, "message": "Removed" if gone else "No such preview"}, 200 if gone else 404)
+
+    @route("POST", "/api/previews/star")
+    def _post_previews_star(self, payload: dict, session_id: str) -> None:
+        """Star one of a session's previews, so it is listed under the sessions
+        and stays openable after the session has gone."""
+        if not config.SAY_ENABLED:
+            self._json({"ok": False, "message": OFF_HERE}, 403)
+            return
+        want = str(payload.get("id") or "")
+        row = next((r for r in previews.read_previews().get(session_id) or [] if r.get("id") == want), None)
+        if row is None:
+            self._json({"ok": False, "message": "No such preview"}, 404)
+            return
+        session = self._session_by_id(session_id)
+        entry = kept_rows().get(session_id) or {}
+        cwd = (session or {}).get("cwd") or entry.get("cwd") or ""
+        made = previews.star(row, session_id, cwd)
+        self._json({"ok": True, "star": made, "message": f"Starred {made['title']!r}"})
+
+    @route("POST", "/api/starred/remove")
+    def _post_starred_remove(self, payload: dict, session_id: str) -> None:
+        if not config.SAY_ENABLED:
+            self._json({"ok": False, "message": OFF_HERE}, 403)
+            return
+        gone = previews.unstar(str(payload.get("id") or ""))
+        self._json({"ok": gone, "message": "Unstarred" if gone else "No such site"}, 200 if gone else 404)
+
+    @route("POST", "/api/starred/rename")
+    def _post_starred_rename(self, payload: dict, session_id: str) -> None:
+        if not config.SAY_ENABLED:
+            self._json({"ok": False, "message": OFF_HERE}, 403)
+            return
+        row = previews.rename_star(str(payload.get("id") or ""), str(payload.get("title") or ""))
+        self._json({"ok": bool(row), "message": "Renamed" if row else "No such site, or no name"},
+                   200 if row else 404)
+
+    def _serve_preview(self) -> None:
+        """/preview/<token>/<path>: a file from the folder a preview was made for."""
+        rest = urlparse(self.path).path[len("/preview/"):]
+        token, _, inner = rest.partition("/")
+        row = previews.find(token)
+        if row is None:
+            self._send(404, b"no such preview", "text/plain; charset=utf-8")
+            return
+        if not inner and not self.path.split("?", 1)[0].endswith("/"):
+            # /preview/<token> alone: send it to the page, so relative links in
+            # the page resolve inside the folder rather than beside it.
+            self.send_response(302)
+            self.send_header("Location", previews.preview_path(row))
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        spot = previews.resolve_file(row, unquote(inner or row.get("entry") or ""))
+        if spot is None:
+            self._send(404, b"not found", "text/plain; charset=utf-8")
+            return
+        try:
+            if spot.stat().st_size > self.PREVIEW_MAX:
+                self._send(413, b"too big to preview", "text/plain; charset=utf-8")
+                return
+            body = spot.read_bytes()
+        except OSError:
+            self._send(404, b"could not read it", "text/plain; charset=utf-8")
+            return
+        kind = mimetypes.guess_type(spot.name)[0] or "application/octet-stream"
+        if kind.startswith("text/") or kind in ("application/javascript", "image/svg+xml"):
+            kind += "; charset=utf-8"
+        if spot.suffix.lower() in (".md", ".markdown"):
+            kind = "text/plain; charset=utf-8"
+        self.send_response(200)
+        self.send_header("Content-Type", kind)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Content-Security-Policy", self.PREVIEW_SANDBOX)
+        # The sandboxed page's origin is opaque, so its module scripts and fonts
+        # are cross-origin fetches as far as the browser is concerned.
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        # The page is being worked on; reload has to show the latest.
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     @route("GET", "/api/changelog")
     def _get_changelog(self) -> None:
@@ -404,7 +586,85 @@ class Handler(BaseHTTPRequestHandler):
             "port": config.SERVE_PORT,
             "key": key,
             "url": url,
+            # Under WSL, what Windows does with a phone's connection before
+            # Linux sees it — the usual reason the code scans and nothing opens.
+            "wsl": phone_reach(config.SERVE_PORT) if where else None,
+            # The way in from anywhere: this machine's address on its tailnet,
+            # with the same key on the end. None on a --local panel, which has
+            # nothing for a phone to open on any network.
+            "tailnet": self._tailnet_reach() if config.SERVE_LAN else None,
         })
+
+    def _tailnet_reach(self) -> dict:
+        found = dict(tailnet.status())
+        key = config.ACCESS_KEY or ""
+        tail = f"/{f'?k={key}' if key else ''}"
+        if found.get("address"):
+            found["url"] = f"http://{found['address']}:{config.SERVE_PORT}{tail}"
+            # Over https when there is a certificate for the name: the microphone,
+            # notifications and the clipboard only exist on a secure page.
+            tls = tailnet.tls_state()
+            found["https"] = {**tls, "admin": tailnet.TLS_ADMIN_URL,
+                              "url": f"https://{tls['name']}:{config.SERVE_PORT}{tail}" if tls["ok"] else ""}
+        # Turning it on or off changes the machine, and from the phone turning it
+        # off would cut the phone off — so only somebody at this machine may.
+        found["canSwitch"] = is_loopback(self.client_address[0])
+        return found
+
+    @route("POST", "/api/reach/tailnet")
+    def _post_reach_tailnet(self, payload: dict, session_id: str) -> None:
+        """Join or leave the tailnet. Loopback only, whatever the key says: a
+        login link handed to a phone is a way to put this laptop on somebody
+        else's tailnet, and leaving from the phone strands the phone."""
+        if not config.SERVE_LAN or not is_loopback(self.client_address[0]):
+            self._json({"ok": False, "message": "Only this computer can switch that"}, 403)
+            return
+        ok, message, _ = tailnet.turn_on() if payload.get("on") else tailnet.turn_off()
+        # The certificate follows the machine on or off the tailnet. In the
+        # background: the first fetch can take half a minute.
+        threading.Thread(target=tailnet.refresh_tls, daemon=True).start()
+        self._json({"ok": ok, "message": message, "tailnet": self._tailnet_reach()},
+                   200 if ok else 409)
+
+    @route("POST", "/api/reach/tls")
+    def _post_reach_tls(self, payload: dict, session_id: str) -> None:
+        """Fetch the tailnet certificate again now — after switching HTTPS on in
+        the admin console, say. Loopback only, like the switch it sits under."""
+        if not config.SERVE_LAN or not is_loopback(self.client_address[0]):
+            self._json({"ok": False, "message": "Only this computer can do that"}, 403)
+            return
+        state = tailnet.refresh_tls()
+        self._json({"ok": state["ok"], "message": "Serving https" if state["ok"] else state["message"],
+                    "tailnet": self._tailnet_reach()}, 200 if state["ok"] else 409)
+
+    @route("POST", "/api/reach/firewall")
+    def _post_reach_firewall(self, payload: dict, session_id: str) -> None:
+        """Ask Windows to let the network in to this port. Raises a UAC prompt
+        on the desktop, so it only ever happens with someone at the machine
+        saying yes — and behind the same gate as the update button, since it
+        changes the machine rather than reading it."""
+        if not config.SAY_ENABLED or not config.SERVE_LAN:
+            self._json({"ok": False, "message": "Not available on this panel"}, 403)
+            return
+        ok, message = allow_port(config.SERVE_PORT)
+        self._json({"ok": ok, "message": message,
+                    "wsl": phone_reach(config.SERVE_PORT)}, 200 if ok else 409)
+
+    @route("GET", "/api/skills")
+    def _get_skills(self) -> None:
+        """The recommended Claude Code add-ons, and which are installed."""
+        self._json(read_skills())
+
+    @route("POST", "/api/skills")
+    def _post_skills(self, payload: dict, session_id: str) -> None:
+        """Install or remove one. It changes Claude Code's own configuration for
+        every session on the machine, so only this computer may, whatever the
+        key says, and only where the panel may act at all."""
+        if not config.SAY_ENABLED or not is_loopback(self.client_address[0]):
+            self._json({"ok": False, "message": "Only this computer can change that"}, 403)
+            return
+        ok, message = set_skill(str(payload.get("id") or ""), bool(payload.get("on")))
+        self._json({"ok": ok, "message": message, **read_skills()}, 200 if ok else 409)
 
     @route("GET", "/api/terminal")
     def _get_terminal(self) -> None:
@@ -426,11 +686,19 @@ class Handler(BaseHTTPRequestHandler):
         can be checked against a reference encoder in a test.
         """
         where = lan_address() if config.SERVE_LAN else None
+        # ?via=tailnet draws the tailnet address instead: the one that works
+        # from anywhere, once this machine is on it.
+        scheme = "http"
+        if config.SERVE_LAN and parse_qs(urlparse(self.path).query).get("via") == ["tailnet"]:
+            where = tailnet.status().get("address") or None
+            tls = tailnet.tls_state()
+            if where and tls["ok"]:
+                where, scheme = tls["name"], "https"
         if not where:
             self._send(404, b"nothing to point at", "text/plain; charset=utf-8")
             return
         key = config.ACCESS_KEY or ""
-        url = f"http://{where}:{config.SERVE_PORT}/{f'?k={key}' if key else ''}"
+        url = f"{scheme}://{where}:{config.SERVE_PORT}/{f'?k={key}' if key else ''}"
         try:
             drawn = qr_svg(url)
         except ValueError:
@@ -933,6 +1201,53 @@ class Handler(BaseHTTPRequestHandler):
                                 if empty else "Running here now") if up
                                else f"Ended the terminal session, but it did not start here: {said}"})
 
+    @route("GET", "/api/folders")
+    def _get_folders(self) -> None:
+        # The folders under one folder, for the browser a new session is started
+        # from when the desktop's chooser is out of reach — on a phone, or on a
+        # desktop that has none. Behind the same gate as starting a session,
+        # which is the only thing the list is for, and held to your home folder.
+        if not config.SAY_ENABLED:
+            self._json({"ok": False, "message": OFF_HERE}, 403)
+            return
+        query = parse_qs(urlparse(self.path).query)
+        raw = (query.get("path") or [""])[0]
+        if not raw:
+            # Open where the sessions are when they agree on one place's parent,
+            # which is usually where the other projects sit, else at home.
+            folders = {x["cwd"] for x in STORE.snapshot()["sessions"] if x.get("cwd")}
+            raw = str(Path(folders.pop()).parent) if len(folders) == 1 else str(HOME)
+        spot, why = _home_folder(raw)
+        if not spot:
+            spot, why = _home_folder(str(HOME))
+        if not spot:
+            self._json({"ok": False, "message": why}, 404)
+            return
+        hidden = (query.get("hidden") or [""])[0] == "1"
+        found = []
+        try:
+            for entry in os.scandir(spot):
+                if entry.name.startswith(".") and not hidden:
+                    continue
+                try:
+                    if entry.is_dir():
+                        found.append(entry.name)
+                except OSError:
+                    continue
+        except OSError as exc:
+            self._json({"ok": False, "message": f"Could not read that folder: {exc.strerror}"}, 403)
+            return
+        found.sort(key=str.casefold)
+        home = Path(HOME).resolve()
+        self._json({
+            "ok": True,
+            "path": str(spot),
+            "home": str(home),
+            "parent": str(spot.parent) if spot != home else None,
+            "folders": [{"name": n, "path": str(spot / n)} for n in found[:FOLDER_LIST_MAX]],
+            "more": max(0, len(found) - FOLDER_LIST_MAX),
+        })
+
     @route("POST", "/api/owned/new")
     def _post_owned_new(self, payload: dict, session_id: str) -> None:
         # A new session the panel runs from its first word. The folder comes off
@@ -941,7 +1256,17 @@ class Handler(BaseHTTPRequestHandler):
         if not config.SAY_ENABLED:
             self._json({"ok": False, "message": OFF_HERE}, 403)
             return
-        if payload.get("pick"):
+        if payload.get("cwd"):
+            # Picked in the panel's own folder browser — the way a phone picks
+            # one, since a chooser on the desktop is a window nobody holding the
+            # phone can see. Held to the same ground the browser lists: a real
+            # folder inside your home.
+            spot, why = _home_folder(str(payload.get("cwd")))
+            if not spot:
+                self._json({"ok": False, "message": why}, 400)
+                return
+            cwd = str(spot)
+        elif payload.get("pick"):
             folders = {x["cwd"] for x in STORE.snapshot()["sessions"] if x.get("cwd")}
             cwd, why = pick_folder(folders.pop() if len(folders) == 1 else str(HOME))
             if not cwd:
@@ -954,10 +1279,83 @@ class Handler(BaseHTTPRequestHandler):
             if not cwd:
                 self._json({"ok": False, "message": "There is no folder to start it in"}, 404)
                 return
-        mode = str(payload.get("mode") or OWNED_MODES[0])
+        mode = str(payload.get("mode") or NEW_SESSION_MODE)
         made, message = owned_new(cwd, mode)
+        if made:
+            self._pin_new(made, cwd)
         self._json({"ok": bool(made), "message": message, "sessionId": made, "cwd": cwd},
                    200 if made else 409)
+
+    def _pin_new(self, session_id: str, cwd: str) -> None:
+        """Pin a session the panel has just started. One you started on purpose
+        is one you mean to come back to, so its row is written down from the
+        start: it survives a panel restart and the session being stopped. The
+        same record the Pin button writes, and unpinned the same way."""
+        held = kept_rows().get(session_id) or {}
+        pin_row(session_id, {
+            "sessionId": session_id, "name": held.get("name") or Path(cwd).name, "cwd": cwd,
+            "startedAt": held.get("startedAt") or time.time(), "lastSeen": time.time(),
+            "version": held.get("version"), "kind": held.get("kind") or "interactive",
+        })
+
+    # --- + New → Describe it…: Claude picks the folder, you press Start
+
+    @route("POST", "/api/route")
+    def _post_route(self, payload: dict, session_id: str) -> None:
+        """Where a request should run: an existing folder, or a new project.
+        Decides only; nothing is made or started until /api/route/start."""
+        if not config.SAY_ENABLED:
+            self._json({"ok": False, "message": OFF_HERE}, 403)
+            return
+        live = [x["cwd"] for x in STORE.snapshot()["sessions"] if x.get("cwd")]
+        plan, why = router.decide(str(payload.get("text") or ""), live)
+        self._json({"ok": bool(plan), "plan": plan, "message": why or plan["reason"]},
+                   200 if plan else 409)
+
+    @route("POST", "/api/route/start")
+    def _post_route_start(self, payload: dict, session_id: str) -> None:
+        """Start the decided session: make the folder for a new project, start a
+        session the panel runs there, and send it the request as its first turn.
+
+        The folder is checked again here rather than trusted from the decision:
+        it came back through the browser, and may have been changed there."""
+        if not config.SAY_ENABLED:
+            self._json({"ok": False, "message": OFF_HERE}, 403)
+            return
+        text = str(payload.get("text") or "").strip()
+        if not text:
+            self._json({"ok": False, "message": "Say what you want to do first"}, 400)
+            return
+        action = "create" if payload.get("action") == "create" else "open"
+        if action == "create":
+            cwd, why = router.make_folder(str(payload.get("folder") or ""))
+        else:
+            spot, why = _home_folder(str(payload.get("folder") or ""))
+            cwd = str(spot) if spot else None
+        if not cwd:
+            self._json({"ok": False, "message": why}, 400)
+            return
+        mode = str(payload.get("mode") or NEW_SESSION_MODE)
+        made, message = owned_new(cwd, mode)
+        if not made:
+            self._json({"ok": False, "message": message}, 409)
+            return
+        self._pin_new(made, cwd)
+        plan = {"action": action, "setup": str(payload.get("setup") or "")[:240]}
+        ok, said = owned_say(made, cwd, router.first_message(text, plan), mode)
+        if ok:
+            owned = load_owned()
+            owned[made] = {"mode": mode, "here": True}
+            save_owned(owned)
+        title = clean_name(payload.get("title"))
+        if title:
+            names = load_names()
+            names[made] = title
+            save_names(names)
+        where = cwd.replace(str(HOME), "~", 1)
+        self._json({"ok": ok, "sessionId": made, "cwd": cwd,
+                    "message": (f"Made {where} and started it there" if action == "create"
+                                else f"Started in {where}") if ok else said}, 200 if ok else 409)
 
     @route("POST", "/api/owned/answer")
     def _post_owned_answer(self, payload: dict, session_id: str) -> None:
@@ -976,6 +1374,60 @@ class Handler(BaseHTTPRequestHandler):
         }
         ok, message = answer_from_panel(session_id, str(payload.get("requestId") or ""), decision)
         self._json({"ok": ok, "message": message}, 200 if ok else 409)
+
+    @route("POST", "/api/tmux/answer")
+    def _post_tmux_answer(self, payload: dict, session_id: str) -> None:
+        # Answering a terminal session's prompt by pressing its keys in the tmux
+        # pane it runs in. Same gate as answering a panel turn's prompt, for the
+        # same reason: this decides what a session holding tools may do.
+        if not config.SAY_ENABLED:
+            self._json({"ok": False, "message": OFF_HERE}, 403)
+            return
+        data = STORE.raw(session_id)
+        pid = (data or {}).get("pid")
+        pane = pane_of(pid) if isinstance(pid, int) else None
+        if not pane:
+            self._json({"ok": False, "message": "That session is not in a tmux pane the panel can reach"}, 409)
+            return
+        fingerprint = str(payload.get("requestId") or "").removeprefix("tmux:")
+        allow = payload.get("behavior") == "allow"
+        if payload.get("asks"):
+            if not allow:
+                # Escape mid-turn interrupts the turn, so it is only pressed on
+                # the very question that was skipped.
+                ok, message = skip_question(pane, fingerprint)
+                self._json({"ok": ok, "message": message}, 200 if ok else 409)
+                return
+            # One question is on screen at a time, so the answer is that
+            # question's picks — whatever it is keyed under.
+            answers = payload.get("answers")
+            chosen = next(iter(answers.values()), []) if isinstance(answers, dict) and answers else []
+            chosen = [chosen] if isinstance(chosen, str) else chosen
+            ok, message = answer_question(pane, fingerprint, [str(c) for c in chosen if str(c).strip()])
+        else:
+            ok, message = answer_permission(pane, fingerprint, allow)
+        self._json({"ok": ok, "message": message}, 200 if ok else 409)
+
+    @route("POST", "/api/tmux/mode")
+    def _post_tmux_mode(self, payload: dict, session_id: str) -> None:
+        # Changing a terminal session's mode by pressing Shift+Tab in its tmux
+        # pane, watching the footer after each press. The modes offered are the
+        # ones the panel runs its own turns in, for the same reasons.
+        if not config.SAY_ENABLED:
+            self._json({"ok": False, "message": OFF_HERE}, 403)
+            return
+        mode = str(payload.get("mode") or "")
+        if mode not in OWNED_MODES:
+            self._json({"ok": False, "message": f"The panel does not switch sessions to {mode!r}"}, 400)
+            return
+        data = STORE.raw(session_id)
+        pid = (data or {}).get("pid")
+        pane = pane_of(pid) if isinstance(pid, int) else None
+        if not pane:
+            self._json({"ok": False, "message": "That session is not in a tmux pane the panel can reach"}, 409)
+            return
+        ok, message = set_tmux_mode(pane, mode)
+        self._json({"ok": ok, "message": message, "mode": mode}, 200 if ok else 409)
 
     @route("POST", "/api/owned/say")
     def _post_owned_say(self, payload: dict, session_id: str) -> None:
@@ -1254,13 +1706,7 @@ class Handler(BaseHTTPRequestHandler):
         if STORE.raw(session_id):
             self._json({"ok": False, "message": "That session is already running"}, 409)
             return
-        # With Remote Control, when that is what was asked for. It is the same
-        # hand-back either way — the panel lets go, a terminal picks the session
-        # up — and the flag only rides along because Remote Control cannot be
-        # switched on any other way: it needs an interactive session, and the
-        # terminal this opens is the only interactive session the panel has to
-        # offer. See control.start_session.
-        ok, message = start_session(entry, remote=bool(payload.get("remoteControl")))
+        ok, message = start_session(entry)
         text = str(payload.get("text") or "").strip()
         if ok and text:
             # It cannot hear us yet, and the terminal is already opening — so the
@@ -1371,7 +1817,8 @@ class Handler(BaseHTTPRequestHandler):
         self._json({
             "ok": True,
             "message": "Renamed" if keep else "Name reset",
-            "name": name if keep else session["defaultName"],
+            "name": name if keep else shown_name(None, session["defaultName"], session.get("cwd") or "",
+                                                 session.get("title")),
         })
 
     @route("POST", "/api/unpair")
@@ -1399,3 +1846,50 @@ class Handler(BaseHTTPRequestHandler):
             return
         kind = content_type or self.MIME.get(target.suffix, "application/octet-stream")
         self._send(200, target.read_bytes(), kind)
+
+
+class PanelServer(ThreadingHTTPServer):
+    """The panel's server: plain http, and https on the same port once there is
+    a certificate for this machine's tailnet name (see watchtower/tailnet.py).
+
+    One port rather than two because the port is the thing written down and
+    bookmarked, and a phone given the https address and a laptop on the wifi
+    given the http one should both be right. A TLS connection opens with a
+    handshake record, whose first byte is 0x16; an http request opens with a
+    method name, which never does. So the first byte is peeked — not read — in
+    the connection's own thread, and only a handshake is wrapped.
+    """
+
+    daemon_threads = True
+    # How long a connection may sit silent before its first byte. A browser
+    # preconnecting holds a thread for this long at most.
+    FIRST_BYTE_SECONDS = 15.0
+
+    def finish_request(self, request, client_address) -> None:
+        context = tailnet.tls_context()
+        if context is None:
+            super().finish_request(request, client_address)
+            return
+        try:
+            request.settimeout(self.FIRST_BYTE_SECONDS)
+            first = request.recv(1, socket.MSG_PEEK)
+        except OSError:
+            return
+        if first != b"\x16":
+            request.settimeout(None)
+            super().finish_request(request, client_address)
+            return
+        try:
+            wrapped = context.wrap_socket(request, server_side=True)
+        except (OSError, ssl.SSLError):
+            # A handshake that failed — a scanner, a client that would not take
+            # the certificate. Nothing to answer, and nothing worth a word.
+            return
+        try:
+            wrapped.settimeout(None)
+            super().finish_request(wrapped, client_address)
+        finally:
+            try:
+                wrapped.close()
+            except OSError:
+                pass

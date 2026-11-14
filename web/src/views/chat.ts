@@ -752,6 +752,8 @@ export function startRename(session, button) {
 async function commitRename(session, name) {
   // Show the new name at once; the next poll confirms it from the server.
   const local = app.feed.sessions.find((s) => s.sessionId === session.sessionId);
+  // A reset goes back to the session's subject when its own name is a default
+  // one — the server's reply says which, and the poll after it settles it.
   if (local) local.name = name || local.defaultName || local.name;
   refresh();
   try {
@@ -761,6 +763,7 @@ async function commitRename(session, name) {
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.ok) showSnackbar(data.message || "That rename did not stick");
+    else if (local && data.name && local.name !== data.name) { local.name = data.name; refresh(); }
   } catch (error) {
     showSnackbar("Could not reach the server");
   } finally {
@@ -989,6 +992,8 @@ export function sendBlockedReason(session) {
 export function questionCard(session) {
   const asked = session.question;
   if (!asked || !asked.questions?.length) return "";
+  // Answerable from here instead, in the composer's place; see terminalAsk.
+  if (session.terminalAsk) return "";
   const rows = asked.questions.map((q) => {
     const options = (q.options || []).map((option, i) => `<li class="ask__option">
         <span class="ask__index md-label-medium md-mono">${i + 1}</span>

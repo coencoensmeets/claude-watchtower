@@ -49,6 +49,8 @@ def check(what: str, ok: bool, note: str = "") -> None:
 # --------------------------------------------------------------- the write
 
 work = tempfile.mkdtemp(prefix="watchtower-paste-")
+# The list of folders to sweep is the user's own; this run keeps its own.
+config.SCRATCH_FILE = Path(work) / "scratch.json"
 
 ok, path, message = S.save_pasted_image(work, "image/png", base64.b64encode(PIXEL).decode())
 check("a pasted picture is written", ok, message)
@@ -83,6 +85,36 @@ os.utime(stale, (time.time() - S.PASTE_KEEP_SECONDS - 60,) * 2)
 S.save_pasted_image(work, "image/png", base64.b64encode(PIXEL).decode())
 check("a picture older than the keep window is swept by the next paste", not stale.exists())
 check("and the fresh ones are left alone", Path(path).exists())
+
+# Scratch in somebody's repository must never reach a commit: the folder carries
+# a .gitignore of its own, which the sweep leaves however old it is.
+ignore = Path(work) / ".claude" / "watchtower-images" / ".gitignore"
+check("the picture folder ignores itself in git", ignore.exists() and ignore.read_text().strip().endswith("*"))
+os.utime(ignore, (time.time() - S.PASTE_KEEP_SECONDS - 60,) * 2)
+S.sweep_pastes(ignore.parent)
+check("and the sweep leaves that .gitignore alone", ignore.exists())
+check("the keep window is five days", S.PASTE_KEEP_SECONDS == 5 * 24 * 3600)
+import subprocess  # noqa: E402
+if subprocess.run(["git", "--version"], capture_output=True).returncode == 0:
+    subprocess.run(["git", "init", "-q", work], check=True)
+    said = subprocess.run(["git", "-C", work, "status", "--porcelain", "--untracked-files=all"],
+                          capture_output=True, text=True).stdout
+    check("git status in that repository shows no picture", "watchtower-images" not in said, said.strip())
+
+# The sweep at startup reaches a folder nobody has pasted into since.
+elsewhere = tempfile.mkdtemp(prefix="watchtower-paste-other-")
+ok, old_path, _ = S.save_pasted_image(elsewhere, "image/png", base64.b64encode(PIXEL).decode())
+check("a paste remembers its folder for the sweep",
+      str(Path(elsewhere) / ".claude" / "watchtower-images") in json.loads(config.SCRATCH_FILE.read_text()))
+os.utime(old_path, (time.time() - S.PASTE_KEEP_SECONDS - 60,) * 2)
+S.sweep_everywhere()
+check("sweeping everywhere removes the old picture there", not Path(old_path).exists())
+check("and the folder it emptied, .gitignore and all",
+      not (Path(elsewhere) / ".claude" / "watchtower-images").exists())
+check("and forgets it", str(Path(elsewhere) / ".claude" / "watchtower-images")
+      not in json.loads(config.SCRATCH_FILE.read_text()))
+check("while a folder with a fresh picture in it is kept",
+      str(Path(work) / ".claude" / "watchtower-images") in json.loads(config.SCRATCH_FILE.read_text()))
 
 
 # ------------------------------------------------- a drop with no path in it
