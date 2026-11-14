@@ -6,6 +6,7 @@ Entries say what changed and, where it is not obvious, why. Anything worth a par
 
 ## Unreleased
 
+- **The message box has room on a phone.** The two picture buttons, Send and Stop shared one row with the box, and on a phone they took more than half of it — the box was a sliver a few words wide. Below 600px the box now has the whole width and the buttons sit in a row under it: the pictures at the start, Send and Stop at the end, where the thumb is.
 - **Choosing a folder works when the panel runs in WSL.** The chooser was a Linux one — zenity, kdialog, or Tk — and under WSL that is a window drawn through WSLg, which opens behind the browser if it opens at all and can only see the Linux side. Under WSL the panel now asks Windows for its own folder dialog through `powershell.exe`, starting in the Linux folder (as `\\wsl.localhost\…`) and taking either side back: a folder under `C:\` arrives as `/mnt/c/…`. It is found the same way when the panel runs as a systemd service, which has neither `WSL_DISTRO_NAME` nor `/mnt/c` on its PATH.
 - **A picture can be added without the clipboard.** An image button beside the box opens the platform's own file chooser, and on a phone a camera button beside it opens the camera. A phone's photo — a HEIC, or a 48-megapixel JPEG past the size the server takes — is redrawn as a JPEG no longer than 2560 pixels on its long side before it is saved; a picture that is already fine goes as it is.
 
