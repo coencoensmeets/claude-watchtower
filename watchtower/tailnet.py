@@ -123,24 +123,40 @@ def status(fresh: bool = False) -> dict:
     {"installed": False, "install": …} when there is no CLI, otherwise what
     parse_status says plus the command that grants operator rights.
     """
+    # The same rule as the WSL check: once there is an answer the settings page
+    # gets it at once, and a stale one is renewed in the background.
+    if not fresh and "answer" in _cache:
+        if time.monotonic() - _cache.get("at", 0) >= CACHE_SECONDS and _lock.acquire(blocking=False):
+            def renew() -> None:
+                try:
+                    _ask_status()
+                finally:
+                    _lock.release()
+            threading.Thread(target=renew, daemon=True).start()
+        return _cache["answer"]
     with _lock:
-        if not fresh and time.monotonic() - _cache.get("at", 0) < CACHE_SECONDS:
+        if not fresh and "answer" in _cache:
             return _cache["answer"]
-        if not _cli():
-            answer = {"installed": False, "install": INSTALL_COMMAND}
+        return _ask_status()
+
+
+def _ask_status() -> dict:
+    """Ask the CLI now, and keep the answer. The caller holds _lock."""
+    if not _cli():
+        answer = {"installed": False, "install": INSTALL_COMMAND}
+    else:
+        done = _run("status", "--json")
+        if done is None:
+            answer = {"installed": True, "state": "unknown"}
+        elif not done.stdout.strip():
+            # No daemon: the CLI is there and tailscaled is not running.
+            answer = {"installed": True, "state": "NoDaemon",
+                      "message": (done.stderr.strip().splitlines() or [""])[-1]}
         else:
-            done = _run("status", "--json")
-            if done is None:
-                answer = {"installed": True, "state": "unknown"}
-            elif not done.stdout.strip():
-                # No daemon: the CLI is there and tailscaled is not running.
-                answer = {"installed": True, "state": "NoDaemon",
-                          "message": (done.stderr.strip().splitlines() or [""])[-1]}
-            else:
-                answer = parse_status(done.stdout)
-            answer["operator"] = operator_command()
-        _cache.update(at=time.monotonic(), answer=answer)
-        return answer
+            answer = parse_status(done.stdout)
+        answer["operator"] = operator_command()
+    _cache.update(at=time.monotonic(), answer=answer)
+    return answer
 
 
 def _reap(process: subprocess.Popen) -> None:

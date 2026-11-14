@@ -116,20 +116,40 @@ def phone_reach(port: int, fresh: bool = False) -> dict | None:
 
     {"mode": "mirrored", "port": …, "firewall": "open"|"blocked"|"unknown", "command": …}
     or {"mode": "nat"} — in NAT mode the firewall is not the first problem.
+
+    Never makes the settings page wait once there is any answer: asking Windows
+    takes two seconds, and the phone's address and code were held up behind it on
+    every visit after the cache went stale. A stale answer is handed back at once
+    and a fresh one fetched in the background for the next visit — a firewall
+    rule does not appear by itself, and pressing Allow asks fresh anyway.
     """
+    if not fresh and _cache.get("port") == port:
+        if time.monotonic() - _cache.get("at", 0) >= CACHE_SECONDS and _lock.acquire(blocking=False):
+            def renew() -> None:
+                try:
+                    _ask(port)
+                finally:
+                    _lock.release()
+            threading.Thread(target=renew, daemon=True).start()
+        return _cache["answer"]
     with _lock:
-        if not fresh and _cache.get("port") == port and time.monotonic() - _cache.get("at", 0) < CACHE_SECONDS:
+        if not fresh and _cache.get("port") == port:
             return _cache["answer"]
-        mode = networking_mode()
-        if mode is None:
-            answer = None
-        elif mode == "mirrored":
-            answer = {"mode": mode, "port": port, "firewall": _firewall(port),
-                      "command": rule_command(port)}
-        else:
-            answer = {"mode": mode}
-        _cache.update(port=port, at=time.monotonic(), answer=answer)
-        return answer
+        return _ask(port)
+
+
+def _ask(port: int) -> dict | None:
+    """Ask Windows now, and keep the answer. The caller holds _lock."""
+    mode = networking_mode()
+    if mode is None:
+        answer = None
+    elif mode == "mirrored":
+        answer = {"mode": mode, "port": port, "firewall": _firewall(port),
+                  "command": rule_command(port)}
+    else:
+        answer = {"mode": mode}
+    _cache.update(port=port, at=time.monotonic(), answer=answer)
+    return answer
 
 
 def allow_port(port: int) -> tuple[bool, str]:
