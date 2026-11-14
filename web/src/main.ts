@@ -17,6 +17,7 @@ import { duration, escapeHtml, shorten, tokens } from "./ui/format.js";
 import { ICON, hostOf } from "./ui/icons.js";
 import { attachPicture, choosePictures, dropImage, imagesStamp, picturesOn, sendMessage } from "./ui/images.js";
 import { wireDrop } from "./ui/dropped.js";
+import { stopVoice, wireVoice } from "./ui/voice.js";
 import { closeSessionMenu, menuIsOpen, openMenu, sessionMenu } from "./ui/menu.js";
 import { onLongPress } from "./ui/press.js";
 import type { MenuItem } from "./ui/menu.js";
@@ -1751,6 +1752,7 @@ function renderDetail(force = false) {
         // only [data-act=own], and looking for [data-act=say] alone found
         // nothing — so Enter did nothing at all on the sessions the panel runs.
         const here = detailPane.querySelector("[data-act='own']");
+        stopVoice();
         sendMessage(session, here || detailPane.querySelector("[data-act='say']"), !!here);
       }
     });
@@ -1773,6 +1775,8 @@ function renderDetail(force = false) {
     () => choosePictures(session, false));
   detailPane.querySelector("[data-act='take-picture']")?.addEventListener("click",
     () => choosePictures(session, true));
+  // The microphone: drawn hidden, shown where the browser will lend it.
+  wireVoice(session.sessionId);
   for (const drop of detailPane.querySelectorAll<HTMLElement>("[data-act='unattach']")) {
     drop.addEventListener("click", () => dropImage(session.sessionId, drop.dataset.id));
   }

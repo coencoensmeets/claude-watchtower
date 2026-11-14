@@ -526,6 +526,10 @@ function paintTailnet(box: HTMLElement | null, net, note = "") {
   }
   const on = !!net.running;
   const permission = /permission/i.test(note);
+  // https when the certificate is in: the microphone, notifications and the
+  // clipboard need a secure page, and the phone only gets one this way.
+  const https = net.https || {};
+  const address = https.ok ? https.url : net.url;
   box.innerHTML = `${title}
     <label class="switch">
       <input type="checkbox" id="tailnetToggle" ${on ? "checked" : ""} ${net.canSwitch ? "" : "disabled"}>
@@ -542,19 +546,47 @@ function paintTailnet(box: HTMLElement | null, net, note = "") {
           alt="This panel's address on your tailnet, as a code to scan" width="248" height="248">
         <div class="reach__said">
           <p class="md-body-medium">From anywhere, with Tailscale on the phone:</p>
-          ${copyLine("copyTailnet", net.url, "Copy the address")}
-          ${net.name ? `<p class="md-body-small reach__note">Or by name:
+          ${copyLine("copyTailnet", address, "Copy the address")}
+          ${https.ok
+            ? `<p class="md-body-small reach__note">Over https, so the phone gets the microphone and
+                notifications too. Tailscale's MagicDNS has to be on in the phone's app for the name
+                to resolve.</p>`
+            : net.name ? `<p class="md-body-small reach__note">Or by name:
               <code class="md-mono">${escapeHtml(net.name)}</code> — the same port and key.</p>` : ""}
           ${phoneApp}
         </div>
-      </div>`
+      </div>
+      ${https.ok ? "" : `<div class="settings-notice" data-state="missing">
+          <p class="md-body-medium">Plain http, so the phone gets no microphone and no notifications:
+            ${escapeHtml(https.message || "the certificate is still being fetched")}.</p>
+          ${/admin\/dns/.test(https.message || "") ? `<a class="button button--text md-state"
+              href="${escapeHtml(https.admin)}" target="_blank" rel="noopener noreferrer">Open the
+              Tailscale admin console</a>` : ""}
+          ${net.canSwitch ? `<button class="button button--text md-state" id="tsTls" type="button">Try https again</button>` : ""}
+        </div>`}`
     : net.login ? `<p class="md-body-medium">Tailscale is waiting for you to sign in.</p>
         <a class="button button--filled md-state" href="${escapeHtml(net.login)}" target="_blank"
           rel="noopener noreferrer">Sign in to Tailscale</a>`
     : ""}
     ${permission ? `<p class="md-body-small">Tailscale only lets root switch it until you allow
         this user, once:</p>${copyLine("copyTsOperator", net.operator, "Copy the command")}` : ""}`;
-  if (on) wireCopy(box, "copyTailnet", net.url, "Address copied");
+  if (on) wireCopy(box, "copyTailnet", address, "Address copied");
+  const retry = box.querySelector<HTMLButtonElement>("#tsTls");
+  retry?.addEventListener("click", async () => {
+    retry.disabled = true;
+    retry.textContent = "Asking Tailscale…";
+    let answer;
+    try {
+      const response = await fetch("/api/reach/tls", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+      });
+      answer = await response.json();
+    } catch (error) {
+      answer = { ok: false, message: "The panel did not answer" };
+    }
+    showSnackbar(answer?.message || (answer?.ok ? "Serving https" : "Still no certificate"));
+    if (box.isConnected) paintTailnet(box, answer?.tailnet || net);
+  });
   if (permission) wireCopy(box, "copyTsOperator", net.operator, "Command copied");
   // Waiting on a sign-in in another tab: look again until it lands.
   if (!on && net.login) tailnetPoll = window.setTimeout(() => refreshTailnet(box), 3000);
