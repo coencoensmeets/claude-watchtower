@@ -166,6 +166,24 @@
   </div>
 </div>
 
+<!-- Picking the folder a new session starts in, from this computer's folders, in
+     the panel itself — for a phone, which cannot see the desktop's chooser. -->
+<div class="scrim" id="folderScrim" data-open="false">
+  <div class="dialog folder-dialog" role="dialog" aria-modal="true" aria-labelledby="folderHeadline">
+    <h2 class="dialog__headline md-headline-small" id="folderHeadline">Start in a folder</h2>
+    <div class="folder-dialog__where">
+      <button class="icon-button md-state" id="folderUp" type="button" title="Up one folder" aria-label="Up one folder"></button>
+      <span class="folder-dialog__path md-body-medium md-mono" id="folderPath"></span>
+    </div>
+    <ul class="folder-dialog__list" id="folderList" role="list"></ul>
+    <label class="folder-dialog__hidden md-body-medium"><input type="checkbox" id="folderHidden"> Show hidden folders</label>
+    <div class="dialog__actions">
+      <button class="button button--text md-state" id="folderCancel" type="button">Cancel</button>
+      <button class="button button--filled md-state" id="folderConfirm" type="button">Start here</button>
+    </div>
+  </div>
+</div>
+
 <!-- Asked before anything that loses work: discarding a change, deleting a file
      that was never committed. Everything else on the Git tab can be undone with
      git itself, so nothing else stops to ask. -->

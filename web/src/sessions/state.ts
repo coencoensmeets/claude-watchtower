@@ -28,7 +28,7 @@ export type StateKey =
 
 export const STATE: Record<StateKey, StateLook> = {
   waiting: { label: "Needs an answer", short: "answer", prefix: "--md-extended-color-waiting" },
-  busy: { label: "Working", short: "working", prefix: "--md-sys-color-primary", sys: true },
+  busy: { label: "Working", short: "working", prefix: "--md-extended-color-busy" },
   idle: { label: "Waiting", short: "waiting", prefix: "--md-extended-color-idle" },
   offline: { label: "Closed", short: "closed", prefix: null },
   // A kept session whose process has gone. Not lost, just not running.

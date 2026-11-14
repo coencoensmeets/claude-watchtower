@@ -8,6 +8,7 @@ import { copyText } from "./clipboard.js";
 import { detailPane } from "./dom.js";
 import { escapeHtml } from "./format.js";
 import { ICON } from "./icons.js";
+import { testNotification } from "./notify.js";
 import { showSnackbar } from "./snackbar.js";
 import { CONTRAST_LEVELS, DEFAULT_SEED, NOTIFY_KINDS, SEED_PRESETS } from "./theme.js";
 
@@ -101,10 +102,31 @@ function renderNotify() {
 export function paintNotifyPermission() {
   const box = detailPane.querySelector<HTMLElement>("#notifyHint");
   if (!box) return;
-  const state = "Notification" in window ? Notification.permission : "unsupported";
-  box.hidden = state === "granted";
+  // Plain http off this machine — the wifi address on a phone — is not a
+  // secure context, and a browser hands such a page no notifications at all,
+  // whatever it reports. Saying so beats a button that cannot work.
+  const state = !window.isSecureContext ? "insecure"
+    : "Notification" in window ? Notification.permission : "unsupported";
+  box.hidden = false;
   box.dataset.state = state;
-  if (state === "granted") return;
+  if (state === "granted") {
+    box.innerHTML = `<p class="md-body-medium">Notifications are allowed in this browser.
+        Send one to check they reach this device.</p>
+      <button class="button button--tonal md-state" id="testNotify">Send a test notification</button>`;
+    box.querySelector<HTMLButtonElement>("#testNotify").addEventListener("click", async (event) => {
+      const button = event.currentTarget as HTMLButtonElement;
+      button.disabled = true;
+      showSnackbar(await testNotification());
+      button.disabled = false;
+    });
+    return;
+  }
+  if (state === "insecure") {
+    box.innerHTML = `<p class="md-body-medium">This page is on plain http, and browsers only
+        show notifications to a secure page. Open the panel at its <b>https://</b> address —
+        <b>Settings → Phone</b> shows it — and allow them there.</p>`;
+    return;
+  }
   if (state === "default") {
     box.innerHTML = `<p class="md-body-medium">Your browser has not let the panel show
         notifications yet. None of the switches above can reach you until it does.</p>
@@ -173,20 +195,9 @@ function settingsPage() {
             <span class="switch__label md-body-medium" id="themeLabel">Light</span>
           </label>
         </section>
-        <section class="section">
-          <h3 class="section__title md-title-small">Contrast</h3>
-          <div class="segmented" id="contrastGroup" role="group" aria-label="Contrast level"></div>
-        </section>
-        <section class="section settings-row__wide">
-          <h3 class="section__title md-title-small">Base colour</h3>
-          <p class="md-body-medium">Every colour is derived from one base.</p>
-          <div class="swatches" id="swatches"></div>
-          <p class="seed-readout md-body-small" id="seedReadout"></p>
-        </section>
+        <!-- No base colour or contrast any more: the Watchtower palette is
+             fixed, because its colours mean session states. -->
       </div>
-      <section class="section">
-        <button class="button button--text md-state" id="resetTheme">Reset colours</button>
-      </section>
     </div>
     <div class="tab-panel" role="tabpanel" id="settingsPanel-notify" aria-labelledby="settingsTab-notify"
       ${settingsTab === "notify" ? "" : "hidden"}>
@@ -325,7 +336,7 @@ export function paintSettings() {
     persist();
   });
   detailPane.querySelector("#closeSettings").addEventListener("click", () => openSettings(false));
-  detailPane.querySelector("#resetTheme").addEventListener("click", () => {
+  detailPane.querySelector("#resetTheme")?.addEventListener("click", () => {
     // Colours only. The button sits under the notification switches, and wiping
     // those as well would be a surprise the label does not warn about.
     app.settings = { ...app.settings, seed: DEFAULT_SEED,

@@ -19,6 +19,68 @@ if ("Notification" in window && Notification.permission === "default") {
   document.addEventListener("click", () => Notification.requestPermission()
     .then(() => paintNotifyPermission()), { once: true });
 }
+
+/* Notifications go out through a service worker. A phone's browser will not
+   show one any other way — Chrome on Android throws on `new Notification()` —
+   and it costs a desktop nothing. Only in a secure context, which is where a
+   browser hands out notifications at all: localhost, or https over Tailscale. */
+let worker: Promise<ServiceWorkerRegistration | null> = Promise.resolve(null);
+// Why there is no worker, when there is not, for the test button to say.
+let workerFailed = "";
+if ("serviceWorker" in navigator && window.isSecureContext) {
+  worker = navigator.serviceWorker.register("/sw.js", { scope: "/" })
+    .then(() => navigator.serviceWorker.ready)
+    .catch((error) => { workerFailed = String(error?.message || error); return null; });
+  // A notification tapped while the panel is open: the worker brings this
+  // window forward and says which session to open.
+  navigator.serviceWorker.addEventListener("message", (event) => {
+    if (event.data?.kind === "open-session" && event.data.sessionId) {
+      selectSession(event.data.sessionId);
+    }
+  });
+}
+// Opened from a notification with no panel open: the session is in the address,
+// read already as the selection, and taken back out so a reload is ordinary.
+if (new URLSearchParams(location.search).has("session")) {
+  const url = new URL(location.href);
+  url.searchParams.delete("session");
+  history.replaceState(null, "", url);
+}
+
+/* One notification, through the worker when there is one and the page's own
+   constructor when there is not (plain http on a desktop, say). Resolves to ""
+   when it went out, or why it did not. */
+async function notify(title: string, options: NotificationOptions & { renotify?: boolean },
+                      sessionId: string): Promise<string> {
+  const reg = await worker;
+  let why = workerFailed ? `the service worker did not start (${workerFailed})` : "";
+  if (reg) {
+    try {
+      await reg.showNotification(title, { ...options, data: { sessionId } });
+      return "";
+    } catch (error) { why = String(error?.message || error); }
+  }
+  try {
+    const note = new Notification(title, options);
+    note.onclick = () => { window.focus(); note.close(); if (sessionId) selectSession(sessionId); };
+    return "";
+  } catch (error) {
+    // This browser will only show one through a worker, and there is none.
+    return why || String(error?.message || error);
+  }
+}
+
+/* The test button in Settings: one notification now, so "allowed" can be seen
+   to mean something on this device. Resolves to what to say about it. */
+export async function testNotification(): Promise<string> {
+  if (!("Notification" in window)) return "This browser cannot show notifications";
+  if (Notification.permission !== "granted") return "Notifications are not allowed in this browser";
+  const why = await notify("Watchtower", {
+    body: "Notifications reach this device. This is what a session needing you looks like.",
+    tag: "watchtower-test",
+  }, "");
+  return why ? `It did not show: ${why}` : "Sent — it should be on screen now";
+}
 /* What a session is stopped on, as one string to compare against the last one.
 
    Keyed on the prompt rather than on the status, because a session can go from
@@ -68,19 +130,18 @@ export function announce(sessions) {
       : `${session.name} needs you`;
     const said = ask ? ask.label[0].toUpperCase() + ask.label.slice(1)
       : "Finished, and waiting at its prompt";
-    const note = new Notification(title, {
+    notify(title, {
       body: `${said} — ${shorten(session.cwd)}`,
       tag: session.sessionId,
+      // A second thing to say about the same session replaces the first on
+      // screen, and should still buzz the phone rather than swap in silently.
+      renotify: true,
       // A prompt the panel is holding runs out and is refused if nobody
       // answers, so it stays on screen until it is looked at. A terminal
       // session's prompt waits as long as you do, and a finished turn is not
       // waiting on anything at all.
       requireInteraction: !!ask && ask.key.startsWith("gate:"),
-    });
-    // The whole point of being told is going there, and the answer is in the
-    // panel for a held prompt.
-    const id = session.sessionId;
-    note.onclick = () => { window.focus(); note.close(); selectSession(id); };
+    }, session.sessionId);
   }
   for (const key of [...lastAnnounced.keys()]) if (!seen.has(key)) lastAnnounced.delete(key);
 }
