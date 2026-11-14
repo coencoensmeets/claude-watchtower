@@ -349,12 +349,14 @@ export function ownedAskCard(session, ask) {
       <div class="ask-sheet__body">
         ${rows}
         ${!ask.asks
-          ? `<p class="ask-q__text md-title-small">Let it use ${escapeHtml(ask.name)}?</p>
+          ? `<p class="ask-q__text md-title-small">${ask.via === "tmux"
+              ? "Let it go ahead?" : `Let it use ${escapeHtml(ask.name)}?`}</p>
              ${ask.what ? `<p class="ask-sheet__what md-body-small md-mono">${escapeHtml(ask.what)}</p>` : ""}`
           : ""}
       </div>
       <div class="ask-sheet__foot">
-        <span class="ask-sheet__note md-label-small">Nothing runs until you answer.</span>
+        <span class="ask-sheet__note md-label-small">${ask.via === "tmux"
+          ? "Answered by pressing its keys in tmux." : "Nothing runs until you answer."}</span>
         <button class="button button--text md-state" data-act="ask-deny">${ask.asks ? "Skip" : "Refuse"}</button>
         <button class="button button--filled md-state" data-act="ask-allow"${ready ? "" : " disabled"}>
           ${ask.asks ? "Answer" : "Allow"}</button>
@@ -412,10 +414,10 @@ export async function sendAskAnswer(session, ask, behavior, button) {
   button.disabled = true;
   const picks = askPicksFor(ask);
   try {
-    const response = await fetch("/api/owned/answer", {
+    const response = await fetch(ask.via === "tmux" ? "/api/tmux/answer" : "/api/owned/answer", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        sessionId: session.sessionId, requestId: ask.requestId, behavior,
+        sessionId: session.sessionId, requestId: ask.requestId, behavior, asks: !!ask.asks,
         ...(behavior === "allow" && ask.asks ? { answers: picks } : {}),
       }),
     });
@@ -587,6 +589,12 @@ function pictureButtons() {
 }
 
 export function composer(session) {
+  // A terminal session in tmux standing on a prompt the panel could read off
+  // its screen: the one case of a blocked terminal session that can be
+  // answered from here, so it gets the same card as a panel turn's prompt.
+  if (session.terminalAsk && !runsHere(session)) {
+    return `<div class="composer composer--asking">${agentDock(session)}${ownedAskCard(session, session.terminalAsk)}</div>`;
+  }
   const why = sendBlockedReason(session);
   if (why) {
     return `<div class="composer">
