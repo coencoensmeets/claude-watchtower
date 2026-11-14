@@ -448,8 +448,13 @@ async function paintReach() {
       </div>`
     : `<span class="md-body-medium">this machine's own address, port
         <code class="md-mono">${reach.port}</code></span>`;
+  // From anywhere first: it is the address that works wherever the phone is,
+  // so it is the one worth scanning. This network's address is the fallback
+  // under it — and the whole of the section when there is no Tailscale.
   section.innerHTML = `
     <h3 class="section__title md-title-small">On your phone</h3>
+    <div class="tailnet" id="tailnetBox" hidden></div>
+    <h4 class="md-title-small reach__subtitle" id="lanTitle" hidden>On this network</h4>
     <div class="reach">
       ${reach.address ? `<img class="reach__code" src="/api/qr" alt="The address of this panel, as a code to scan"
         width="248" height="248">` : ""}
@@ -464,10 +469,11 @@ async function paintReach() {
              who can reach that address can read every conversation on it.</p>`}
       </div>
     </div>
-    <div class="settings-notice" id="wslHint" hidden></div>
-    <div class="tailnet" id="tailnetBox" hidden></div>`;
+    <div class="settings-notice" id="wslHint" hidden></div>`;
   paintWslHint(section.querySelector<HTMLElement>("#wslHint"), reach.wsl);
   paintTailnet(section.querySelector<HTMLElement>("#tailnetBox"), reach.tailnet);
+  // Named only when there is something above it to tell it apart from.
+  section.querySelector<HTMLElement>("#lanTitle").hidden = !reach.tailnet;
   // Nothing to copy when there is no address to have copied — the sentence in
   // its place is about this machine's own network name, which the panel does
   // not know and cannot put on the clipboard.
