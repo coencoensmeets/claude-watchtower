@@ -123,6 +123,7 @@ function contextBar(session) {
 }
 
 function modeBar(session) {
+  if (!runsHere(session) && session.tmux && session.modeLive && app.feed.canSend) return tmuxModeBar(session);
   if (!runsHere(session) || !app.feed.canSend) return "";
   const owned = ownedFor(session);
   return `<div class="mode-bar" role="group" aria-label="Permission mode">
@@ -131,6 +132,39 @@ function modeBar(session) {
           aria-pressed="${String((owned.mode || "default") === key)}"
           data-mark="${key}">${escapeHtml(OWNED_MODE_LABEL[key])}</button>`).join("")}
     </div>`;
+}
+
+/* The same chips for a terminal session in tmux, where picking one presses
+   Shift+Tab in its pane until the footer shows that mode. The pressed chip is
+   what the footer showed on the last read, not what was asked for, because
+   that is the mode the session is actually in. */
+function tmuxModeBar(session) {
+  return `<div class="mode-bar" role="group" aria-label="Permission mode, read off its tmux pane">
+      ${Object.keys(OWNED_MODE_LABEL).map((key) => `
+        <button class="mode-chip md-state md-label-small" type="button" data-tmux-mode="${key}"
+          aria-pressed="${String(session.permissionMode === key)}"
+          data-mark="${key}">${escapeHtml(OWNED_MODE_LABEL[key])}</button>`).join("")}
+    </div>`;
+}
+
+export async function pickTmuxMode(session, chip) {
+  const mode = chip.dataset.tmuxMode;
+  if (session.permissionMode === mode) return;
+  const bar = chip.closest(".mode-bar");
+  for (const other of bar.querySelectorAll("button")) other.disabled = true;
+  try {
+    const response = await fetch("/api/tmux/mode", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: session.sessionId, mode }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!data.ok) showSnackbar(data.message || "That mode did not stick");
+  } catch (error) {
+    showSnackbar("Could not reach the server");
+  } finally {
+    for (const other of bar.querySelectorAll("button")) other.disabled = false;
+    reloadState();
+  }
 }
 
 export function detailHeader(session, state, host) {

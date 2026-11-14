@@ -362,3 +362,59 @@ def terminal_ask(pid: int, waiting_for: str | None) -> dict | None:
                 "options": [o["label"] for o in standing["options"]],
             }
     return None
+
+
+# --- the permission mode
+
+# The footer under the prompt says which mode is on: `⏸ manual mode on`,
+# `⏵⏵ accept edits on`, `⏸ plan mode on`, `⏵⏵ auto mode on`. It is drawn only
+# while the prompt box is showing — a dialog covers it — so a screen without it
+# says nothing about the mode, rather than that the mode is unknown.
+FOOTER = re.compile(r"^\s*(?:⏸|⏵⏵?)\s+(.+?)\s+on\b")
+MODE_WORDS = {
+    "manual mode": "default",
+    "accept edits": "acceptEdits",
+    "plan mode": "plan",
+    "auto mode": "auto",
+    "bypass permissions": "bypassPermissions",
+    "don't ask": "dontAsk",
+    "dont ask": "dontAsk",
+}
+
+
+def read_mode(lines: list[str]) -> str | None:
+    """The permission mode the footer shows, or None if no footer is showing."""
+    for line in reversed(lines[-6:]):
+        hit = FOOTER.match(line)
+        if hit:
+            return MODE_WORDS.get(hit.group(1).strip().lower())
+    return None
+
+
+def set_mode(pane: dict, target: str) -> tuple[bool, str]:
+    """Move the mode with Shift+Tab, one press at a time, watching the footer.
+
+    Shift+Tab cycles through the modes the session offers — manual, accept
+    edits, plan, auto, in 2.1.325 — so the number of presses is not worked out
+    in advance: each press is followed by reading the footer again, and it stops
+    the moment the footer shows the mode asked for. A mode the cycle never
+    reaches brings it back round to where it started, and says so.
+    """
+    start = read_mode(screen(pane, fresh=True))
+    if start is None:
+        return False, "Its prompt is not showing — a dialog is covering it, or it is somewhere else"
+    if start == target:
+        return True, "It is already in that mode"
+    current = start
+    for _ in range(8):
+        press(pane, "BTab")
+        before = current
+        lines = _wait_for(pane, lambda lines: read_mode(lines) not in (None, before), 2.0)
+        if lines is None:
+            return False, "The footer did not move after Shift+Tab, so it was left alone"
+        current = read_mode(lines)
+        if current == target:
+            return True, "Mode changed in its terminal"
+        if current == start:
+            return False, "That mode is not one this session offers with Shift+Tab"
+    return False, "The mode did not come round, so it was left where it is"

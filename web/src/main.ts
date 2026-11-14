@@ -33,7 +33,7 @@ import { changeBusy, chatPanel, hideChange, showChange } from "./views/change.js
 import { agentBusy, hideAgent, refreshAgent, showAgent } from "./views/subagent.js";
 import { IDENTIFY_NOTE, commentIsOpen, markCommented, paintTrace, questionCard, renderRail, startRename, wireTrace } from "./views/chat.js";
 import { closeDiff, fetchGit, gitPanel, gitStamp, historyPanel, wireGit } from "./views/git.js";
-import { askPicksFor, compactPct, composer, detailHeader, ownedFor, pickMode, runsHere, sendAskAnswer } from "./views/owned.js";
+import { askPicksFor, compactPct, composer, detailHeader, ownedFor, pickMode, pickTmuxMode, runsHere, sendAskAnswer } from "./views/owned.js";
 import { fetchPlan, openPlan, planScrim } from "./views/plan.js";
 import { fetchUpdate, openUpdate, updateScrim } from "./views/update.js";
 import { aboutPanel, usagePanel } from "./views/usage.js";
@@ -1579,7 +1579,7 @@ function renderDetail(force = false) {
     spend.usageFor === session.sessionId ? usageStamp(spend.usage) : "",
     mutedSessions.has(session.sessionId), app.feed.canFocus, app.feed.canSend, session.canSay,
     session.pinned, session.kept,
-    session.permissionMode ?? "", session.title ?? "", session.parentName ?? "",
+    session.permissionMode ?? "", session.modeLive ?? "", session.title ?? "", session.parentName ?? "",
     // What it has shown you, and which of it is on screen.
     previewStamp(session),
     // A question going up or being answered has to redraw the pane; the tool use
@@ -1942,6 +1942,10 @@ function renderDetail(force = false) {
   // from here is launched with it. Hence no waiting state and no confirmation.
   for (const chip of detailPane.querySelectorAll("[data-mode]")) {
     chip.addEventListener("click", () => pickMode(session, chip));
+  }
+  // A terminal session in tmux: picking presses Shift+Tab there.
+  for (const chip of detailPane.querySelectorAll("[data-tmux-mode]")) {
+    chip.addEventListener("click", () => pickTmuxMode(session, chip));
   }
 
   // Both git tabs carry the same header, and the header has buttons in it.

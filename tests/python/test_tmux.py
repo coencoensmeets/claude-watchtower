@@ -136,5 +136,21 @@ class Question(unittest.TestCase):
         self.assertIsNone(tmux.read_review(MULTI))
 
 
+class Mode(unittest.TestCase):
+    def test_reads_each_footer(self) -> None:
+        for footer, mode in (
+            ("  ⏸ manual mode on · ? for shortcuts                       ◐ medium · /effort", "default"),
+            ("  ⏵⏵ accept edits on (shift+tab to cycle)                  ◐ medium · /effort", "acceptEdits"),
+            ("  ⏸ plan mode on (shift+tab to cycle)                      ◐ medium · /effort", "plan"),
+            ("  ⏵⏵ auto mode on (shift+tab to cycle)                     ◐ medium · /effort", "auto"),
+            ("  ⏸ manual mode on · esc to interrupt                      ◐ medium · /effort", "default"),
+        ):
+            self.assertEqual(tmux.read_mode(IDLE[:-1] + [footer]), mode, footer)
+
+    def test_a_dialog_hides_the_footer(self) -> None:
+        for lines in (PERMISSION, SINGLE, MULTI, REVIEW):
+            self.assertIsNone(tmux.read_mode(lines))
+
+
 if __name__ == "__main__":
     unittest.main()

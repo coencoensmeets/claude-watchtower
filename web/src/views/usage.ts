@@ -275,7 +275,7 @@ export function aboutPanel(session, host) {
     ${glance(ICON.desktop, "Runs in", escapeHtml(host.label), session.kind === "child" ? "nested session" : "")}
     ${glance(ICON.gate, "Mode", session.permissionMode
       ? escapeHtml(MODE_LABELS[session.permissionMode] || session.permissionMode) : "—",
-      session.permissionMode ? "last written" : "not written down yet")}
+      session.modeLive ? "read off its screen" : session.permissionMode ? "last written" : "not written down yet")}
   </div>`;
 
   const facts = [

@@ -380,8 +380,13 @@ class Tools:
     def set_mode(self, session: str, mode: str) -> Any:
         if mode not in MODES:
             raise ToolError(f"Mode must be one of {', '.join(MODES)}.")
-        target, _, _ = self._target(session)
-        said = self.call("POST", "/api/owned/mode", {"sessionId": target["sessionId"], "mode": mode})
+        target, owned, _ = self._target(session)
+        # A live terminal session in tmux is switched in its pane, with
+        # Shift+Tab; anything else has the mode its next panel turn starts in.
+        running_here = (owned.get(target["sessionId"]) or {}).get("running")
+        route = "/api/tmux/mode" if target.get("tmux") and target.get("alive") and not running_here \
+            else "/api/owned/mode"
+        said = self.call("POST", route, {"sessionId": target["sessionId"], "mode": mode})
         return {"ok": True, "message": said.get("message"), "mode": mode}
 
     def rename_session(self, session: str, name: str) -> Any:
@@ -478,7 +483,8 @@ TOOLS = [
          "session": SESSION, "allow": {"type": "boolean"},
          "message": {"type": "string", "description": "Why, when denying"}}}},
     {"name": "set_mode",
-     "description": "Set the permission mode a panel-run session's next turns run in.",
+     "description": "Set the permission mode a panel-run session's next turns run in, or switch "
+                    "a terminal session running in tmux to it now (Shift+Tab in its pane).",
      "inputSchema": {"type": "object", "required": ["session", "mode"], "properties": {
          "session": SESSION, "mode": {"type": "string", "enum": list(MODES)}}}},
     {"name": "rename_session",
