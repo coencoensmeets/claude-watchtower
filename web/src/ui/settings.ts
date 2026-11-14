@@ -383,7 +383,9 @@ async function paintReach() {
           : `<p class="md-body-small reach__note">This panel is running without a key, so anyone
              who can reach that address can read every conversation on it.</p>`}
       </div>
-    </div>`;
+    </div>
+    <div class="settings-notice" id="wslHint" hidden></div>`;
+  paintWslHint(section.querySelector<HTMLElement>("#wslHint"), reach.wsl);
   // Nothing to copy when there is no address to have copied — the sentence in
   // its place is about this machine's own network name, which the panel does
   // not know and cannot put on the clipboard.
@@ -394,6 +396,64 @@ async function paintReach() {
     // the other end of the pane, and the answer belongs where the press was.
     copy.innerHTML = ICON.check;
     setTimeout(() => { if (copy.isConnected) copy.innerHTML = ICON.copy; }, 1400);
+  });
+}
+
+/* Under WSL the code can be right and the phone still told the site cannot be
+   reached: Windows drops the connection before Linux sees it. The server asks
+   Windows (watchtower/wslnet.py); this says what it found, and in the mirrored
+   case carries the button that asks Windows — behind a UAC prompt on the
+   desktop — to let the port in. */
+function paintWslHint(box: HTMLElement | null, wsl) {
+  if (!box) return;
+  const blocked = wsl?.firewall === "blocked";
+  const nat = wsl?.mode === "nat";
+  box.hidden = !(blocked || nat);
+  box.dataset.state = "missing";
+  if (box.hidden) return;
+  if (nat) {
+    box.innerHTML = `<p class="md-body-medium">A phone cannot open this address: WSL is in NAT
+        mode, so the panel sits behind an address only this computer can reach. Add
+        <code class="md-mono">networkingMode=mirrored</code> under <code class="md-mono">[wsl2]</code>
+        in <code class="md-mono">%UserProfile%\\.wslconfig</code>, run
+        <code class="md-mono">wsl --shutdown</code>, and start the panel again.</p>`;
+    return;
+  }
+  box.innerHTML = `<p class="md-body-medium">A phone cannot open this address yet: Windows'
+      firewall for WSL blocks incoming connections to port
+      <code class="md-mono">${escapeHtml(String(wsl.port))}</code>.
+      Allowing it asks Windows for administrator rights — answer the prompt on this computer.</p>
+    <button class="button button--filled md-state" id="allowWsl" type="button">Allow on Windows</button>
+    <p class="md-body-small">Or run this in an administrator PowerShell:</p>
+    <div class="reach__line">
+      <code class="md-mono reach__url">${escapeHtml(wsl.command)}</code>
+      <button class="icon-button md-state reach__copy" id="copyWsl" type="button"
+        title="Copy the command" aria-label="Copy the command">${ICON.copy}</button>
+    </div>`;
+  const copy = box.querySelector<HTMLElement>("#copyWsl");
+  copy?.addEventListener("click", () => {
+    if (!copyText(wsl.command, "Command copied")) return;
+    copy.innerHTML = ICON.check;
+    setTimeout(() => { if (copy.isConnected) copy.innerHTML = ICON.copy; }, 1400);
+  });
+  const allow = box.querySelector<HTMLButtonElement>("#allowWsl");
+  allow?.addEventListener("click", async () => {
+    allow.disabled = true;
+    allow.textContent = "Waiting for Windows…";
+    let answer;
+    try {
+      const response = await fetch("/api/reach/firewall", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+      });
+      answer = await response.json();
+    } catch (error) {
+      answer = { ok: false, message: "The panel did not answer" };
+    }
+    showSnackbar(answer?.message || (answer?.ok ? "Allowed" : "Could not allow it"));
+    if (!box.isConnected) return;
+    if (answer?.wsl) { paintWslHint(box, answer.wsl); return; }
+    allow.disabled = false;
+    allow.textContent = "Allow on Windows";
   });
 }
 
