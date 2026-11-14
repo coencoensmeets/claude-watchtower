@@ -63,6 +63,7 @@ from watchtower.rows import (
 )
 from watchtower.store import STORE
 from watchtower.tmux import answer_permission, answer_question, pane_of, skip_question
+from watchtower.tmux import set_mode as set_tmux_mode
 from watchtower.transcript import (
     TRANSCRIPT_LIMIT_MAX, has_conversation, read_change, read_transcript,
 )
@@ -1406,6 +1407,27 @@ class Handler(BaseHTTPRequestHandler):
         else:
             ok, message = answer_permission(pane, fingerprint, allow)
         self._json({"ok": ok, "message": message}, 200 if ok else 409)
+
+    @route("POST", "/api/tmux/mode")
+    def _post_tmux_mode(self, payload: dict, session_id: str) -> None:
+        # Changing a terminal session's mode by pressing Shift+Tab in its tmux
+        # pane, watching the footer after each press. The modes offered are the
+        # ones the panel runs its own turns in, for the same reasons.
+        if not config.SAY_ENABLED:
+            self._json({"ok": False, "message": OFF_HERE}, 403)
+            return
+        mode = str(payload.get("mode") or "")
+        if mode not in OWNED_MODES:
+            self._json({"ok": False, "message": f"The panel does not switch sessions to {mode!r}"}, 400)
+            return
+        data = STORE.raw(session_id)
+        pid = (data or {}).get("pid")
+        pane = pane_of(pid) if isinstance(pid, int) else None
+        if not pane:
+            self._json({"ok": False, "message": "That session is not in a tmux pane the panel can reach"}, 409)
+            return
+        ok, message = set_tmux_mode(pane, mode)
+        self._json({"ok": ok, "message": message, "mode": mode}, 200 if ok else 409)
 
     @route("POST", "/api/owned/say")
     def _post_owned_say(self, payload: dict, session_id: str) -> None:

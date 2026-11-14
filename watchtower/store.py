@@ -34,7 +34,7 @@ from watchtower.proc import (
 from watchtower.rows import kept_rows, refresh_row
 from watchtower.input import session_alive, session_listening
 from watchtower.sessions import PEER_PROTOCOL, child_sessions, peer_protocols
-from watchtower.tmux import terminal_ask
+from watchtower.tmux import pane_of, read_mode, screen, terminal_ask
 from watchtower.transcript import (
     has_conversation, last_activity, read_ai_title, read_pending_question, read_pending_tool,
     read_permission_mode, transcript_paths,
@@ -143,6 +143,8 @@ class SessionStore:
         # session id -> (read at, transcript mtime then, the question or None)
         self._question_cache: dict[str, tuple[float, float | None, dict | None]] = {}
         self._pending_cache: dict[str, tuple[float, float | None, dict | None]] = {}
+        # sessionId -> (mode, when) as last read off its tmux pane's footer.
+        self._live_mode: dict[str, tuple[str, float]] = {}
         self._first_seen: dict[str, float] = {}
         # pid -> (sampled at, cpu seconds then, was it working)
         self._cpu: dict[int, tuple[float, float, bool]] = {}
@@ -523,6 +525,7 @@ class SessionStore:
                         self._title_cache.pop(session_id, None)
                         self._question_cache.pop(session_id, None)
                         self._pending_cache.pop(session_id, None)
+                        self._live_mode.pop(session_id, None)
                         self._alive_at.pop(session_id, None)
                         self._cpu.pop(gone.get("pid"), None)
 
@@ -660,6 +663,20 @@ class SessionStore:
                     save_pairs(pairs)
                 match = WINDOWS.match(session)
                 session["window"] = match
+            # For a session in a tmux pane, the mode as its footer shows it now,
+            # which beats the transcript's reading: that one is written down only
+            # now and then, never when the mode changes. A screen with a dialog
+            # over the footer says nothing, so the last footer seen stands.
+            pane = pane_of(pid) if alive and isinstance(pid, int) else None
+            if pane:
+                session["tmux"] = True
+                seen = read_mode(screen(pane))
+                if seen:
+                    self._live_mode[session_id] = (seen, now)
+                live = self._live_mode.get(session_id)
+                if live:
+                    session["permissionMode"] = live[0]
+                    session["modeLive"] = True
             # The prompt itself, read off the screen, for a waiting session in a
             # tmux pane — the one kind of terminal the panel can press keys in
             # without risking the wrong session. See watchtower/tmux.py.

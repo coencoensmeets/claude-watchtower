@@ -114,6 +114,11 @@ export interface Session {
   /** The prompt a waiting terminal session in tmux is standing on, read off its
       screen, in the shape of a panel turn's ask (`via: "tmux"`). */
   terminalAsk?: any;
+  /** Set when the session runs in a tmux pane the panel can reach. */
+  tmux?: boolean;
+  /** Set when `permissionMode` was read off its tmux pane's footer rather than
+      the transcript, which writes the mode down only now and then. */
+  modeLive?: boolean;
   trace: Span[];
   alive: boolean;
   canSay: boolean;
