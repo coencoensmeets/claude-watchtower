@@ -17,6 +17,41 @@
     -webkit-font-smoothing: antialiased;
     transition: background var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-standard);
   }
+
+  /* Scrollbars, everywhere at once: a thin rounded thumb in the scheme's own
+     ink on no track at all, darker under the pointer. The platform's default —
+     a grey gutter with arrow buttons on Windows — sat in every scrolling box in
+     a palette nothing else on the page uses.
+
+     Chromium and Safari take the ::-webkit-scrollbar parts, which are the only
+     way to get a rounded, inset thumb and no arrows. Chromium drops those parts
+     on any element that sets `scrollbar-width` or `scrollbar-color`, so the
+     standard properties are given only to a browser without them — Firefox —
+     where thin-and-tinted is as far as it goes. A box that hides its scrollbar
+     with `scrollbar-width: none` still hides it in both. */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    /* The transparent border is the inset: the thumb is drawn 6px wide inside a
+       10px gutter, off the edge of the box it scrolls. */
+    border: 2px solid transparent; background-clip: padding-box;
+    border-radius: var(--md-sys-shape-corner-full);
+    background-color: color-mix(in srgb, var(--md-sys-color-on-surface) 26%, transparent);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: color-mix(in srgb, var(--md-sys-color-on-surface) 44%, transparent);
+  }
+  ::-webkit-scrollbar-thumb:active {
+    background-color: color-mix(in srgb, var(--md-sys-color-on-surface) 56%, transparent);
+  }
+  ::-webkit-scrollbar-button { display: none; }
+  @supports not selector(::-webkit-scrollbar) {
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: color-mix(in srgb, var(--md-sys-color-on-surface) 30%, transparent) transparent;
+    }
+  }
+
   :focus-visible {
     outline: 3px solid var(--md-sys-color-primary);
     outline-offset: 2px;

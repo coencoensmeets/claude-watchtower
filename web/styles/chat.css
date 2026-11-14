@@ -208,7 +208,6 @@
        single wide display makes the whole panel scroll sideways. */
     overflow-x: auto; overflow-y: hidden;
     overscroll-behavior-x: contain;
-    scrollbar-width: thin;
     margin: var(--md-sys-spacing-3) 0;
     text-align: center;
   }
