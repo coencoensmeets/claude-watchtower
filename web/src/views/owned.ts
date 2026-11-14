@@ -603,7 +603,10 @@ function pictureButtons() {
   return `<button class="button button--text md-state composer__pick" type="button"
       data-act="pick-picture" title="Add a picture" aria-label="Add a picture">${ICON.image}</button>
     <button class="button button--text md-state composer__pick composer__pick--camera" type="button"
-      data-act="take-picture" title="Take a picture" aria-label="Take a picture">${ICON.camera}</button>`;
+      data-act="take-picture" title="Take a picture" aria-label="Take a picture">${ICON.camera}</button>
+    <button class="button button--text md-state composer__pick composer__mic" type="button" hidden
+      data-act="voice" aria-pressed="false" title="Talk instead of typing"
+      aria-label="Talk instead of typing">${ICON.mic}</button>`;
 }
 
 export function composer(session) {

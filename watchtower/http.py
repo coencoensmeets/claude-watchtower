@@ -19,9 +19,12 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import socket
+import ssl
 import tempfile
+import threading
 import time
-from http.server import BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -418,8 +421,14 @@ class Handler(BaseHTTPRequestHandler):
     def _tailnet_reach(self) -> dict:
         found = dict(tailnet.status())
         key = config.ACCESS_KEY or ""
+        tail = f"/{f'?k={key}' if key else ''}"
         if found.get("address"):
-            found["url"] = f"http://{found['address']}:{config.SERVE_PORT}/{f'?k={key}' if key else ''}"
+            found["url"] = f"http://{found['address']}:{config.SERVE_PORT}{tail}"
+            # Over https when there is a certificate for the name: the microphone,
+            # notifications and the clipboard only exist on a secure page.
+            tls = tailnet.tls_state()
+            found["https"] = {**tls, "admin": tailnet.TLS_ADMIN_URL,
+                              "url": f"https://{tls['name']}:{config.SERVE_PORT}{tail}" if tls["ok"] else ""}
         # Turning it on or off changes the machine, and from the phone turning it
         # off would cut the phone off — so only somebody at this machine may.
         found["canSwitch"] = is_loopback(self.client_address[0])
@@ -434,8 +443,22 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": False, "message": "Only this computer can switch that"}, 403)
             return
         ok, message, _ = tailnet.turn_on() if payload.get("on") else tailnet.turn_off()
+        # The certificate follows the machine on or off the tailnet. In the
+        # background: the first fetch can take half a minute.
+        threading.Thread(target=tailnet.refresh_tls, daemon=True).start()
         self._json({"ok": ok, "message": message, "tailnet": self._tailnet_reach()},
                    200 if ok else 409)
+
+    @route("POST", "/api/reach/tls")
+    def _post_reach_tls(self, payload: dict, session_id: str) -> None:
+        """Fetch the tailnet certificate again now — after switching HTTPS on in
+        the admin console, say. Loopback only, like the switch it sits under."""
+        if not config.SERVE_LAN or not is_loopback(self.client_address[0]):
+            self._json({"ok": False, "message": "Only this computer can do that"}, 403)
+            return
+        state = tailnet.refresh_tls()
+        self._json({"ok": state["ok"], "message": "Serving https" if state["ok"] else state["message"],
+                    "tailnet": self._tailnet_reach()}, 200 if state["ok"] else 409)
 
     @route("POST", "/api/reach/firewall")
     def _post_reach_firewall(self, payload: dict, session_id: str) -> None:
@@ -472,13 +495,17 @@ class Handler(BaseHTTPRequestHandler):
         where = lan_address() if config.SERVE_LAN else None
         # ?via=tailnet draws the tailnet address instead: the one that works
         # from anywhere, once this machine is on it.
+        scheme = "http"
         if config.SERVE_LAN and parse_qs(urlparse(self.path).query).get("via") == ["tailnet"]:
             where = tailnet.status().get("address") or None
+            tls = tailnet.tls_state()
+            if where and tls["ok"]:
+                where, scheme = tls["name"], "https"
         if not where:
             self._send(404, b"nothing to point at", "text/plain; charset=utf-8")
             return
         key = config.ACCESS_KEY or ""
-        url = f"http://{where}:{config.SERVE_PORT}/{f'?k={key}' if key else ''}"
+        url = f"{scheme}://{where}:{config.SERVE_PORT}/{f'?k={key}' if key else ''}"
         try:
             drawn = qr_svg(url)
         except ValueError:
@@ -1447,3 +1474,50 @@ class Handler(BaseHTTPRequestHandler):
             return
         kind = content_type or self.MIME.get(target.suffix, "application/octet-stream")
         self._send(200, target.read_bytes(), kind)
+
+
+class PanelServer(ThreadingHTTPServer):
+    """The panel's server: plain http, and https on the same port once there is
+    a certificate for this machine's tailnet name (see watchtower/tailnet.py).
+
+    One port rather than two because the port is the thing written down and
+    bookmarked, and a phone given the https address and a laptop on the wifi
+    given the http one should both be right. A TLS connection opens with a
+    handshake record, whose first byte is 0x16; an http request opens with a
+    method name, which never does. So the first byte is peeked — not read — in
+    the connection's own thread, and only a handshake is wrapped.
+    """
+
+    daemon_threads = True
+    # How long a connection may sit silent before its first byte. A browser
+    # preconnecting holds a thread for this long at most.
+    FIRST_BYTE_SECONDS = 15.0
+
+    def finish_request(self, request, client_address) -> None:
+        context = tailnet.tls_context()
+        if context is None:
+            super().finish_request(request, client_address)
+            return
+        try:
+            request.settimeout(self.FIRST_BYTE_SECONDS)
+            first = request.recv(1, socket.MSG_PEEK)
+        except OSError:
+            return
+        if first != b"\x16":
+            request.settimeout(None)
+            super().finish_request(request, client_address)
+            return
+        try:
+            wrapped = context.wrap_socket(request, server_side=True)
+        except (OSError, ssl.SSLError):
+            # A handshake that failed — a scanner, a client that would not take
+            # the certificate. Nothing to answer, and nothing worth a word.
+            return
+        try:
+            wrapped.settimeout(None)
+            super().finish_request(wrapped, client_address)
+        finally:
+            try:
+                wrapped.close()
+            except OSError:
+                pass

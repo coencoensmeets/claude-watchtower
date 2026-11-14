@@ -34,11 +34,10 @@ import atexit
 import signal
 import sys
 import threading
-from http.server import ThreadingHTTPServer
 
 from watchtower import build, config, listen, tailnet, wslnet
 from watchtower.config import SESSION_DIR
-from watchtower.http import Handler
+from watchtower.http import Handler, PanelServer
 from watchtower.input import is_loopback
 from watchtower.owned import owned_release_all, owned_resume_held
 from watchtower.store import STORE
@@ -135,7 +134,7 @@ def main() -> None:
         except (OSError, ValueError):
             pass
 
-    server = ThreadingHTTPServer((host, port), Handler)
+    server = PanelServer((host, port), Handler)
     # flush on every line: stdout is a pipe under a service unit, and the
     # address is the one thing here nobody can work out for themselves.
     say = lambda line: print(line, flush=True)
@@ -172,6 +171,11 @@ def main() -> None:
         on_tailnet = tailnet.status()
         if on_tailnet.get("address"):
             say(f"from anywhere    → http://{on_tailnet['address']}:{port}{key}  (Tailscale)")
+        # https on the tailnet name, once the certificate is in: what gives the
+        # phone its microphone. Printed when it lands, not waited for — and
+        # started even before Tailscale is installed, since the loop looks again.
+        tailnet.start_tls(lambda state: say(
+            f"from anywhere    → https://{state['name']}:{port}{key}  (Tailscale, https)"))
         if not config.ACCESS_KEY:
             say("note: --no-key, so anyone who can reach that port can read every conversation")
         elif not listen.key_is_remembered(config.ACCESS_KEY):

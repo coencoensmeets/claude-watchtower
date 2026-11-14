@@ -61,6 +61,17 @@
   @media (hover: none) and (pointer: coarse) {
     .composer__pick--camera { display: inline-flex; }
   }
+  /* The microphone, while it is listening: the error colours, because "this is
+     recording you" is the one state on the bar that must not be missed, and a
+     slow pulse so it reads as live rather than as a stuck toggle. */
+  .composer__mic[hidden] { display: none; }
+  .composer__mic[aria-pressed="true"] {
+    color: var(--md-sys-color-on-error-container);
+    background: var(--md-sys-color-error-container);
+    animation: mic-live 1.6s ease-in-out infinite;
+  }
+  @keyframes mic-live { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--md-sys-color-error) 25%, transparent); } }
+  @media (prefers-reduced-motion: reduce) { .composer__mic[aria-pressed="true"] { animation: none; } }
   /* The mode the next panel-run turn starts in. It sits above the box because
      it is a property of the send, not of the session — nothing is applied until
      something is sent. */

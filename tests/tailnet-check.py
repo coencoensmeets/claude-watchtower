@@ -134,4 +134,78 @@ check("and cannot switch it", code == 403)
 
 off.shutdown()
 here.shutdown()
+
+
+# ---------------------------------------------------------------- https, same port
+# One port answers both: a TLS handshake is wrapped, plain http is not. The
+# certificate is a throwaway self-signed one standing in for Tailscale's.
+import shutil  # noqa: E402
+import ssl  # noqa: E402
+import subprocess  # noqa: E402
+import tempfile  # noqa: E402
+from watchtower.http import PanelServer  # noqa: E402
+
+if not shutil.which("openssl"):
+    print("  --  no openssl, so the https checks are skipped")
+else:
+    tmp = tempfile.mkdtemp(prefix="watchtower-tls-")
+    cert, key = f"{tmp}/c.pem", f"{tmp}/k.pem"
+    subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+                    "-subj", "/CN=laptop.tail1234.ts.net", "-keyout", key, "-out", cert],
+                   check=True, capture_output=True)
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(cert, key)
+    config.SERVE_LAN = True
+    server = PanelServer(("127.0.0.1", 0), OffMachine)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    port = server.server_address[1]
+
+    def plain(path):
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        conn.request("GET", path)
+        answer = conn.getresponse()
+        return answer.status, answer.read()
+
+    def secure(path):
+        client = ssl.create_default_context(cafile=cert)
+        client.check_hostname = False
+        conn = http.client.HTTPSConnection("127.0.0.1", port, timeout=5, context=client)
+        conn.request("GET", path)
+        answer = conn.getresponse()
+        return answer.status, answer.read()
+
+    code, _ = plain("/api/reach?k=testkey1")
+    check("without a certificate, plain http is served as before", code == 200, str(code))
+
+    tailnet._tls.update(context=context, ok=True, name="laptop.tail1234.ts.net", message="")
+    code, raw = plain("/api/reach?k=testkey1")
+    check("with one, plain http still works on the same port", code == 200, str(code))
+    code, raw = secure("/api/reach?k=testkey1")
+    check("and https is served on that port too", code == 200, str(code))
+    https = (json.loads(raw).get("tailnet") or {}).get("https") or {}
+    check("reach offers the https address on the tailnet name",
+          https.get("url") == "https://laptop.tail1234.ts.net:8867/?k=testkey1", https.get("url"))
+    code, _ = secure("/api/reach")
+    check("over https, a phone without the key is still turned away", code == 403, str(code))
+    code, raw = secure("/api/qr?via=tailnet&k=testkey1")
+    check("the code is drawn for the https address", code == 200 and raw.startswith(b"<svg"))
+    # A broken handshake must not take the server with it.
+    import socket  # noqa: E402
+    with socket.create_connection(("127.0.0.1", port), timeout=5) as junk:
+        junk.sendall(b"\x16\x03\x01garbage-not-a-handshake")
+        try:
+            junk.recv(10)
+        except OSError:
+            pass
+    code, _ = secure("/api/reach?k=testkey1")
+    check("a garbled handshake does not stop the next one", code == 200, str(code))
+
+    tailnet._tls.update(context=None, ok=False, name="", message="Not on a tailnet")
+    server.shutdown()
+
+check("a missing HTTPS setting is explained with the admin page",
+      tailnet.TLS_ADMIN_URL in tailnet._cert_trouble("500 Internal Server Error: your Tailscale account does not support getting TLS certs"))
+check("a permission refusal is explained with the operator command",
+      "--operator=" in tailnet._cert_trouble("Access denied: cert access denied"))
+
 sys.exit(1 if FAILED else 0)

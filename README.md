@@ -244,6 +244,12 @@ Only what a browser puts on the clipboard as a picture is taken over: PNG, JPEG,
 
 > **Same gate as sending**, and for the same reason turned up a notch: this writes a file into a checkout. Loopback only, and off entirely under `--no-send`.
 
+### Talking instead of typing
+
+A **microphone** button sits beside the picture buttons. Press it and talk: the browser's own speech recognition types into the box as you go, exactly as if you had typed it, and **Send** is still yours to press — so a misheard word can be fixed first. Pressing it again stops it, so does sending, and a phone stops by itself after a silence. While it listens it is drawn in the error colours with a slow pulse, because a microphone that is on is not a state to miss.
+
+Nothing is installed for it: it is the Web Speech API, which Chrome, Edge, Safari and Chrome on Android have and Firefox does not. Chrome sends the audio to Google to transcribe. A browser only lends a page the microphone on a secure page — https, or localhost — so the button is only drawn where it can work: straight away on the laptop, and on the phone once the panel is opened over https through [Tailscale](#from-anywhere-with-tailscale). On plain http the keyboard's own dictation key still works.
+
 ### Dropping a file
 
 **Drag a file onto the composer and its path is typed in at the caret.** Nothing is uploaded and nothing is copied: the session is already sitting in a folder with that file in it, so the shortest true thing to say is where it is, and it reads it with the tool it reads any file with. The path lands where you were typing, spaced off the words either side, and you write the sentence around it — drop several and they go in as a list, and a path with a space in it is quoted the way a terminal would take it.
@@ -842,6 +848,9 @@ Two things a phone cannot have over plain http, because browsers reserve them fo
 
 - **Notifications** are unavailable, so a session finishing will not raise one. The panel checks and simply does not offer them.
 - **The clipboard API** is absent, so *Copy* falls back to the older `execCommand` path. It works; it is just not the modern one.
+- **The microphone** is refused, so the composer's mic button is not drawn. The keyboard's own dictation key still types into the box.
+
+Over Tailscale all three come back: the panel serves https on the tailnet name — see [From anywhere, with Tailscale](#from-anywhere-with-tailscale).
 
 > **Only do this on a network you trust.** The key stops a stranger on the same wifi reading your conversations, and it is eight characters over plain http on a local network — not a password protecting a public service. The panel is not built to be on the internet, and putting it there is not a thing a flag here will do for you.
 
@@ -853,6 +862,7 @@ Off the wifi there is no address for a phone to open, and the panel will not put
 
 - **The key still holds.** A phone on the tailnet arrives from its own `100.x` address, so it is asked for the key exactly as a phone on the wifi is. That is why the panel uses the tailnet address directly rather than `tailscale serve` or `funnel`: both are a proxy on this machine, every request through them would come from loopback, and loopback is let in without a key. Do not put either in front of the panel.
 - **Only this computer can press the switch.** From the phone, switching off would cut the phone off, and a sign-in link handed to anyone holding the key is a way to put the laptop on *their* tailnet. `POST /api/reach/tailnet` is refused to anything but loopback, key or no key.
+- **And over https, once Tailscale will issue a certificate.** The panel asks `tailscale cert` for one on this machine's tailnet name (`laptop.tail1234.ts.net`), keeps it in `~/.config/claude-watchtower/tls/`, renews it twice a day, and serves it itself on the **same port**: a TLS connection opens with the byte `0x16` and an http request never does, so the first byte is peeked and only a handshake is wrapped. The wifi address keeps working over plain http, and the code in Settings switches to the `https://` name. That is what gives the phone the microphone, notifications and the modern clipboard — browsers keep all three for secure pages. It needs **MagicDNS** and **HTTPS Certificates** switched on once in the [admin console](https://login.tailscale.com/admin/dns); until then Settings says so and links there. The name goes into the public certificate-transparency logs, which is how every Let's Encrypt certificate works — the machine is still only reachable from your tailnet.
 - **Two things need sudo, once.** Installing Tailscale, and — unless you want to type `sudo` every time — letting your user switch it: `sudo tailscale set --operator=$USER`. The section shows that command when Tailscale refuses.
 
 The URL can pin appearance for one load, which is handy for a second monitor or a wall display:
@@ -1020,6 +1030,7 @@ PANEL_URL=http://127.0.0.1:8787 node tests/ui-check.mjs
 | `GET /api/file` | `?sessionId=…&path=…` — a picture a message names, so the message can show it. The path must already exist and be inside your home folder or the session's own, and it must be a picture: png, jpeg, gif, webp, avif, bmp or svg, up to 32MB. Sent with `Content-Security-Policy: sandbox`. Not loopback-only, since it reads rather than acts — a phone showing a conversation needs the pictures in it |
 | `GET /api/reach` | The address a phone should point at — looked up now rather than at startup, because a laptop moves between networks — with the key on it, and under `tailnet` whether Tailscale is installed and up, and the address on it. Empty when the panel is on loopback only |
 | `GET /api/qr` | The same address as an SVG code to point a camera at; `?via=tailnet` draws the tailnet address instead. 404 when there is nothing to point at |
+| `POST /api/reach/tls` | Ask `tailscale cert` for the tailnet name's certificate again now and serve it — after switching HTTPS on in the admin console. Loopback only |
 | `POST /api/reach/tailnet` | `{"on": true\|false}` — `tailscale up` or `tailscale down`, answering with the new state and, when signing in is needed, the link. Loopback only, whatever the key |
 | `GET /api/terminal` | Whether *Open in terminal* can work on this machine: the terminal the panel would open, whether `claude` is on the PATH it would open it with, and the line that installs a terminal when there is none |
 | `POST /api/update` | `{"tag": "v1.4.0"}` — check that release out, rebuild the frontend and restart the panel on it. The tag is checked against what the server reads for itself rather than trusted; loopback only |
