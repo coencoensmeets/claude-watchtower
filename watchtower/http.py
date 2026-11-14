@@ -41,7 +41,7 @@ from watchtower.input import (
     deliver_later, end_process, is_loopback, say_to_session, session_listening,
 )
 from watchtower.owned import (
-    OWNED_ASK, OWNED_BUSY, OWNED_COMPACT, OWNED_MODES, OWNED_QUEUE, _OWNED_LOCK,
+    OWNED_ASK, OWNED_BUSY, OWNED_COMPACT, NEW_SESSION_MODE, OWNED_MODES, OWNED_QUEUE, _OWNED_LOCK,
     answer_from_panel, load_owned, owned_clear, owned_hold, owned_interrupt, owned_new,
     owned_queued, owned_release, owned_resume, owned_running, owned_say, owned_set_mode,
     owned_unqueue, save_owned,
@@ -1029,7 +1029,7 @@ class Handler(BaseHTTPRequestHandler):
             if not cwd:
                 self._json({"ok": False, "message": "There is no folder to start it in"}, 404)
                 return
-        mode = str(payload.get("mode") or OWNED_MODES[0])
+        mode = str(payload.get("mode") or NEW_SESSION_MODE)
         made, message = owned_new(cwd, mode)
         self._json({"ok": bool(made), "message": message, "sessionId": made, "cwd": cwd},
                    200 if made else 409)
