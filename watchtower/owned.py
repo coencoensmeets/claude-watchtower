@@ -66,6 +66,11 @@ from watchtower.windows import load_names, save_names
 # tool waits. What no mode changes is that Claude Code judges some commands safe
 # enough not to ask about at all, and those still run.
 OWNED_MODES = ("default", "auto", "plan", "acceptEdits")
+# What a session started fresh from the panel begins in. Auto, because that is
+# how its own terminal would start it and a new session asking about every
+# file read was the panel being stricter than Claude Code. A session adopted or
+# resumed keeps whatever it was in; this is only for one with no past.
+NEW_SESSION_MODE = "auto"
 CLI_MODES = {"default": "manual"}
 # A turn is a whole conversation turn, which can be minutes. Long, not endless.
 OWNED_SECONDS = 1800.0

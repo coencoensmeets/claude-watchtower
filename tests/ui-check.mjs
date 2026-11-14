@@ -796,6 +796,22 @@ check("the page has swatches, a contrast group and a switch per kind", await eva
    && document.querySelectorAll('#contrastGroup .segmented__item').length === 3
    && document.querySelectorAll('#notifySwitches [data-notify]').length === 4`));
 
+/* Tabs rather than one long page: one panel shows at a time, the strip says
+   which, and the choice survives leaving and coming back. */
+check("settings is split into five tabs, one panel showing", await evaluate(`(() => {
+  const tabs = document.querySelectorAll('#detailPane [data-settings-tab]');
+  const shown = [...document.querySelectorAll('#detailPane [id^="settingsPanel-"]')].filter(p => !p.hidden);
+  return tabs.length === 5 && shown.length === 1; })()`));
+await evaluate(`document.querySelector('#detailPane [data-settings-tab="phone"]').click()`);
+await sleep(200);
+check("picking a tab shows its panel and marks it selected", await evaluate(
+  `!document.getElementById('settingsPanel-phone').hidden
+   && document.getElementById('settingsPanel-appearance').hidden
+   && document.querySelector('[data-settings-tab="phone"]').getAttribute('aria-selected') === 'true'`));
+check("the tab is remembered", await evaluate(`sessionStorage.getItem('watchtower.settingsTab') === 'phone'`));
+await evaluate(`document.querySelector('#detailPane [data-settings-tab="appearance"]').click()`);
+await sleep(200);
+
 const primaryBefore = await evaluate(`getComputedStyle(document.documentElement).getPropertyValue('--md-sys-color-primary').trim()`);
 await evaluate(`[...document.querySelectorAll('#swatches .swatch')][2].click()`);
 await sleep(700);

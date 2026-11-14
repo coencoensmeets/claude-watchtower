@@ -147,7 +147,17 @@ function settingsPage() {
         </div>
       </div>
     </header>
-    <div class="tab-panel">
+    <!-- Tabs rather than one long page: five unrelated groups of settings
+         stacked up made the phone code a long scroll away, and the page
+         only grows. Not data-tab — that name belongs to a session's tabs,
+         and the delegated lookups for those would find these too. -->
+    <div class="tabs" role="tablist" aria-label="Settings">
+      ${SETTINGS_TABS.map((tab) => `<button class="tab md-state md-label-large" role="tab" type="button"
+          id="settingsTab-${tab.key}" data-settings-tab="${tab.key}" aria-controls="settingsPanel-${tab.key}"
+          aria-selected="${tab.key === settingsTab}" tabindex="${tab.key === settingsTab ? 0 : -1}">${ICON[tab.icon]}${tab.label}</button>`).join("")}
+    </div>
+    <div class="tab-panel" role="tabpanel" id="settingsPanel-appearance" aria-labelledby="settingsTab-appearance"
+      ${settingsTab === "appearance" ? "" : "hidden"}>
       <!-- Theme and Contrast are one control each, so they sit beside each
            other on a pane wide enough for both. The swatches take the row under
            them, because they wrap and a third of the pane makes them taller
@@ -174,6 +184,12 @@ function settingsPage() {
           <p class="seed-readout md-body-small" id="seedReadout"></p>
         </section>
       </div>
+      <section class="section">
+        <button class="button button--text md-state" id="resetTheme">Reset colours</button>
+      </section>
+    </div>
+    <div class="tab-panel" role="tabpanel" id="settingsPanel-notify" aria-labelledby="settingsTab-notify"
+      ${settingsTab === "notify" ? "" : "hidden"}>
       <!-- Which kinds of notification are wanted at all, for every session at
            once. The switches in a session's own Details tab choose which
            sessions may use the kinds turned on here. -->
@@ -183,6 +199,9 @@ function settingsPage() {
         <div class="notify-grid" id="notifySwitches"></div>
         <div class="notify-permission" id="notifyHint" hidden></div>
       </section>
+    </div>
+    <div class="tab-panel" role="tabpanel" id="settingsPanel-sessions" aria-labelledby="settingsTab-sessions"
+      ${settingsTab === "sessions" ? "" : "hidden"}>
       <!-- What a session's header offers. Only one thing so far, and it is
            here rather than on the session because it is the same answer for
            every session. -->
@@ -201,21 +220,81 @@ function settingsPage() {
              below and hidden on a machine where it can. -->
         <div class="settings-notice" id="terminalHint" hidden></div>
       </section>
+    </div>
+    <div class="tab-panel" role="tabpanel" id="settingsPanel-phone" aria-labelledby="settingsTab-phone"
+      ${settingsTab === "phone" ? "" : "hidden"}>
       <!-- The way in from a phone. Hidden until the server says it is serving
            the network at all, and filled by paintReach below: the address it
            shows is read at that moment, because a laptop changes networks and a
            code pointing at this morning's address is worse than none. -->
       <section class="section" id="reachSection" hidden></section>
+    </div>
+    <div class="tab-panel" role="tabpanel" id="settingsPanel-panel" aria-labelledby="settingsTab-panel"
+      ${settingsTab === "panel" ? "" : "hidden"}>
       <!-- Which release the panel is on, and a button to go and ask. Empty
            here on purpose: the app bar's chip only appears when there is
            something to press, so this is the only place that says "up to date"
            or names the reason a checkout is being left alone — and it is
            filled by views/update.ts, which is what knows. -->
       <section class="section" id="updateSection" hidden></section>
-      <section class="section">
-        <button class="button button--text md-state" id="resetTheme">Reset colours</button>
-      </section>
     </div>`;
+}
+
+/* The tabs, in the order they are worth reaching for. The one last open is
+   remembered for the session of the browser tab, so coming back to Settings
+   lands where you left it — the phone code, usually — rather than on colours. */
+const SETTINGS_TABS = [
+  { key: "appearance", label: "Appearance", icon: "palette" },
+  { key: "notify", label: "Notifications", icon: "bell" },
+  { key: "sessions", label: "Sessions", icon: "terminal" },
+  { key: "phone", label: "Phone", icon: "phone" },
+  { key: "panel", label: "Panel", icon: "info" },
+];
+let settingsTab = (() => {
+  try {
+    const kept = sessionStorage.getItem("watchtower.settingsTab");
+    return SETTINGS_TABS.some((tab) => tab.key === kept) ? kept : "appearance";
+  } catch (error) {
+    return "appearance";
+  }
+})();
+
+function showSettingsTab(key: string, focus = false) {
+  if (!SETTINGS_TABS.some((tab) => tab.key === key)) return;
+  settingsTab = key;
+  try { sessionStorage.setItem("watchtower.settingsTab", key); } catch (error) { /* private mode */ }
+  for (const button of detailPane.querySelectorAll<HTMLElement>("[data-settings-tab]")) {
+    const on = button.dataset.settingsTab === key;
+    button.setAttribute("aria-selected", String(on));
+    button.tabIndex = on ? 0 : -1;
+    if (on && focus) button.focus();
+  }
+  for (const tab of SETTINGS_TABS) {
+    const panel = detailPane.querySelector<HTMLElement>(`#settingsPanel-${tab.key}`);
+    if (panel) panel.hidden = tab.key !== key;
+  }
+}
+
+/* Click to pick, and the arrow keys, Home and End along the strip — the
+   keyboard pattern a tablist is expected to have. */
+function wireSettingsTabs() {
+  const strip = detailPane.querySelector<HTMLElement>(".tabs[aria-label='Settings']");
+  if (!strip) return;
+  strip.addEventListener("click", (event) => {
+    const button = (event.target as Element).closest<HTMLElement>("[data-settings-tab]");
+    if (button) showSettingsTab(button.dataset.settingsTab);
+  });
+  strip.addEventListener("keydown", (event) => {
+    const keys = SETTINGS_TABS.map((tab) => tab.key);
+    const at = keys.indexOf(settingsTab);
+    const next = event.key === "ArrowRight" ? keys[(at + 1) % keys.length]
+      : event.key === "ArrowLeft" ? keys[(at - 1 + keys.length) % keys.length]
+      : event.key === "Home" ? keys[0]
+      : event.key === "End" ? keys[keys.length - 1] : "";
+    if (!next) return;
+    event.preventDefault();
+    showSettingsTab(next, true);
+  });
 }
 
 /* Painted once and then left alone: every control on it keeps its own state,
@@ -225,6 +304,7 @@ export function paintSettings() {
   if (detailPane.dataset.signature === "settings:page") return;
   detailPane.dataset.signature = "settings:page";
   detailPane.innerHTML = settingsPage();
+  wireSettingsTabs();
   syncTheme();
   renderSwatches();
   renderContrast();
@@ -368,8 +448,13 @@ async function paintReach() {
       </div>`
     : `<span class="md-body-medium">this machine's own address, port
         <code class="md-mono">${reach.port}</code></span>`;
+  // From anywhere first: it is the address that works wherever the phone is,
+  // so it is the one worth scanning. This network's address is the fallback
+  // under it — and the whole of the section when there is no Tailscale.
   section.innerHTML = `
     <h3 class="section__title md-title-small">On your phone</h3>
+    <div class="tailnet" id="tailnetBox" hidden></div>
+    <h4 class="md-title-small reach__subtitle" id="lanTitle" hidden>On this network</h4>
     <div class="reach">
       ${reach.address ? `<img class="reach__code" src="/api/qr" alt="The address of this panel, as a code to scan"
         width="248" height="248">` : ""}
@@ -384,10 +469,11 @@ async function paintReach() {
              who can reach that address can read every conversation on it.</p>`}
       </div>
     </div>
-    <div class="settings-notice" id="wslHint" hidden></div>
-    <div class="tailnet" id="tailnetBox" hidden></div>`;
+    <div class="settings-notice" id="wslHint" hidden></div>`;
   paintWslHint(section.querySelector<HTMLElement>("#wslHint"), reach.wsl);
   paintTailnet(section.querySelector<HTMLElement>("#tailnetBox"), reach.tailnet);
+  // Named only when there is something above it to tell it apart from.
+  section.querySelector<HTMLElement>("#lanTitle").hidden = !reach.tailnet;
   // Nothing to copy when there is no address to have copied — the sentence in
   // its place is about this machine's own network name, which the panel does
   // not know and cannot put on the clipboard.

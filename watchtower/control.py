@@ -207,13 +207,18 @@ def start_session(entry: dict) -> tuple[bool, str]:
 
 
 def new_session(cwd: str) -> tuple[bool, str]:
-    """Open a terminal running a fresh `claude` in a folder, from a shell prompt."""
+    """Open a terminal running a fresh `claude` in a folder, from a shell prompt.
+
+    In auto mode, the same as a session the panel starts itself — see
+    owned.NEW_SESSION_MODE — so a new session begins the same way whichever
+    button started it.
+    """
     if not cwd or not Path(cwd).is_dir():
         return False, f"That folder is gone: {cwd}" if cwd else "That session has no folder"
     claude = shutil.which("claude")
     if not claude:
         return False, "Cannot find the claude command on PATH"
-    argv = terminal_argv(interactive_argv([claude]), cwd)
+    argv = terminal_argv(interactive_argv([claude, "--permission-mode", "auto"]), cwd)
     if not argv:
         return False, "No terminal found to start it in — set CLAUDE_WATCHTOWER_TERMINAL"
     try:

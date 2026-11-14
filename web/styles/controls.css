@@ -115,10 +115,13 @@
   .reach__copy { flex: none; color: var(--md-sys-color-on-surface-variant); }
   .reach__copy svg { width: 20px; height: 20px; }
   .reach__note { color: var(--md-sys-color-on-surface-variant); max-width: 46ch; }
-  /* From anywhere: the Tailscale half of the phone section, set off by a rule. */
+  /* From anywhere: the Tailscale half of the phone section, first, and set off
+     from this network's address under it by a rule. */
   .tailnet { display: flex; flex-direction: column; align-items: flex-start; gap: var(--md-sys-spacing-3);
-    margin-top: var(--md-sys-spacing-6); padding-top: var(--md-sys-spacing-6);
-    border-top: 1px solid var(--md-sys-color-outline-variant); }
+    margin-bottom: var(--md-sys-spacing-6); padding-bottom: var(--md-sys-spacing-6);
+    border-bottom: 1px solid var(--md-sys-color-outline-variant); }
+  .reach__subtitle { margin: 0 0 var(--md-sys-spacing-3); }
+  .reach__subtitle[hidden] { display: none; }
   .tailnet[hidden] { display: none; }
   .tailnet .reach, .tailnet .reach__line { align-self: stretch; }
   .tailnet__title { margin: 0; }
