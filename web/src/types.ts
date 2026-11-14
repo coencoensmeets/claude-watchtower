@@ -103,6 +103,14 @@ export interface Session {
   title: string | null;
   context: Context | null;
   question: Question | null;
+  /** Only while waiting: what for, in Claude Code's words (`permission prompt`,
+      `input needed`) — or the panel's, when `waitingInferred` says so. */
+  waitingFor?: string;
+  /** Set when the session writes no status and the wait was worked out from its
+      transcript and process tree; see SessionStore._inferred_wait. */
+  waitingInferred?: boolean;
+  /** The tool an inferred permission prompt is about. */
+  waitingTool?: string;
   trace: Span[];
   alive: boolean;
   canSay: boolean;

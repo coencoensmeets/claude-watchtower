@@ -93,6 +93,55 @@ def ancestors(pid: int, limit: int = 12) -> list[int]:
     return chain
 
 
+def boot_time() -> float | None:
+    """When the machine booted, as an epoch — what a process's starttime counts from."""
+    try:
+        for line in Path("/proc/stat").read_text().splitlines():
+            if line.startswith("btime "):
+                return float(line.split()[1])
+    except (OSError, ValueError, IndexError):
+        pass
+    return None
+
+
+def started_at(pid: int) -> float | None:
+    """When this process started, as an epoch, or None if that cannot be read."""
+    ticks = proc_starttime(pid)
+    booted = boot_time()
+    if ticks is None or booted is None:
+        return None
+    try:
+        return booted + int(ticks) / CLK_TCK
+    except ValueError:
+        return None
+
+
+def descendants(pid: int) -> list[int]:
+    """Every process below this one, at any depth.
+
+    One pass over /proc to learn each process's parent, then a walk down from
+    the pid. A process that exits during the pass simply is not in the answer.
+    """
+    children: dict[int, list[int]] = {}
+    try:
+        entries = os.listdir("/proc")
+    except OSError:
+        return []
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        parent = parent_of(int(entry))
+        if parent is not None:
+            children.setdefault(parent, []).append(int(entry))
+    found: list[int] = []
+    stack = list(children.get(pid, []))
+    while stack:
+        current = stack.pop()
+        found.append(current)
+        stack.extend(children.get(current, []))
+    return found
+
+
 def proc_name(pid: int) -> str:
     fields = read_stat(pid)
     return fields[1] if fields and len(fields) > 1 else ""
