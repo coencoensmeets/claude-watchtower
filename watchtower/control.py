@@ -12,6 +12,7 @@ from a process rather than from the browser.
 
 from __future__ import annotations
 
+import base64
 import os
 import re
 import shlex
@@ -406,9 +407,115 @@ PICKER_LOCK = threading.Lock()
 PICKER_SECONDS = 300.0
 
 
+# Under WSL the desktop is Windows. A Tk or zenity window drawn through WSLg
+# opens behind the browser, if at all, and only knows the Linux side — so there
+# the chooser is Windows' own folder dialog, asked for through powershell.exe,
+# with the start folder and the answer carried across by wslpath. A service
+# started by systemd has neither WSL_DISTRO_NAME nor /mnt/c on its PATH, so the
+# interop marker and the fixed install path are what decide it.
+WSL_POWERSHELL = "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+WIN_PICKER = r"""
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class WatchtowerPicker {
+  [ComImport, Guid("DC1C5A9C-E88A-4dde-A5A1-60F82A20AEF7")] class FileOpenDialog {}
+  [ComImport, Guid("43826D1E-E718-42EE-BC55-A1E261C37BFE"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+  interface IShellItem {
+    void BindToHandler(IntPtr pbc, ref Guid bhid, ref Guid riid, out IntPtr ppv);
+    void GetParent(out IShellItem ppsi);
+    void GetDisplayName(uint sigdn, [MarshalAs(UnmanagedType.LPWStr)] out string name);
+    void GetAttributes(uint mask, out uint attribs);
+    void Compare(IShellItem psi, uint hint, out int order);
+  }
+  [ComImport, Guid("42f85136-db7e-439c-85f1-e4075d135fc8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+  interface IFileDialog {
+    [PreserveSig] int Show(IntPtr parent);
+    void SetFileTypes(uint count, IntPtr specs);
+    void SetFileTypeIndex(uint index);
+    void GetFileTypeIndex(out uint index);
+    void Advise(IntPtr events, out uint cookie);
+    void Unadvise(uint cookie);
+    void SetOptions(uint options);
+    void GetOptions(out uint options);
+    void SetDefaultFolder(IShellItem item);
+    void SetFolder(IShellItem item);
+    void GetFolder(out IShellItem item);
+    void GetCurrentSelection(out IShellItem item);
+    void SetFileName([MarshalAs(UnmanagedType.LPWStr)] string name);
+    void GetFileName([MarshalAs(UnmanagedType.LPWStr)] out string name);
+    void SetTitle([MarshalAs(UnmanagedType.LPWStr)] string title);
+    void SetOkButtonLabel([MarshalAs(UnmanagedType.LPWStr)] string label);
+    void SetFileNameLabel([MarshalAs(UnmanagedType.LPWStr)] string label);
+    void GetResult(out IShellItem item);
+  }
+  [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = false)]
+  static extern void SHCreateItemFromParsingName(string path, IntPtr pbc, ref Guid riid, out IShellItem item);
+  public static string Pick(string start, IntPtr owner) {
+    IFileDialog dialog = (IFileDialog)new FileOpenDialog();
+    uint options; dialog.GetOptions(out options);
+    dialog.SetOptions(options | 0x20 | 0x40);  // FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM
+    dialog.SetTitle("Folder for the new session");
+    try {
+      Guid iid = typeof(IShellItem).GUID; IShellItem folder;
+      SHCreateItemFromParsingName(start, IntPtr.Zero, ref iid, out folder);
+      dialog.SetFolder(folder);
+    } catch (Exception) {}
+    if (dialog.Show(owner) != 0) return "";
+    IShellItem result; dialog.GetResult(out result);
+    string path; result.GetDisplayName(0x80058000, out path);  // SIGDN_FILESYSPATH
+    return path;
+  }
+}
+'@
+$owner = New-Object System.Windows.Forms.Form -Property @{
+  TopMost = $true; ShowInTaskbar = $false; Opacity = 0; StartPosition = 'CenterScreen' }
+$owner.Show(); $owner.Activate()
+try { [Console]::Out.Write([WatchtowerPicker]::Pick(__START__, $owner.Handle)) }
+finally { $owner.Close() }
+"""
+
+
+def wsl_powershell() -> str | None:
+    """powershell.exe, if this is WSL with Windows interop switched on."""
+    if not (os.environ.get("WSL_DISTRO_NAME") or Path("/proc/sys/fs/binfmt_misc/WSLInterop").exists()):
+        return None
+    if not shutil.which("wslpath"):
+        return None
+    found = shutil.which("powershell.exe")
+    if found:
+        return found
+    return WSL_POWERSHELL if os.access(WSL_POWERSHELL, os.X_OK) else None
+
+
+def wslpath(flag: str, path: str) -> str | None:
+    try:
+        done = subprocess.run(["wslpath", flag, path], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    out = done.stdout.strip()
+    return out if done.returncode == 0 and out else None
+
+
+def windows_picker_argv(powershell: str, start: str) -> list[str]:
+    win_start = wslpath("-w", start) or ""
+    script = WIN_PICKER.replace("__START__", "'" + win_start.replace("'", "''") + "'")
+    encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+    return [powershell, "-NoProfile", "-NonInteractive", "-STA", "-EncodedCommand", encoded]
+
+
+
+
 
 def picker_argv(start: str) -> list[str] | None:
     """The chooser this desktop can show, or None if it cannot show one."""
+    powershell = wsl_powershell()
+    if powershell:
+        return windows_picker_argv(powershell, start)
     if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
         return None
     for name, build in GUI_PICKERS:
@@ -450,6 +557,12 @@ def pick_folder(start: str) -> tuple[str | None, str]:
     path = done.stdout.strip().splitlines()[0].strip() if done.stdout.strip() else ""
     if not path:
         return None, "No folder picked"
+    if argv[0].endswith("powershell.exe"):
+        # A Windows path back — C:\… or \\wsl.localhost\<distro>\… — made Linux.
+        linux = wslpath("-u", path)
+        if not linux:
+            return None, f"That folder has no path on this side: {path}"
+        path = linux
     if not Path(path).is_dir():
         return None, f"That is not a folder: {path}"
     return str(Path(path).resolve()), "Picked"
