@@ -49,6 +49,18 @@
   .composer__stop { flex: none; min-height: 48px; min-width: 48px;
     padding: 0 var(--md-sys-spacing-3); }
   .composer__stop svg { width: 18px; height: 18px; }
+  /* Add a picture / take one, before the box. Icon-only like Stop: they are
+     about what goes with the message, not a way of sending it. */
+  .composer__pick { flex: none; min-height: 48px; min-width: 40px;
+    padding: 0 var(--md-sys-spacing-2); }
+  .composer__pick svg { width: 20px; height: 20px; }
+  /* The camera is only a camera where there is one to open. A desktop browser
+     ignores `capture` and would show the same file dialog as the button beside
+     it, so there it is not drawn at all. */
+  .composer__pick--camera { display: none; }
+  @media (hover: none) and (pointer: coarse) {
+    .composer__pick--camera { display: inline-flex; }
+  }
   /* The mode the next panel-run turn starts in. It sits above the box because
      it is a property of the send, not of the session — nothing is applied until
      something is sent. */

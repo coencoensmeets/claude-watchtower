@@ -15,7 +15,7 @@ import { askConfirm, askScrim, closeAsk } from "./ui/ask.js";
 import { backButton, barNudge, barNudgeIcon, barNudgeLink, barNudgeText, barSupporting, chipSet, control, detailPane, endScrim, hitClosest, hitElement, linkChip, linkChipText, listEmpty, panes, pickBar, pickClear, pickCount, pickGroup, sessionList, settingsButton } from "./ui/dom.js";
 import { duration, escapeHtml, shorten, tokens } from "./ui/format.js";
 import { ICON, hostOf } from "./ui/icons.js";
-import { attachPicture, dropImage, imagesStamp, picturesOn, sendMessage } from "./ui/images.js";
+import { attachPicture, choosePictures, dropImage, imagesStamp, picturesOn, sendMessage } from "./ui/images.js";
 import { wireDrop } from "./ui/dropped.js";
 import { closeSessionMenu, menuIsOpen, openMenu, sessionMenu } from "./ui/menu.js";
 import { onLongPress } from "./ui/press.js";
@@ -1769,6 +1769,10 @@ function renderDetail(force = false) {
   // Leaving out a picture that was pasted by mistake. The file it saved stays
   // where it is — the sweep on the next paste is what clears it — and all this
   // drops is the panel's intention to name it.
+  detailPane.querySelector("[data-act='pick-picture']")?.addEventListener("click",
+    () => choosePictures(session, false));
+  detailPane.querySelector("[data-act='take-picture']")?.addEventListener("click",
+    () => choosePictures(session, true));
   for (const drop of detailPane.querySelectorAll<HTMLElement>("[data-act='unattach']")) {
     drop.addEventListener("click", () => dropImage(session.sessionId, drop.dataset.id));
   }

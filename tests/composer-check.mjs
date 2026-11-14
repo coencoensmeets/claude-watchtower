@@ -89,7 +89,8 @@ const OWNED_MODE_LABEL = { default: "Manual", auto: "Auto", plan: "Plan", accept
 let FEED = {};
 const ownedFor = (s) => FEED[s.sessionId] || {};
 const ICON = { check: "<svg/>", ask: "<svg/>", play: "<svg/>", stop: "<svg/>", compact: "<svg/>",
-               file: "<svg/>", terminal: "<svg/>", remoteControl: "<svg/>", discard: "<svg/>" };
+               file: "<svg/>", terminal: "<svg/>", remoteControl: "<svg/>", discard: "<svg/>",
+               image: "<svg/>", camera: "<svg/>" };
 const ownedAskCard = () => "<ASKCARD>";
 let IMAGES = {};
 const imagesFor = (id) => IMAGES[id] || [];
@@ -117,6 +118,7 @@ const { composer, modeBar, setFeed, setImages, sendBlockedReason, runsHere, queu
    ${lift("attachedStrip")}
    ${lift("agentDock")}
    ${lift("stopButton")}
+   ${lift("pictureButtons")}
    ${lift("terminalAction")}
    ${lift("remoteAction")}
    ${liftConst("clearOffer")}
@@ -172,6 +174,7 @@ const CALLED = [
   "headerActions", "menuItemsFor", "openMenu",
   "wireDrop", "pathsOn", "pathOfUri", "dragCarriesFiles", "quotePath", "insertAtCaret",
   "attachFile", "isPicture", "attachment",
+  "choosePictures", "pictureInput", "fitPicture", "pictureButtons",
 ];
 
 function check(what, ok, note = "") {
@@ -195,6 +198,10 @@ check("and does not offer to run a turn", !live.includes(`data-act="own"`));
    first. Starting a stopped session is part of sending to it. */
 setFeed({ kept: { mode: "plan" } });
 const kept = composer({ sessionId: "kept", status: "stopped" });
+check("a picture can be added from the file chooser, beside the box",
+  live.includes(`data-act="pick-picture"`) && kept.includes(`data-act="pick-picture"`));
+check("and taken with the camera, on a device that has one",
+  live.includes(`data-act="take-picture"`) && live.includes("composer__pick--camera"));
 check("one Send, and the panel is what runs it",
   kept.includes(`data-act="own"`) && !kept.includes(`data-act="say"`));
 check("and it is not qualified with where it runs",

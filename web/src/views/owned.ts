@@ -595,6 +595,17 @@ function attachedStrip(session) {
     </div>`;
 }
 
+/* The two ways in for a picture that is not on the clipboard: the platform's own
+   file chooser, and — on a phone — its own camera. Both are the browser's native
+   sheets rather than anything drawn here, so on iOS and Android you get the
+   photo library, the camera and the files app you already know. */
+function pictureButtons() {
+  return `<button class="button button--text md-state composer__pick" type="button"
+      data-act="pick-picture" title="Add a picture" aria-label="Add a picture">${ICON.image}</button>
+    <button class="button button--text md-state composer__pick composer__pick--camera" type="button"
+      data-act="take-picture" title="Take a picture" aria-label="Take a picture">${ICON.camera}</button>`;
+}
+
 export function composer(session) {
   const why = sendBlockedReason(session);
   if (why) {
@@ -629,7 +640,7 @@ export function composer(session) {
        : owned.running ? "Send it a message…"
        : "Type and it starts back up…")
     : away ? "Write here — it goes in as soon as it is listening…"
-    : queued ? "Queue a message for when it finishes…" : "Send a message — drop a file to name it, paste a picture to send it…";
+    : queued ? "Queue a message for when it finishes…" : "Send a message — drop a file to name it, paste or add a picture to send it…";
   // The mode lives in the header, beside the session's name, so what is left in
   // this bar is only what belongs to sending: the way in, for a session that is
   // not ours yet, and the failure of the last turn if there was one.
@@ -659,6 +670,7 @@ export function composer(session) {
         tabindex="0" aria-label="Resize the message box"
         title="Drag to resize · double-click to fit the text"></div>
       ${modes}
+      ${pictureButtons()}
       <textarea class="composer__field md-body-large" id="sayField" rows="1"
         aria-label="Message this session"
         placeholder="${placeholder}"></textarea>
