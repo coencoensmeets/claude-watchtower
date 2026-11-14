@@ -48,6 +48,7 @@ from watchtower.paste import (DROP_MAX_BYTES, PASTE_MAX_BYTES, POST_MAX_BYTES,
 from watchtower.plan import read_plan
 from watchtower.listen import lan_address
 from watchtower.wslnet import allow_port, phone_reach
+from watchtower import tailnet
 from watchtower.proc import proc_gone
 from watchtower.qr import svg as qr_svg
 from watchtower.rows import (
@@ -408,7 +409,33 @@ class Handler(BaseHTTPRequestHandler):
             # Under WSL, what Windows does with a phone's connection before
             # Linux sees it — the usual reason the code scans and nothing opens.
             "wsl": phone_reach(config.SERVE_PORT) if where else None,
+            # The way in from anywhere: this machine's address on its tailnet,
+            # with the same key on the end. None on a --local panel, which has
+            # nothing for a phone to open on any network.
+            "tailnet": self._tailnet_reach() if config.SERVE_LAN else None,
         })
+
+    def _tailnet_reach(self) -> dict:
+        found = dict(tailnet.status())
+        key = config.ACCESS_KEY or ""
+        if found.get("address"):
+            found["url"] = f"http://{found['address']}:{config.SERVE_PORT}/{f'?k={key}' if key else ''}"
+        # Turning it on or off changes the machine, and from the phone turning it
+        # off would cut the phone off — so only somebody at this machine may.
+        found["canSwitch"] = is_loopback(self.client_address[0])
+        return found
+
+    @route("POST", "/api/reach/tailnet")
+    def _post_reach_tailnet(self, payload: dict, session_id: str) -> None:
+        """Join or leave the tailnet. Loopback only, whatever the key says: a
+        login link handed to a phone is a way to put this laptop on somebody
+        else's tailnet, and leaving from the phone strands the phone."""
+        if not config.SERVE_LAN or not is_loopback(self.client_address[0]):
+            self._json({"ok": False, "message": "Only this computer can switch that"}, 403)
+            return
+        ok, message, _ = tailnet.turn_on() if payload.get("on") else tailnet.turn_off()
+        self._json({"ok": ok, "message": message, "tailnet": self._tailnet_reach()},
+                   200 if ok else 409)
 
     @route("POST", "/api/reach/firewall")
     def _post_reach_firewall(self, payload: dict, session_id: str) -> None:
@@ -443,6 +470,10 @@ class Handler(BaseHTTPRequestHandler):
         can be checked against a reference encoder in a test.
         """
         where = lan_address() if config.SERVE_LAN else None
+        # ?via=tailnet draws the tailnet address instead: the one that works
+        # from anywhere, once this machine is on it.
+        if config.SERVE_LAN and parse_qs(urlparse(self.path).query).get("via") == ["tailnet"]:
+            where = tailnet.status().get("address") or None
         if not where:
             self._send(404, b"nothing to point at", "text/plain; charset=utf-8")
             return

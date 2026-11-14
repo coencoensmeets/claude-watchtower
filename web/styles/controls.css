@@ -115,6 +115,13 @@
   .reach__copy { flex: none; color: var(--md-sys-color-on-surface-variant); }
   .reach__copy svg { width: 20px; height: 20px; }
   .reach__note { color: var(--md-sys-color-on-surface-variant); max-width: 46ch; }
+  /* From anywhere: the Tailscale half of the phone section, set off by a rule. */
+  .tailnet { display: flex; flex-direction: column; align-items: flex-start; gap: var(--md-sys-spacing-3);
+    margin-top: var(--md-sys-spacing-6); padding-top: var(--md-sys-spacing-6);
+    border-top: 1px solid var(--md-sys-color-outline-variant); }
+  .tailnet[hidden] { display: none; }
+  .tailnet .reach, .tailnet .reach__line { align-self: stretch; }
+  .tailnet__title { margin: 0; }
   /* Not small print: it is the reason none of the switches above will do
      anything, so it is drawn as the obstacle it is and carries the one button
      that clears it. */

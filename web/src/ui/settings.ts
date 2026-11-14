@@ -384,8 +384,10 @@ async function paintReach() {
              who can reach that address can read every conversation on it.</p>`}
       </div>
     </div>
-    <div class="settings-notice" id="wslHint" hidden></div>`;
+    <div class="settings-notice" id="wslHint" hidden></div>
+    <div class="tailnet" id="tailnetBox" hidden></div>`;
   paintWslHint(section.querySelector<HTMLElement>("#wslHint"), reach.wsl);
+  paintTailnet(section.querySelector<HTMLElement>("#tailnetBox"), reach.tailnet);
   // Nothing to copy when there is no address to have copied — the sentence in
   // its place is about this machine's own network name, which the panel does
   // not know and cannot put on the clipboard.
@@ -455,6 +457,136 @@ function paintWslHint(box: HTMLElement | null, wsl) {
     allow.disabled = false;
     allow.textContent = "Allow on Windows";
   });
+}
+
+/* A line of text with a copy button on its end — the shape every command and
+   address on this page takes. */
+function copyLine(id: string, text: string, label: string) {
+  return `<div class="reach__line">
+      <code class="md-mono reach__url">${escapeHtml(text)}</code>
+      <button class="icon-button md-state reach__copy" id="${id}" type="button"
+        title="${label}" aria-label="${label}">${ICON.copy}</button>
+    </div>`;
+}
+
+function wireCopy(box: HTMLElement, id: string, text: string, said: string) {
+  const copy = box.querySelector<HTMLElement>(`#${id}`);
+  copy?.addEventListener("click", () => {
+    if (!copyText(text, said)) return;
+    copy.innerHTML = ICON.check;
+    setTimeout(() => { if (copy.isConnected) copy.innerHTML = ICON.copy; }, 1400);
+  });
+}
+
+/* ==========================================================================
+   From anywhere — the same panel over Tailscale.
+
+   Off the wifi there is no address for a phone to open, and the panel is not
+   built to be on the internet. Tailscale puts the laptop and the phone on a
+   private network of their own, wherever each of them is; the server finds it
+   (watchtower/tailnet.py), switches it, and hands back the address on it. The
+   phone still needs the key there: it arrives from its own tailnet address, not
+   from this machine.
+
+   Installing Tailscale and letting this user switch it both need sudo, so for
+   those the box shows the command rather than a button. Only this computer can
+   press the switch: from the phone, turning it off would cut the phone off.
+   ========================================================================== */
+let tailnetPoll = 0;
+
+function paintTailnet(box: HTMLElement | null, net, note = "") {
+  if (!box) return;
+  window.clearTimeout(tailnetPoll);
+  box.hidden = !net;
+  if (!net) return;
+  const title = `<h4 class="md-title-small tailnet__title">From anywhere</h4>`;
+  const phoneApp = `<p class="md-body-small reach__note">On the phone: the Tailscale app, signed in
+      to the same account.</p>`;
+  if (!net.installed) {
+    box.innerHTML = `${title}
+      <p class="md-body-medium">Away from this wifi a phone has nothing to open. Tailscale joins
+        this computer and your phone into a private network of their own, wherever each one is —
+        nothing is opened to the internet. Install it on this computer:</p>
+      ${copyLine("copyTsInstall", net.install, "Copy the command")}
+      ${phoneApp}
+      <button class="button button--text md-state" id="tsRecheck" type="button">Check again</button>`;
+    wireCopy(box, "copyTsInstall", net.install, "Command copied");
+    box.querySelector("#tsRecheck")?.addEventListener("click", () => refreshTailnet(box));
+    return;
+  }
+  if (net.state === "NoDaemon") {
+    const start = "sudo systemctl enable --now tailscaled";
+    box.innerHTML = `${title}
+      <p class="md-body-medium">Tailscale is installed, but its service is not running. Start it:</p>
+      ${copyLine("copyTsStart", start, "Copy the command")}
+      <button class="button button--text md-state" id="tsRecheck" type="button">Check again</button>`;
+    wireCopy(box, "copyTsStart", start, "Command copied");
+    box.querySelector("#tsRecheck")?.addEventListener("click", () => refreshTailnet(box));
+    return;
+  }
+  const on = !!net.running;
+  const permission = /permission/i.test(note);
+  box.innerHTML = `${title}
+    <label class="switch">
+      <input type="checkbox" id="tailnetToggle" ${on ? "checked" : ""} ${net.canSwitch ? "" : "disabled"}>
+      <span class="switch__track"><span class="switch__thumb">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+      </span></span>
+      <span class="switch__label md-body-medium">Reach from anywhere<span
+        class="switch__says md-label-small">${net.canSwitch
+          ? "Puts this computer on your Tailscale network. Off takes it off for every device, not just the phone"
+          : "Only this computer can switch this"}</span></span>
+    </label>
+    ${on ? `<div class="reach">
+        <img class="reach__code" src="/api/qr?via=tailnet&t=${Date.now()}"
+          alt="This panel's address on your tailnet, as a code to scan" width="248" height="248">
+        <div class="reach__said">
+          <p class="md-body-medium">From anywhere, with Tailscale on the phone:</p>
+          ${copyLine("copyTailnet", net.url, "Copy the address")}
+          ${net.name ? `<p class="md-body-small reach__note">Or by name:
+              <code class="md-mono">${escapeHtml(net.name)}</code> — the same port and key.</p>` : ""}
+          ${phoneApp}
+        </div>
+      </div>`
+    : net.login ? `<p class="md-body-medium">Tailscale is waiting for you to sign in.</p>
+        <a class="button button--filled md-state" href="${escapeHtml(net.login)}" target="_blank"
+          rel="noopener noreferrer">Sign in to Tailscale</a>`
+    : ""}
+    ${permission ? `<p class="md-body-small">Tailscale only lets root switch it until you allow
+        this user, once:</p>${copyLine("copyTsOperator", net.operator, "Copy the command")}` : ""}`;
+  if (on) wireCopy(box, "copyTailnet", net.url, "Address copied");
+  if (permission) wireCopy(box, "copyTsOperator", net.operator, "Command copied");
+  // Waiting on a sign-in in another tab: look again until it lands.
+  if (!on && net.login) tailnetPoll = window.setTimeout(() => refreshTailnet(box), 3000);
+  const toggle = box.querySelector<HTMLInputElement>("#tailnetToggle");
+  toggle?.addEventListener("change", async () => {
+    toggle.disabled = true;
+    let answer;
+    try {
+      const response = await fetch("/api/reach/tailnet", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ on: toggle.checked }),
+      });
+      answer = await response.json();
+    } catch (error) {
+      answer = { ok: false, message: "The panel did not answer" };
+    }
+    showSnackbar(answer?.message || (answer?.ok ? "Done" : "Could not switch it"));
+    const now = answer?.tailnet;
+    if (now?.login && !now.running) window.open(now.login, "_blank", "noopener");
+    if (box.isConnected) paintTailnet(box, now || net, answer?.ok ? "" : answer?.message || "");
+  });
+}
+
+async function refreshTailnet(box: HTMLElement) {
+  if (!box.isConnected) return;
+  try {
+    const response = await fetch("/api/reach", { cache: "no-store" });
+    const reach = await response.json();
+    if (box.isConnected) paintTailnet(box, reach?.tailnet);
+  } catch (error) {
+    // The poll will say the panel is unreachable.
+  }
 }
 
 function setSeed(hex) { app.settings.seed = hex; persist(); applyScheme(); renderSwatches(); }

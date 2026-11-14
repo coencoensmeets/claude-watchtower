@@ -36,7 +36,7 @@ import sys
 import threading
 from http.server import ThreadingHTTPServer
 
-from watchtower import build, config, listen, wslnet
+from watchtower import build, config, listen, tailnet, wslnet
 from watchtower.config import SESSION_DIR
 from watchtower.http import Handler
 from watchtower.input import is_loopback
@@ -167,6 +167,11 @@ def main() -> None:
                         "Set networkingMode=mirrored under [wsl2] in %UserProfile%\\.wslconfig "
                         "and run `wsl --shutdown`")
             threading.Thread(target=wsl_warning, daemon=True).start()
+        # From anywhere, when this machine is on a tailnet — the CLI answers in
+        # milliseconds, so it is asked here rather than in a thread.
+        on_tailnet = tailnet.status()
+        if on_tailnet.get("address"):
+            say(f"from anywhere    → http://{on_tailnet['address']}:{port}{key}  (Tailscale)")
         if not config.ACCESS_KEY:
             say("note: --no-key, so anyone who can reach that port can read every conversation")
         elif not listen.key_is_remembered(config.ACCESS_KEY):

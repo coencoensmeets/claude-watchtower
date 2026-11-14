@@ -845,6 +845,16 @@ Two things a phone cannot have over plain http, because browsers reserve them fo
 
 > **Only do this on a network you trust.** The key stops a stranger on the same wifi reading your conversations, and it is eight characters over plain http on a local network — not a password protecting a public service. The panel is not built to be on the internet, and putting it there is not a thing a flag here will do for you.
 
+### From anywhere, with Tailscale
+
+Off the wifi there is no address for a phone to open, and the panel will not put itself on the internet. [Tailscale](https://tailscale.com) is the way round that it arranges instead: a private WireGuard network between your own devices, which the laptop joins by dialling out — nothing is opened on any router, and under WSL nothing has to get through Windows' firewall either.
+
+**Settings → On your phone → From anywhere** does the rest. With no Tailscale it shows the one line that installs it. Installed, it is a **Reach from anywhere** switch: on runs `tailscale up` and, the first time, opens Tailscale's sign-in page; once the machine is on the tailnet the section shows its tailnet address with the key on the end, as text and as a code, and the startup output prints it as `from anywhere →`. Put the Tailscale app on the phone, signed in to the same account, and scan it. Off runs `tailscale down`, which takes this computer off the tailnet for every device, not just the phone.
+
+- **The key still holds.** A phone on the tailnet arrives from its own `100.x` address, so it is asked for the key exactly as a phone on the wifi is. That is why the panel uses the tailnet address directly rather than `tailscale serve` or `funnel`: both are a proxy on this machine, every request through them would come from loopback, and loopback is let in without a key. Do not put either in front of the panel.
+- **Only this computer can press the switch.** From the phone, switching off would cut the phone off, and a sign-in link handed to anyone holding the key is a way to put the laptop on *their* tailnet. `POST /api/reach/tailnet` is refused to anything but loopback, key or no key.
+- **Two things need sudo, once.** Installing Tailscale, and — unless you want to type `sudo` every time — letting your user switch it: `sudo tailscale set --operator=$USER`. The section shows that command when Tailscale refuses.
+
 The URL can pin appearance for one load, which is handy for a second monitor or a wall display:
 
 | Query | Values |
@@ -1008,8 +1018,9 @@ PANEL_URL=http://127.0.0.1:8787 node tests/ui-check.mjs
 | `GET /api/update` | Whether a newer release is tagged on this checkout's own remote: the release HEAD is on, the newest one, the notes in between, and whether it can be applied; `?force=1` skips the six-hour cache; loopback only |
 | `GET /api/changelog` | The changelog as it is written down in this checkout, as text for the browser to render. Read from disk on every ask, since it changes exactly when the panel updates itself. 404 for a copy that has none |
 | `GET /api/file` | `?sessionId=…&path=…` — a picture a message names, so the message can show it. The path must already exist and be inside your home folder or the session's own, and it must be a picture: png, jpeg, gif, webp, avif, bmp or svg, up to 32MB. Sent with `Content-Security-Policy: sandbox`. Not loopback-only, since it reads rather than acts — a phone showing a conversation needs the pictures in it |
-| `GET /api/reach` | The address a phone should point at — looked up now rather than at startup, because a laptop moves between networks — with the key on it. Empty when the panel is on loopback only |
-| `GET /api/qr` | The same address as an SVG code to point a camera at. 404 when there is nothing to point at |
+| `GET /api/reach` | The address a phone should point at — looked up now rather than at startup, because a laptop moves between networks — with the key on it, and under `tailnet` whether Tailscale is installed and up, and the address on it. Empty when the panel is on loopback only |
+| `GET /api/qr` | The same address as an SVG code to point a camera at; `?via=tailnet` draws the tailnet address instead. 404 when there is nothing to point at |
+| `POST /api/reach/tailnet` | `{"on": true\|false}` — `tailscale up` or `tailscale down`, answering with the new state and, when signing in is needed, the link. Loopback only, whatever the key |
 | `GET /api/terminal` | Whether *Open in terminal* can work on this machine: the terminal the panel would open, whether `claude` is on the PATH it would open it with, and the line that installs a terminal when there is none |
 | `POST /api/update` | `{"tag": "v1.4.0"}` — check that release out, rebuild the frontend and restart the panel on it. The tag is checked against what the server reads for itself rather than trusted; loopback only |
 | `POST /api/update/channel` | `{"channel": "release"|"development"}` — which line this install follows: the release tags, or the tip of the development branch. Remembered outside the checkout, since an update replaces the checkout. Loopback only, like the update it decides the target of |
