@@ -34,6 +34,7 @@ from watchtower.proc import (
 from watchtower.rows import kept_rows, refresh_row
 from watchtower.input import session_alive, session_listening
 from watchtower.sessions import PEER_PROTOCOL, child_sessions, peer_protocols
+from watchtower.tmux import terminal_ask
 from watchtower.transcript import (
     has_conversation, last_activity, read_ai_title, read_pending_question, read_pending_tool,
     read_permission_mode, transcript_paths,
@@ -659,6 +660,13 @@ class SessionStore:
                     save_pairs(pairs)
                 match = WINDOWS.match(session)
                 session["window"] = match
+            # The prompt itself, read off the screen, for a waiting session in a
+            # tmux pane — the one kind of terminal the panel can press keys in
+            # without risking the wrong session. See watchtower/tmux.py.
+            if status == "waiting" and alive and isinstance(pid, int) and config.SAY_ENABLED:
+                ask = terminal_ask(pid, data.get("waitingFor"))
+                if ask:
+                    session["terminalAsk"] = ask
             out.append(session)
 
         # A kept session whose process has gone still gets a row: same id, same

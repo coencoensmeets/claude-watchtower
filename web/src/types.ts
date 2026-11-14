@@ -111,6 +111,9 @@ export interface Session {
   waitingInferred?: boolean;
   /** The tool an inferred permission prompt is about. */
   waitingTool?: string;
+  /** The prompt a waiting terminal session in tmux is standing on, read off its
+      screen, in the shape of a panel turn's ask (`via: "tmux"`). */
+  terminalAsk?: any;
   trace: Span[];
   alive: boolean;
   canSay: boolean;

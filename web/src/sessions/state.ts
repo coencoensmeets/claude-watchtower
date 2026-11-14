@@ -105,6 +105,11 @@ export function standingAsk(session: Session) {
       label: tool ? `wants to run ${clip(tool, 32)}` : "waiting for permission at its prompt",
       key: `perm:${tool || ""}` };
   }
+  // A question Claude Code says is up but the transcript does not have yet:
+  // 2.1.325 writes the call down only once it has been answered.
+  if (stateKeyOf(session.status) === "waiting" && session.waitingFor === "input needed") {
+    return { kind: "question", label: "asks a question at its prompt", key: "said:?" };
+  }
   // Blocked on something the panel cannot read, so the badge says only that
   // there is a prompt and that it has to be answered where it was asked.
   if (stateKeyOf(session.status) === "waiting") {

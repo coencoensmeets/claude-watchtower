@@ -1585,6 +1585,9 @@ function renderDetail(force = false) {
     // A question going up or being answered has to redraw the pane; the tool use
     // it came in on is what tells one question from the next.
     session.question?.toolUseId ?? "",
+    // A prompt read off a tmux pane is keyed on what was on screen, so the next
+    // question of several, or the screen after an answer, redraws too.
+    session.terminalAsk?.requestId ?? "",
     // What is pasted into the box but not sent yet. The strip is drawn from a
     // map rather than from the server, so nothing else here would move when a
     // picture lands or finishes saving.
@@ -1895,7 +1898,7 @@ function renderDetail(force = false) {
   detailPane.querySelector("[data-act='resume']")?.addEventListener("click", (e) =>
     run("/api/owned/resume", session, control(e)));
   // Answering the prompt a panel turn is standing on.
-  const standing = ownedFor(session).ask;
+  const standing = ownedFor(session).ask || session.terminalAsk;
   if (standing) {
     const picks = askPicksFor(standing);
     for (const pick of detailPane.querySelectorAll<HTMLElement>(".ask--live [data-answer]")) {

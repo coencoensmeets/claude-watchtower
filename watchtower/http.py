@@ -62,6 +62,7 @@ from watchtower.rows import (
     _KEPT, _KEPT_LOCK, drop_unpinned_row, forget_row, keep_row, kept_rows, pin_row, unpin_row,
 )
 from watchtower.store import STORE
+from watchtower.tmux import answer_permission, answer_question, pane_of, skip_question
 from watchtower.transcript import (
     TRANSCRIPT_LIMIT_MAX, has_conversation, read_change, read_transcript,
 )
@@ -1371,6 +1372,39 @@ class Handler(BaseHTTPRequestHandler):
             "answers": answers if isinstance(answers, dict) else None,
         }
         ok, message = answer_from_panel(session_id, str(payload.get("requestId") or ""), decision)
+        self._json({"ok": ok, "message": message}, 200 if ok else 409)
+
+    @route("POST", "/api/tmux/answer")
+    def _post_tmux_answer(self, payload: dict, session_id: str) -> None:
+        # Answering a terminal session's prompt by pressing its keys in the tmux
+        # pane it runs in. Same gate as answering a panel turn's prompt, for the
+        # same reason: this decides what a session holding tools may do.
+        if not config.SAY_ENABLED:
+            self._json({"ok": False, "message": OFF_HERE}, 403)
+            return
+        data = STORE.raw(session_id)
+        pid = (data or {}).get("pid")
+        pane = pane_of(pid) if isinstance(pid, int) else None
+        if not pane:
+            self._json({"ok": False, "message": "That session is not in a tmux pane the panel can reach"}, 409)
+            return
+        fingerprint = str(payload.get("requestId") or "").removeprefix("tmux:")
+        allow = payload.get("behavior") == "allow"
+        if payload.get("asks"):
+            if not allow:
+                # Escape mid-turn interrupts the turn, so it is only pressed on
+                # the very question that was skipped.
+                ok, message = skip_question(pane, fingerprint)
+                self._json({"ok": ok, "message": message}, 200 if ok else 409)
+                return
+            # One question is on screen at a time, so the answer is that
+            # question's picks — whatever it is keyed under.
+            answers = payload.get("answers")
+            chosen = next(iter(answers.values()), []) if isinstance(answers, dict) and answers else []
+            chosen = [chosen] if isinstance(chosen, str) else chosen
+            ok, message = answer_question(pane, fingerprint, [str(c) for c in chosen if str(c).strip()])
+        else:
+            ok, message = answer_permission(pane, fingerprint, allow)
         self._json({"ok": ok, "message": message}, 200 if ok else 409)
 
     @route("POST", "/api/owned/say")

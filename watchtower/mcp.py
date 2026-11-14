@@ -42,6 +42,12 @@ TEXT_CAP = 2000           # characters of one message handed back
 SEND_CAP = 20_000         # characters of one message sent
 
 
+def answer_route(ask: dict) -> str:
+    """Where an answer to this prompt goes: the pipe of a panel turn, or keys
+    pressed in the tmux pane a terminal session runs in."""
+    return "/api/tmux/answer" if ask.get("via") == "tmux" else "/api/owned/answer"
+
+
 class ToolError(Exception):
     """A tool that could not do what it was asked, in words for the model."""
 
@@ -209,7 +215,7 @@ def summarise(session: dict, owned: dict, me: dict | None) -> dict:
         row["runBy"] = "panel"
     if (session.get("agents") or {}).get("running"):
         row["agentsRunning"] = session["agents"]["running"]
-    ask = mine.get("ask")
+    ask = mine.get("ask") or session.get("terminalAsk")
     if ask:
         row["waitingOn"] = "a question" if ask.get("asks") else f"permission for {ask.get('tool')}"
     elif session.get("question"):
@@ -270,7 +276,7 @@ class Tools:
                 entry["tools"] = tools
             messages.append(entry)
         out = {"session": target["name"], "title": data.get("title"), "messages": messages[-limit:]}
-        ask = (owned.get(target["sessionId"]) or {}).get("ask")
+        ask = (owned.get(target["sessionId"]) or {}).get("ask") or target.get("terminalAsk")
         if ask:
             out["waitingOn"] = {"kind": "question" if ask.get("asks") else "permission",
                                 "tool": ask.get("tool"), "what": ask.get("what"),
@@ -326,7 +332,9 @@ class Tools:
         target, owned, me = self._target(session)
         if me and me["sessionId"] == target["sessionId"]:
             raise ToolError("That is this session; its prompts are for the person using it.")
-        ask = (owned.get(target["sessionId"]) or {}).get("ask")
+        # A panel turn's prompt, or one read off a tmux pane's screen; both are
+        # answered the same way, down different routes. See watchtower/tmux.py.
+        ask = (owned.get(target["sessionId"]) or {}).get("ask") or target.get("terminalAsk")
         if not ask:
             if target.get("question"):
                 raise ToolError(f"{target['name']} is asking in its terminal, which only that terminal can answer.")
@@ -350,9 +358,9 @@ class Tools:
             # A label not among the options is a free-text answer, which the
             # question takes the way it takes "Other".
             picks[q["question"]] = [str(x) for x in labels]
-        said = self.call("POST", "/api/owned/answer", {
+        said = self.call("POST", answer_route(ask), {
             "sessionId": target["sessionId"], "requestId": ask.get("requestId"),
-            "behavior": "allow", "answers": picks})
+            "behavior": "allow", "answers": picks, "asks": True})
         return {"ok": True, "message": said.get("message")}
 
     def answer_permission(self, session: str, allow: bool, message: str = "") -> Any:
@@ -364,7 +372,7 @@ class Tools:
                 "Allowing another session's tool use is off. A session that can approve another's "
                 f"prompts can run anything through it. The person can turn it on with {APPROVALS_ENV}=1 "
                 "in this MCP server's environment, or answer it in the panel. Denying is always allowed.")
-        said = self.call("POST", "/api/owned/answer", {
+        said = self.call("POST", answer_route(ask), {
             "sessionId": target["sessionId"], "requestId": ask.get("requestId"),
             "behavior": "allow" if allow else "deny", "message": str(message or "")[:300]})
         return {"ok": True, "message": said.get("message")}

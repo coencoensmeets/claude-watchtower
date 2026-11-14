@@ -339,7 +339,7 @@ Three honest limits, each stated on the composer itself rather than left to be d
 
 | Limit | Why |
 |---|---|
-| **A session blocked on a prompt cannot be answered this way** | A permission dialog or a question is modal in the terminal; a queued message waits behind it. Since "needs an answer" is exactly what this panel sorts to the top, the composer switches itself off there and points at the prompt that has to be answered — naming the question on the card above when there is one. It is the one case you might most want and cannot have. |
+| **A session blocked on a prompt cannot be answered this way** | A permission dialog or a question is modal in the terminal; a queued message waits behind it. Since "needs an answer" is exactly what this panel sorts to the top, the composer switches itself off there and points at the prompt that has to be answered — naming the question on the card above when there is one. The exception is a session running in **tmux**: the panel reads the prompt off the pane and presses the keys for you. See [Answering a terminal in tmux](#answering-a-terminal-in-tmux). |
 | **A message arrives labelled as coming from another session**, not as something you typed | Measured, not assumed: a session that received one reported it appeared "clearly marked as coming from another session rather than from Coen". So the receiving Claude may treat it with a peer's authority rather than yours, and will not take it as approval for anything. |
 | **The protocol is internal** | The session file records `peerProtocol`, and the panel refuses to send unless it reads the version it knows, going quietly read-only after an upgrade rather than writing malformed lines at a socket. |
 
@@ -405,7 +405,20 @@ Nothing in the session file says a question is up. What the transcript has is th
 
 A question a subagent asked is left out: it is not one you can answer.
 
+Claude Code 2.1.325 writes the call into the transcript only once the question has been answered, so on that version a terminal session's card does not appear while the question is up. Its row still says it is asking a question, because the session file says `input needed`. A session in tmux is read off its screen instead and can be answered from here; see [Answering a terminal in tmux](#answering-a-terminal-in-tmux).
+
 > **The card is a card and not a form**, and that is the same limit the composer states. The only channel into a live session is its messaging socket, and that socket takes exactly one kind of message: a user turn, which lands in the prompt queue. The queue is *behind* the question — Claude Code is waiting on a keypress at its own prompt — so an answer sent from here would go unread until somebody answered at the terminal anyway, and then arrive afterwards as a stray message. Rather than offer a button that quietly does that, the card offers **Answer there**, which raises the window. Reading it is what saves the trip; the keypress still happens at the prompt.
+
+### Answering a terminal in tmux
+
+A session running inside tmux can be answered from the panel, permission prompts and questions both, with the same card a panel turn's prompt gets. The socket still cannot do it; the keyboard can. Pressing keys at a terminal *window* is not safe, because a window holds tabs and the key lands in whichever one has focus. A tmux pane is one terminal with an id of its own, though: `tmux send-keys -t %3` reaches that pane and nothing else, and `capture-pane` reads back what is on it.
+
+- **Finding the pane.** The session's own environment names it: `TMUX` gives the server's socket and `TMUX_PANE` the pane. The pane's process has to be the session or one of its parents before anything is sent, so a process that inherited a stale `TMUX` gets nothing.
+- **Reading the prompt.** The prompt is read off the screen, not the transcript. That holds for questions too, because Claude Code 2.1.325 writes an `AskUserQuestion` call into the transcript only after it has been answered. With several questions the prompt shows one at a time, and so does the card.
+- **Answering.** Before any key is pressed the screen is read again, and the answer goes through only if the same prompt is still up. A permission prompt gets its *Yes* or *No* number. A single-choice question gets its option's number. A multi-select question has its boxes ticked, checked, and submitted. When the prompt ends on its review screen, that is confirmed once it lists what you just picked. **Skip** presses Escape, and only while that same question is still up, because Escape in a running turn interrupts it.
+- **What it does not do.** It offers only the options shown: free-text *Type something* and *Chat about this* stay at the terminal. Any other terminal still has to be answered where it is, as before.
+
+The MCP tools `answer_question` and `answer_permission` take the same route, with the same rule that allowing needs `CLAUDE_WATCHTOWER_MCP_APPROVALS=1`.
 
 ## Opening a session
 
@@ -1252,6 +1265,7 @@ PANEL_URL=http://127.0.0.1:8787 node tests/ui-check.mjs
 | `POST /api/owned/mode` | `{"sessionId": "...", "mode": "default\|plan\|acceptEdits"}` — remember the mode the next panel-run turn uses; starts nothing; loopback only |
 | `POST /api/owned/adopt` | `{"sessionId": "...", "force": false}` — keep the row, end the terminal session holding it, and leave its next turn to the panel. A session that has never spoken is started here under its own id rather than resumed. Refuses rather than reporting success if the process does not actually stop; loopback only |
 | `POST /api/owned/new` | `{"sessionId": "..."}` for a folder off that session, or `{"pick": true}` for one from a chooser — a new session the panel runs, named by the panel and answering with that name. Takes no first message: the session exists before anything is said to it; loopback only |
+| `POST /api/tmux/answer` | `{"sessionId": "...", "requestId": "tmux:...", "behavior": "allow\|deny", "asks": true\|false, "answers": {"<the question>": ["Label"]}}`: answer the prompt a terminal session in tmux is standing on, by pressing its keys. The `requestId` is the row's `terminalAsk.requestId`, which fingerprints what was on screen, so an answer meant for a prompt that has since changed is refused. Loopback only |
 | `POST /api/owned/answer` | `{"sessionId": "...", "requestId": "...", "behavior": "allow\|deny", "answers": {"<the question>": ["Label"]}}` — settle the prompt a panel turn is standing on. The `requestId` must be the one now standing, so an answer meant for a prompt that has gone is refused; loopback only |
 | `POST /api/owned/say` | `{"sessionId": "...", "text": "...", "mode": "..."}` — run one turn on that session's transcript with `claude --print --resume`, answering as soon as it is launched. A turn already running does not refuse it: the message is held and goes in when that turn ends. Refuses if a live process holds the session, or if ten messages are already waiting; loopback only |
 | `POST /api/owned/interrupt` | `{"sessionId": "..."}` — stop the turn a session the panel holds is in the middle of. Anything typed ahead of it is kept and held rather than sent or dropped. Refuses for a session the panel is not holding, or one that is not working; loopback only |

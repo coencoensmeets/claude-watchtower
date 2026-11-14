@@ -992,6 +992,8 @@ export function sendBlockedReason(session) {
 export function questionCard(session) {
   const asked = session.question;
   if (!asked || !asked.questions?.length) return "";
+  // Answerable from here instead, in the composer's place; see terminalAsk.
+  if (session.terminalAsk) return "";
   const rows = asked.questions.map((q) => {
     const options = (q.options || []).map((option, i) => `<li class="ask__option">
         <span class="ask__index md-label-medium md-mono">${i + 1}</span>
