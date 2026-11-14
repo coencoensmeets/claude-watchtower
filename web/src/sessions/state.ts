@@ -95,10 +95,18 @@ export function standingAsk(session: Session) {
     const header = asked.header || asked.question || "a question";
     return { kind: "question", label: `asks “${clip(header, 40)}”`, key: `said:${clip(header, 80)}` };
   }
-  // Blocked on something the panel cannot read. Which kind of prompt a terminal
-  // session is standing on is not knowable from outside — Claude Code writes a
-  // permission gate down nowhere — so the badge says only that there is one and
-  // that it has to be answered where it was asked.
+  // Claude Code does say which kind of prompt is up — `permission prompt` in its
+  // session file — and for a session that writes nothing the panel works it out
+  // from the open tool call, which also gives the tool's name. What it cannot
+  // read is the prompt itself, so it is answered where it was asked.
+  if (stateKeyOf(session.status) === "waiting" && session.waitingFor === "permission prompt") {
+    const tool = session.waitingTool;
+    return { kind: "permission",
+      label: tool ? `wants to run ${clip(tool, 32)}` : "waiting for permission at its prompt",
+      key: `perm:${tool || ""}` };
+  }
+  // Blocked on something the panel cannot read, so the badge says only that
+  // there is a prompt and that it has to be answered where it was asked.
   if (stateKeyOf(session.status) === "waiting") {
     return { kind: "prompt", label: "waiting at its own prompt", key: "prompt" };
   }

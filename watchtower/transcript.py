@@ -270,6 +270,63 @@ def read_pending_question(session_id: str, cwd: str) -> dict | None:
     return None
 
 
+def read_pending_tool(session_id: str, cwd: str) -> dict | None:
+    """The newest tool call in this session that has no result yet, if any.
+
+    A call waits for its result for one of two reasons: the tool is running, or
+    somebody has been asked whether it may run. The transcript cannot tell those
+    apart; it only says which call is open. The caller works out which one it is
+    — see SessionStore._inferred_wait.
+
+    The walk stops at the first real thing typed at the session, because a call
+    from before your last message was answered or abandoned by then, and at the
+    newest call it finds: that is the one on screen.
+    """
+    for path in transcript_paths(session_id, cwd):
+        answered: set[str] = set()
+        seen = 0
+        for line in reverse_lines(path):
+            seen += 1
+            if seen > QUESTION_PATIENCE:
+                return None
+            line = line.strip()
+            if not line.startswith("{"):
+                continue
+            if "tool_use" not in line and "tool_result" not in line and '"user"' not in line:
+                continue
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            if entry.get("isSidechain"):
+                continue  # a subagent's calls are its own business
+            message = entry.get("message")
+            content = message.get("content") if isinstance(message, dict) else None
+            if entry.get("type") == "user" and isinstance(content, str) and content.strip():
+                return None
+            if not isinstance(content, list):
+                continue
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                if block.get("type") == "tool_result":
+                    used = block.get("tool_use_id")
+                    if isinstance(used, str):
+                        answered.add(used)
+                elif block.get("type") == "text" and entry.get("type") == "user" \
+                        and str(block.get("text") or "").strip():
+                    return None
+            for block in reversed(content):
+                if not isinstance(block, dict) or block.get("type") != "tool_use":
+                    continue
+                used = str(block.get("id") or "")
+                if used in answered:
+                    return None
+                return {"name": str(block.get("name") or ""), "toolUseId": used,
+                        "at": entry.get("timestamp")}
+    return None
+
+
 def read_ai_title(session_id: str, cwd: str) -> str | None:
     """The line Claude wrote about what this session is doing.
 
