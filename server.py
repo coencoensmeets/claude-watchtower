@@ -36,7 +36,7 @@ import sys
 import threading
 from http.server import ThreadingHTTPServer
 
-from watchtower import build, config, listen, wslnet
+from watchtower import build, config, listen, paste, wslnet
 from watchtower.config import SESSION_DIR
 from watchtower.http import Handler
 from watchtower.input import is_loopback
@@ -136,6 +136,9 @@ def main() -> None:
             pass
 
     server = ThreadingHTTPServer((host, port), Handler)
+    # Pasted pictures and dropped files older than five days, in every project
+    # the panel has written them into — not only the one being pasted into next.
+    paste.start_sweeping()
     # flush on every line: stdout is a pipe under a service unit, and the
     # address is the one thing here nobody can work out for themselves.
     say = lambda line: print(line, flush=True)
