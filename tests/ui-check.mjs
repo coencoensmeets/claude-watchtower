@@ -1048,7 +1048,7 @@ if (!chatSession) {
       await sleep(300);
       check("writing a remark arms the send button", await evaluate(
         `(() => { const b = document.querySelector('.rail__send');
-          return !b.disabled && /Send 1 comment$/.test(b.textContent.trim()); })()`),
+          return !b.disabled && /Send 1 comment$/.test((b.getAttribute('aria-label') || b.textContent).trim()); })()`),
         await evaluate(`document.querySelector('.rail__send')?.textContent || ''`));
 
       /* The pane must not be rebuilt out from under a card being typed in — the

@@ -184,7 +184,7 @@
   .msg--user .msg__text ::selection, .msg--user .msg__text::selection {
     background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);
   }
-  .msg--user mark.commented { box-shadow: inset 0 -2px 0 0 var(--md-sys-color-primary-container); }
+  .msg--user mark.commented { box-shadow: inset 0 -3px 0 0 var(--wt-butter); }
 
   /* -------------------------------------------------------------- composer */
   .composer { border-top: 0; background: transparent; padding-top: var(--md-sys-spacing-2); }

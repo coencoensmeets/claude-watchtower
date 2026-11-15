@@ -85,16 +85,30 @@
     background: var(--md-sys-color-surface);
     color: var(--md-sys-color-on-surface);
   }
-  /* A passage you have already commented on. Underlined rather than filled: a
-     block of colour would compete with the selection highlight, which is the one
-     that has to stay unmistakable, and there may be several of these on screen
-     at once by the time you have worked through a long answer. */
+  /* A passage you have commented on: a butter highlighter stroke across its
+     lower half — butter because a comment is a draft until it is sent, the
+     same colour as its note. Only half the line, so the selection highlight
+     still reads over it. The passage whose note is open fills the whole line;
+     on your own ink bubble a fill would sink the white text, so it is a stroke
+     under it. See "Comments on a passage" in the styleguide. */
   mark.commented {
-    background: none; color: inherit;
-    border-radius: 2px;
-    box-shadow: inset 0 -2px 0 0 var(--md-sys-color-primary);
+    color: inherit; border-radius: 3px; padding: 0 1px;
+    -webkit-box-decoration-break: clone; box-decoration-break: clone;
+    background: linear-gradient(transparent 56%,
+      color-mix(in srgb, var(--wt-butter, #F5CD62) 75%, transparent) 56%);
   }
-  .msg--user mark.commented { box-shadow: inset 0 -2px 0 0 var(--md-sys-color-on-primary-container); }
+  html[data-theme="dark"] .msg--assistant:not(.msg--linked) mark.commented,
+  html[data-theme="dark"] .activity-row:not(.activity-row--linked) mark.commented {
+    background: linear-gradient(transparent 72%,
+      color-mix(in srgb, var(--wt-butter, #F5CD62) 70%, transparent) 72%);
+  }
+  .msg--linked mark.commented, .activity-row--linked mark.commented {
+    background: var(--wt-butter, #F5CD62); color: var(--wt-on-state, #1E1F24);
+  }
+  .msg--user mark.commented, .msg--user.msg--linked mark.commented {
+    background: none; color: inherit; border-radius: 0;
+    box-shadow: inset 0 -3px 0 0 var(--wt-butter, #F5CD62);
+  }
   .msg__text > * { margin: var(--md-sys-spacing-2) 0; }
   .msg__text > :first-child { margin-top: 0; }
   .msg__text > :last-child { margin-bottom: 0; }
