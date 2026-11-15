@@ -6,6 +6,8 @@ Entries say what changed and, where it is not obvious, why. Anything worth a par
 
 ## Unreleased
 
+- **Ctrl+Enter sends now**, as it does in Claude Code's terminal (Cmd+Enter on a Mac). Enter on a working session waits for the turn to end. Ctrl+Enter puts the message into the turn that is running, so you can redirect it without stopping it first. Claude Code decides how the turn makes way: it takes the message in, or ends the turn and runs the message next. This works for sessions in a terminal and for sessions the panel runs. On those, the strip of typed-ahead messages also gets a **Send now** button.
+
 - **Commands left running in the background are visible.** A session whose turn has ended reads as waiting for you, even while a build, a download or a watcher it started is still running. The panel tracked subagents but not these. It now picks up every command Claude Code put in the background, whether it was started with `run_in_background` or moved there when it ran past its two-minute timeout. The row says **1 in background**, the strip over the composer gets a **shell** chip next to any agent chips, and tapping the chip opens the command and the end of its output, which updates while it runs. The MCP `list_sessions` tool lists them as `backgroundCommands`. A command counts as running while a process still writes to its output file, so one left behind by a closed session does not show as running forever. Without `/proc` to check, the panel falls back to Claude Code's completion notice.
 
 ## 0.4.0 — 2026-11-14

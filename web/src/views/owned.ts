@@ -516,6 +516,12 @@ function queuedStrip(session) {
           ? "1 message waiting for this turn to end"
           : `${waiting.length} messages waiting, in the order you typed them`}</p>
       <ul class="queued__list">${rows}</ul>
+      ${!held && owned.busy ? `<div class="queued__ask">
+        <button class="button button--tonal md-state queued__go" type="button" data-act="send-now"
+          title="Put ${waiting.length === 1 ? "it" : "them"} into the turn that is running — Ctrl+Enter in the box does the same">
+          ${ICON.play}Send now</button>
+        <span class="queued__note md-label-small">instead of waiting for this turn to end</span>
+      </div>` : ""}
       ${held ? `<div class="queued__ask">
         <button class="button button--filled md-state queued__go" type="button" data-act="resume">
           ${ICON.play}${waiting.length === 1 ? "Send it" : "Send them"}</button>
@@ -658,11 +664,11 @@ export function composer(session) {
   // typed at to be run from here rather than to be woken in a terminal.
   const away = !stopped && !session.canSay;
   const placeholder = stopped
-    ? (owned.running && owned.busy ? "Type ahead — this goes in when the turn ends…"
+    ? (owned.running && owned.busy ? "Type ahead — this goes in when the turn ends, or Ctrl+Enter to send it now…"
        : owned.running ? "Send it a message…"
        : "Type and it starts back up…")
     : away ? "Write here — it goes in as soon as it is listening…"
-    : queued ? "Queue a message for when it finishes…" : "Send a message — drop a file to name it, paste or add a picture to send it…";
+    : queued ? "Queue a message for when it finishes, or Ctrl+Enter to send it now…" : "Send a message — drop a file to name it, paste or add a picture to send it…";
   // The mode lives in the header, beside the session's name, so what is left in
   // this bar is only what belongs to sending: the way in, for a session that is
   // not ours yet, and the failure of the last turn if there was one.

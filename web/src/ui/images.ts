@@ -272,7 +272,9 @@ function withImages(body, shots) {
   return body ? `${body}\n\n${lines}` : lines;
 }
 
-export async function sendMessage(session, button, own = false) {
+/* `now` is Ctrl+Enter, as at the terminal: into the turn that is running rather
+   than after it. On an idle session it is an ordinary send. */
+export async function sendMessage(session, button, own = false, now = false) {
   const field = detailPane.querySelector<HTMLTextAreaElement>("#sayField");
   if (!field || !button) return;
   const text = field.value.trim();
@@ -331,6 +333,7 @@ export async function sendMessage(session, button, own = false) {
     const response = await fetch(url, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sessionId: session.sessionId, text: sent,
+                             ...(now ? { now: true } : {}),
                              ...(own ? { mode: ownedFor(session).mode || "default" } : {}) }),
     });
     const data = await response.json().catch(() => ({}));
