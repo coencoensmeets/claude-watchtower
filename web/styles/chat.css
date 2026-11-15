@@ -358,6 +358,27 @@
     animation: lamp-throb 1.6s var(--md-sys-motion-easing-standard) infinite;
   }
   .agent-panel[data-state="stopped"] .agent-panel__state { opacity: 0.75; }
+  .agent-panel[data-state="done"] .agent-panel__state { opacity: 0.75; }
+  /* A background command opened in the agent pane: what was run, then what it
+     has written so far. Both as the terminal would show them — monospaced,
+     wrapped rather than scrolled sideways, since a phone has no room for a
+     horizontal scrollbar under a long log line. */
+  .shell-panel__command, .shell-panel__output {
+    margin: 0 0 var(--md-sys-spacing-3); padding: var(--md-sys-spacing-3);
+    border-radius: var(--md-sys-shape-corner-medium);
+    white-space: pre-wrap; overflow-wrap: anywhere;
+    font-size: 12.5px; line-height: 1.5;
+  }
+  .shell-panel__command {
+    background: color-mix(in srgb, var(--md-sys-color-primary) 8%, var(--md-sys-color-surface));
+    color: var(--md-sys-color-on-surface-variant);
+    max-height: 9lh; overflow-y: auto;
+  }
+  .shell-panel__output {
+    background: var(--md-sys-color-surface-container-highest, var(--md-sys-color-surface));
+    color: var(--md-sys-color-on-surface);
+  }
+  .shell-panel__empty { color: var(--md-sys-color-on-surface-variant); font-style: italic; }
   /* The rail is the signature of this view: one line down the edge of the
      transcript, in the second colour, running from the header to the last thing
      the agent said. It is what you see out of the corner of your eye that says

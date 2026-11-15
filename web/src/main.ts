@@ -892,13 +892,16 @@ function paintListItem(item, session) {
   // things that already happened.
   const fanned = session.agents?.running
     ? `${session.agents.running} agent${session.agents.running === 1 ? "" : "s"}` : "";
+  // And a command it left running in the background, which is the other thing
+  // a session can be doing while its own status says it is waiting for you.
+  const behind = session.shells?.running ? `${session.shells.running} in background` : "";
   // The badge carries the kind, so the words beside it do not have to repeat it
   // — and it takes the place of the state word, which a standing prompt has
   // already said more precisely.
   const supporting = (ask ? `<span class="session-item__ask md-label-small">${
       ICON[ASK_ICON[ask.kind]]
     }${ASK_WORD[ask.kind]}</span>` : "")
-    + [ask ? ask.label : state.short, fanned, session.folder, nested].filter(Boolean)
+    + [ask ? ask.label : state.short, fanned, behind, session.folder, nested].filter(Boolean)
       .map(escapeHtml).join(" · ");
   // `state.short` alongside the raw status, because they are not the same
   // question: a compacting session and a working one share a status, and the row
@@ -1616,6 +1619,8 @@ function renderDetail(force = false) {
               // another between two polls.
               (session.agents?.live || []).map((a) => a.agentId).join(","),
               session.agents?.running ?? "",
+              // The same for the commands it has running in the background.
+              (session.shells?.live || []).map((s) => s.taskId).join(","),
               // Not the count alone: dropping the first of two and typing a
               // third leaves the count where it was and the list different.
               (o.queued || []).join("\u0000").slice(0, 200)].join("/"); })(),
