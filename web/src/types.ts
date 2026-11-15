@@ -143,6 +143,13 @@ export interface Session {
         Absent when none are running; never more than a handful. */
     live?: { agentId: string; agentType: string; description: string }[];
   };
+  /** Commands this session left running in the background — started that way,
+      or moved there when they ran past their timeout. Absent when none are. */
+  shells?: {
+    running: number;
+    live: { taskId: string; description: string; command: string;
+            timedOut: boolean; startedAt: string | null }[];
+  };
 }
 
 /** What the panel is running for a session, keyed by session id in the feed.

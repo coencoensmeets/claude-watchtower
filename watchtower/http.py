@@ -31,6 +31,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from watchtower import config
 from watchtower.agents import list_subagents, read_subagent
+from watchtower.shells import background_tasks, read_output
 from watchtower.catalog import read_catalog
 from watchtower.config import HOME, ROOT, STATIC_DIR
 from watchtower.control import (new_session, open_editor, pick_folder, show_folder,
@@ -757,6 +758,25 @@ class Handler(BaseHTTPRequestHandler):
             limit = 60
         found = read_subagent(session_id, session["cwd"],
                               (query.get("agentId") or [""])[0], limit)
+        self._json(found, 200 if found["ok"] else 404)
+
+    @route("GET", "/api/shell-output")
+    def _get_shell_output(self) -> None:
+        # The tail of what a background command has written, for a chip in the
+        # strip over the composer that was tapped. Only a task this session is
+        # known to have backgrounded: the id is checked against the session's
+        # own list, not just its shape, before any file is opened.
+        query = parse_qs(urlparse(self.path).query)
+        session_id = (query.get("sessionId") or [""])[0]
+        session = self._session_by_id(session_id)
+        if not session:
+            self._json({"ok": False, "message": "That session is no longer running"}, 404)
+            return
+        task_id = (query.get("taskId") or [""])[0]
+        if task_id not in {task["taskId"] for task in background_tasks(session_id, session["cwd"])}:
+            self._json({"ok": False, "message": "That command is not one this session started"}, 404)
+            return
+        found = read_output(session_id, task_id)
         self._json(found, 200 if found["ok"] else 404)
 
     # What a picture in a conversation may be, and how much of one is worth

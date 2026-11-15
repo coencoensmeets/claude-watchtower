@@ -32,6 +32,7 @@ from watchtower.proc import (
     ancestors, cpu_seconds, descendants, proc_gone, proc_name, proc_starttime, session_tty, started_at,
 )
 from watchtower.rows import kept_rows, refresh_row
+from watchtower.shells import held_outputs, running_shells
 from watchtower.input import session_alive, session_listening
 from watchtower.sessions import PEER_PROTOCOL, child_sessions, peer_protocols
 from watchtower.tmux import pane_of, read_mode, screen, terminal_ask
@@ -160,6 +161,9 @@ class SessionStore:
         self._agents_dir_cache: dict[str, tuple[float, float | None]] = {}
         self._agents_cache: dict[str, tuple[float, dict | None]] = {}
         self._agents_done: dict[str, str] = {}
+        # One sweep of /proc for background commands, shared by every session
+        # in a snapshot — see _shells.
+        self._held_cache: tuple[float, dict | None] = (0.0, None)
 
     # --- reading
 
@@ -421,6 +425,26 @@ class SessionStore:
         self._agents_cache[session_id] = (now, value)
         return value
 
+    def _shells(self, session_id: str, cwd: str, now: float) -> dict | None:
+        """The commands this session left running in the background, for its row.
+
+        A session whose turn is over reads as waiting for you, which is true —
+        but a build, a download or a watcher it started may still be going, and
+        without this nothing on the panel says so. See shells.py for how a
+        running one is told from a finished one.
+        """
+        stamp, held = self._held_cache
+        if now - stamp >= 2:
+            held = held_outputs()
+            self._held_cache = (now, held)
+        running = running_shells(session_id, cwd, held)
+        if not running:
+            return None
+        return {"running": len(running),
+                "live": [{key: item.get(key) for key in
+                          ("taskId", "description", "command", "timedOut", "startedAt")}
+                         for item in running[-AGENT_DOCK_MAX:][::-1]]}
+
     def _burning_cpu(self, pid: int, now: float) -> bool:
         """Is this process actually doing something, judged over a few seconds?"""
         current = cpu_seconds(pid)
@@ -559,6 +583,7 @@ class SessionStore:
                 status = "offline"
             chain = ancestors(pid) if isinstance(pid, int) else []
             agents_now = self._agents(session_id, cwd, now) if cwd else None
+            shells_now = self._shells(session_id, cwd, now) if cwd else None
             title = self._title(session_id, cwd) if cwd else None
             session = {
                 "sessionId": session_id,
@@ -584,6 +609,9 @@ class SessionStore:
                 # How many subagents it has going. A session that has fanned out
                 # six agents reads as one session doing one thing without this.
                 **({"agents": agents_now} if agents_now else {}),
+                # And how many commands it left running in the background, which
+                # outlive the turn that started them.
+                **({"shells": shells_now} if shells_now else {}),
                 # Whether there is a conversation behind it at all. Taking over a
                 # session that has never spoken carries nothing over, and the
                 # dialog says so rather than pretending otherwise.
@@ -695,6 +723,7 @@ class SessionStore:
                 continue
             cwd = entry.get("cwd") or ""
             agents_now = self._agents(session_id, cwd, now) if cwd else None
+            shells_now = self._shells(session_id, cwd, now) if cwd else None
             title = self._title(session_id, cwd) if cwd else None
             out.append({
                 "sessionId": session_id,
@@ -728,6 +757,9 @@ class SessionStore:
                 # A stopped session's agents are stopped with it, and the count
                 # reads as whatever its files say, which is the truth.
                 **({"agents": agents_now} if agents_now else {}),
+                # And how many commands it left running in the background, which
+                # outlive the turn that started them.
+                **({"shells": shells_now} if shells_now else {}),
                 "spoken": self._spoken(session_id, cwd, now) if cwd else False,
                 # For a stopped session these are the mode it was last in and
                 # the last thing it was working on.

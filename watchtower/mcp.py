@@ -215,7 +215,12 @@ def summarise(session: dict, owned: dict, me: dict | None) -> dict:
         row["runBy"] = "panel"
     if (session.get("agents") or {}).get("running"):
         row["agentsRunning"] = session["agents"]["running"]
-    ask = mine.get("ask") or session.get("terminalAsk")
+    # Commands it left running in the background. Named, because "waiting for
+    # input" with a build still going is a different situation from a quiet one.
+    if (session.get("shells") or {}).get("live"):
+        row["backgroundCommands"] = [item.get("description") or item.get("command")
+                                     for item in session["shells"]["live"]]
+    ask =mine.get("ask") or session.get("terminalAsk")
     if ask:
         row["waitingOn"] = "a question" if ask.get("asks") else f"permission for {ask.get('tool')}"
     elif session.get("question"):
@@ -441,7 +446,8 @@ TOOLS = [
     {"name": "list_sessions",
      "description": "Every Claude Code session on this machine the Watchtower panel knows about: "
                     "name, id, state (working, needs an answer, waiting for input, closed), folder, "
-                    "branch, subject, mode, and what it is waiting on. `isYou` marks this session.",
+                    "branch, subject, mode, what it is waiting on, and any commands it left running in the "
+                    "background (`backgroundCommands`). `isYou` marks this session.",
      "inputSchema": {"type": "object", "properties": {
          "state": {"type": "string", "description": "Only sessions whose state contains this, e.g. 'working'"}}},
      "annotations": {"readOnlyHint": True}},
