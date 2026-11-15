@@ -32,6 +32,7 @@ from watchtower.proc import (
     ancestors, cpu_seconds, descendants, proc_gone, proc_name, proc_starttime, session_tty, started_at,
 )
 from watchtower.rows import kept_rows, refresh_row
+from watchtower.artifacts import file_new as file_artifacts
 from watchtower.shells import held_outputs, running_shells
 from watchtower.input import session_alive, session_listening
 from watchtower.sessions import PEER_PROTOCOL, child_sessions, peer_protocols
@@ -164,6 +165,8 @@ class SessionStore:
         # One sweep of /proc for background commands, shared by every session
         # in a snapshot — see _shells.
         self._held_cache: tuple[float, dict | None] = (0.0, None)
+        # When each session's transcript was last read for artifacts it published.
+        self._artifacts_at: dict[str, float] = {}
 
     # --- reading
 
@@ -445,6 +448,19 @@ class SessionStore:
                           ("taskId", "description", "command", "timedOut", "startedAt")}
                          for item in running[-AGENT_DOCK_MAX:][::-1]]}
 
+    def _artifacts(self, session_id: str, cwd: str, now: float) -> None:
+        """File any artifact this session has just published under its Preview
+        tab — see artifacts.py. On the activity line's four-second beat: the
+        read is of the bytes added since last time, and a publish is never so
+        urgent that a second poll matters."""
+        if now - self._artifacts_at.get(session_id, 0) < 4:
+            return
+        self._artifacts_at[session_id] = now
+        try:
+            file_artifacts(session_id, cwd)
+        except Exception:  # noqa: BLE001 - a bad line must not stop the snapshot
+            pass
+
     def _burning_cpu(self, pid: int, now: float) -> bool:
         """Is this process actually doing something, judged over a few seconds?"""
         current = cpu_seconds(pid)
@@ -584,6 +600,8 @@ class SessionStore:
             chain = ancestors(pid) if isinstance(pid, int) else []
             agents_now = self._agents(session_id, cwd, now) if cwd else None
             shells_now = self._shells(session_id, cwd, now) if cwd else None
+            if cwd:
+                self._artifacts(session_id, cwd, now)
             title = self._title(session_id, cwd) if cwd else None
             session = {
                 "sessionId": session_id,
@@ -724,6 +742,8 @@ class SessionStore:
             cwd = entry.get("cwd") or ""
             agents_now = self._agents(session_id, cwd, now) if cwd else None
             shells_now = self._shells(session_id, cwd, now) if cwd else None
+            if cwd:
+                self._artifacts(session_id, cwd, now)
             title = self._title(session_id, cwd) if cwd else None
             out.append({
                 "sessionId": session_id,

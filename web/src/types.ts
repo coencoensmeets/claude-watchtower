@@ -258,6 +258,11 @@ export interface Preview {
   entry?: string;
   path?: string;
   url?: string;
+  /** Set when the session published this page as an artifact: where it lives
+      on claude.ai. The frame still shows the local file the session wrote. */
+  artifactUrl?: string;
+  /** The one line the session gave the artifact when it published it. */
+  description?: string;
 }
 
 /* --------------------------------------------------------------- conversation */
