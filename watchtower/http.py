@@ -45,7 +45,7 @@ from watchtower.input import (
 from watchtower.owned import (
     OWNED_ASK, OWNED_BUSY, OWNED_COMPACT, NEW_SESSION_MODE, OWNED_MODES, OWNED_QUEUE, _OWNED_LOCK,
     answer_from_panel, load_owned, owned_clear, owned_hold, owned_interrupt, owned_new,
-    owned_queued, owned_release, owned_resume, owned_running, owned_say, owned_set_mode,
+    owned_queued, owned_release, owned_resume, owned_running, owned_say, owned_send_now, owned_set_mode,
     owned_unqueue, save_owned,
 )
 from watchtower.paste import (DROP_MAX_BYTES, PASTE_MAX_BYTES, POST_MAX_BYTES,
@@ -1054,8 +1054,11 @@ class Handler(BaseHTTPRequestHandler):
             return
         # The straight road: it is up and listening, so the message goes down its
         # socket and the answer is immediate.
+        # `now` is Ctrl+Enter: into the running turn rather than after it. It
+        # only means something on this road; a message that has to wait for
+        # the session to come up goes in when it does, which is already now.
         if session_listening(data):
-            ok, message = say_to_session(data, text)
+            ok, message = say_to_session(data, text, now=payload.get("now") is True)
             if ok:
                 self._json({"ok": True, "message": message})
                 return
@@ -1475,8 +1478,13 @@ class Handler(BaseHTTPRequestHandler):
         # this and was being told there was nothing to send: holding the session
         # open is the whole of starting it, and a turn is what a message adds
         # rather than what makes the session run.
-        ok, message = (owned_hold(session_id, cwd, mode) if not text.strip()
-                       else owned_say(session_id, cwd, text, mode))
+        # `now` is Ctrl+Enter, or Send now on the typed-ahead strip: what is
+        # waiting goes into the running turn instead of after it.
+        if payload.get("now") is True:
+            ok, message = owned_send_now(session_id, cwd, text, mode)
+        else:
+            ok, message = (owned_hold(session_id, cwd, mode) if not text.strip()
+                           else owned_say(session_id, cwd, text, mode))
         if ok:
             # `here` is set by the turn, not only by adopting. It was not, and
             # the gap is what made a session go strange under you: the panel

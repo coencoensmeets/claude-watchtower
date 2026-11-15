@@ -1854,14 +1854,17 @@ function renderDetail(force = false) {
       // takes the highlighted name rather than sending a half-typed one.
       if (cmdKey(event, session)) { event.preventDefault(); return; }
       // Enter sends, as it does in the terminal; Shift-Enter for a newline.
+      // Ctrl+Enter (Cmd+Enter on a Mac) is the terminal's Send now: into the
+      // running turn rather than after it.
       if (event.key === "Enter" && !event.shiftKey && !event.altKey) {
         event.preventDefault();
+        const now = event.ctrlKey || event.metaKey;
         // Whichever way this session is sent to. An interactive one shows
         // only [data-act=own], and looking for [data-act=say] alone found
         // nothing — so Enter did nothing at all on the sessions the panel runs.
         const here = detailPane.querySelector("[data-act='own']");
         stopVoice();
-        sendMessage(session, here || detailPane.querySelector("[data-act='say']"), !!here);
+        sendMessage(session, here || detailPane.querySelector("[data-act='say']"), !!here, now);
       }
     });
     // A draft that was left mid-name gets its list back with the pane.
@@ -1899,6 +1902,9 @@ function renderDetail(force = false) {
     drop.addEventListener("click", (e) => run("/api/owned/unqueue", session, control(e),
       null, { index: drop.dataset.index === undefined ? null : Number(drop.dataset.index) }));
   }
+  // Sending what is typed ahead into the running turn, without typing more.
+  detailPane.querySelector("[data-act='send-now']")?.addEventListener("click", (e) =>
+    run("/api/owned/say", session, control(e), null, { text: "", now: true }));
   // And letting a held queue go after all.
   detailPane.querySelector("[data-act='resume']")?.addEventListener("click", (e) =>
     run("/api/owned/resume", session, control(e)));

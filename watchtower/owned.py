@@ -749,9 +749,19 @@ def owned_reader(session_id: str, held: dict) -> None:
                     })
                 threading.Thread(target=settle, daemon=True).start()
                 continue
+            if kind == "assistant":
+                # The model is speaking, so a turn is under way whatever the
+                # panel thought. After a Send now Claude Code may run the
+                # messages as a turn of their own once the cut one has ended,
+                # and this is what notices it.
+                with _OWNED_LOCK:
+                    if session_id not in OWNED_BUSY and OWNED_PROCS.get(session_id) is held:
+                        OWNED_BUSY[session_id] = time.time()
             if kind == "result":
+                held["turnStarted"] = False
                 cost = frame.get("total_cost_usd")
                 with _OWNED_LOCK:
+                    sent_now = OWNED_SENDNOW.pop(session_id, None)
                     stopped = OWNED_STOPPING.pop(session_id, None) is not None
                     cleared = (OWNED_CLEARING.pop(session_id, None) is not None
                                or held.pop("justCleared", False))
@@ -765,6 +775,12 @@ def owned_reader(session_id: str, held: dict) -> None:
                     ok, message = True, "Cleared — nothing behind it now"
                 elif stopped:
                     ok, message = True, "You stopped it"
+                elif sent_now and sent_now.get("outcome") in (None, "stopped"):
+                    # Ended to make way: what was sent now runs next, as a turn
+                    # of its own. A CLI that does not know send_now treats it as
+                    # a plain interrupt and answers without a word on it, which
+                    # comes to the same thing.
+                    ok, message = True, "Stopped to take what you sent now"
                 elif frame.get("is_error"):
                     said = frame.get("errors")
                     said = "; ".join(str(e) for e in said) if isinstance(said, list) and said else ""
@@ -775,7 +791,11 @@ def owned_reader(session_id: str, held: dict) -> None:
                     message = (f"The turn finished — ${cost:.4f}"
                                if isinstance(cost, (int, float)) else "The turn finished")
                 with _OWNED_LOCK:
-                    OWNED_BUSY.pop(session_id, None)
+                    if sent_now and sent_now.get("outcome") in (None, "stopped") and not stopped:
+                        # The turn for the messages is next; the row stays busy.
+                        OWNED_BUSY[session_id] = time.time()
+                    else:
+                        OWNED_BUSY.pop(session_id, None)
                     OWNED_LAST[session_id] = {"at": time.time(), "ok": ok,
                                               "message": message, "mode": held.get("mode")}
                 # And straight into whatever was typed while it was answering.
@@ -789,6 +809,7 @@ def owned_reader(session_id: str, held: dict) -> None:
                 # frames and why the turn's own result frame cannot say it.
                 sub = frame.get("subtype")
                 if sub == "init":
+                    held["turnStarted"] = True
                     # What this session says it can be asked for, in its own
                     # words. The panel keeps a hand-written list of commands that
                     # live in the terminal's head (TERMINAL_ONLY) and it is right
@@ -841,6 +862,15 @@ def owned_reader(session_id: str, held: dict) -> None:
                 # Ours: the only control_request the panel sends unprompted is a
                 # mode change, and its answer is what confirms the mode took.
                 answered = (frame.get("response") or {}).get("response") or {}
+                with _OWNED_LOCK:
+                    pending = OWNED_SENDNOW.get(session_id)
+                    if pending and (frame.get("response") or {}).get("request_id") == pending["requestId"]:
+                        outcome = answered.get("send_now")
+                        pending["outcome"] = outcome if isinstance(outcome, str) else "stopped"
+                        # Nothing was waiting after all — the turn had already
+                        # taken it in — so there is no cut turn to see through.
+                        if pending["outcome"] == "nothing_waiting":
+                            OWNED_SENDNOW.pop(session_id, None)
                 if isinstance(answered.get("mode"), str):
                     with _OWNED_LOCK:
                         held["mode"] = answered["mode"]
@@ -855,6 +885,7 @@ def owned_reader(session_id: str, held: dict) -> None:
                 OWNED_PROCS.pop(session_id, None)
             OWNED_BUSY.pop(session_id, None)
             OWNED_STOPPING.pop(session_id, None)
+            OWNED_SENDNOW.pop(session_id, None)
             OWNED_CLEARING.pop(session_id, None)
             # A compaction this process did not live to finish. The record stays
             # — how the last one went is worth keeping — but the running flag
@@ -1099,6 +1130,69 @@ def owned_say(session_id: str, cwd: str, text: str, mode: str) -> tuple[bool, st
             OWNED_BUSY.pop(session_id, None)
         return False, "It would not take the message, even started back up"
     return True, "Started it back up and sent it"
+
+
+# sessionId -> a Send now that has gone down the pipe and whose turn has not
+# ended yet: the control request's id, and what Claude Code said it did with it
+# once it answers — `stopped`, `delivering` or `nothing_waiting`.
+OWNED_SENDNOW: dict[str, dict] = {}
+
+
+def owned_send_now(session_id: str, cwd: str, text: str, mode: str) -> tuple[bool, str]:
+    """Put what is waiting into the running turn now — the terminal's Ctrl+Enter.
+
+    The panel holds typed-ahead messages itself, so unlike a terminal it has
+    nothing waiting at the CLI to point a Send now at. It hands them over first,
+    in the order they were typed and this one last, and then asks with Claude
+    Code's own `interrupt` request carrying `send_now`. That is not a Stop:
+    Claude Code moves what the turn is waiting on to the background so the turn
+    takes the messages in, or ends the turn and runs them next. Which one it did
+    comes back in the answer, and the reader keeps the row busy through the
+    turn that follows a stop — see owned_reader.
+
+    With no turn running there is nothing to cut into, and this is an ordinary
+    send.
+    """
+    with _OWNED_LOCK:
+        held = OWNED_PROCS.get(session_id)
+        busy = session_id in OWNED_BUSY and held is not None
+        # Under way at the CLI, not only at the panel: a Send now that lands
+        # before Claude Code has started the turn is answered `stopped` and the
+        # message never runs (seen against 2.1.325, on a session still starting
+        # up). Until the turn's init frame, the ordinary queue is the safe road.
+        started = bool(held and held.get("turnStarted"))
+    if busy and not started:
+        return owned_say(session_id, cwd, text, mode) if text.strip() else (
+            False, "It has not started on the last message yet — try again in a moment")
+    if not busy:
+        if text.strip():
+            return owned_say(session_id, cwd, text, mode)
+        return owned_resume(session_id)
+    with _OWNED_LOCK:
+        waiting = list(OWNED_QUEUE.pop(session_id, None) or [])
+        OWNED_HELD.pop(session_id, None)
+    if text.strip():
+        waiting.append(text)
+    if not waiting:
+        return False, "There is nothing waiting to send"
+    last = ""
+    for i, message in enumerate(waiting):
+        frame = user_turn(message)
+        last = str(uuid.uuid4())
+        frame["uuid"] = last
+        if not owned_write(session_id, frame):
+            # The pipe went. What did not go down it goes back where it was,
+            # and the ordinary path takes it from there.
+            with _OWNED_LOCK:
+                OWNED_QUEUE[session_id] = waiting[i:] + (OWNED_QUEUE.get(session_id) or [])
+            return False, "It would not take the message — the pipe has gone"
+    request_id = f"sendnow-{uuid.uuid4()}"
+    with _OWNED_LOCK:
+        OWNED_SENDNOW[session_id] = {"requestId": request_id, "outcome": None, "at": time.time()}
+    owned_write(session_id, {
+        "type": "control_request", "request_id": request_id,
+        "request": {"subtype": "interrupt", "send_now": True, "message_uuid": last}})
+    return True, "Sending it now" if len(waiting) == 1 else f"Sending all {len(waiting)} now"
 
 
 def owned_resume_held() -> None:
