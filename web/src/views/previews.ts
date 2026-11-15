@@ -162,7 +162,15 @@ export function previewPanel(session: Session): string {
   const now = app.feed.now || Date.now() / 1000;
   const d = device();
   const href = previewHref(shown);
-  const frame = shown.kind === "file"
+  // An artifact with no local copy the panel may serve is only its claude.ai
+  // address, and claude.ai will not be framed by another site — so it says so
+  // and points at the way through, rather than showing an empty frame.
+  const remote = shown.kind === "url" && !!shown.artifactUrl;
+  const frame = remote
+    ? `<div class="pv-remote md-body-medium">${ICON.globe}<p>This artifact is published on claude.ai,
+         and claude.ai pages do not open inside the panel. <a href="${escapeHtml(shown.artifactUrl)}"
+         target="_blank" rel="noopener">Open it on claude.ai</a>.</p></div>`
+    : shown.kind === "file"
     ? `<iframe class="pv-view" src="${escapeHtml(href)}" title="${escapeHtml(shown.title)}"
          sandbox="allow-scripts allow-forms allow-popups allow-modals allow-downloads allow-popups-to-escape-sandbox"></iframe>`
     : `<iframe class="pv-view" src="${escapeHtml(href)}" title="${escapeHtml(shown.title)}"></iframe>`;
@@ -175,7 +183,7 @@ export function previewPanel(session: Session): string {
       <div class="pv-bar__text">
         <div class="pv-bar__title md-title-medium">${escapeHtml(shown.title)}${
           now - shown.at < FRESH_SECONDS ? `<span class="pv-badge md-label-small">New</span>` : ""}</div>
-        <div class="pv-bar__meta md-label-medium"><span class="pv-bar__kind">${shown.kind === "url" ? "Server" : "Page"}</span>
+        <div class="pv-bar__meta md-label-medium"><span class="pv-bar__kind">${shown.artifactUrl ? "Artifact" : shown.kind === "url" ? "Server" : "Page"}</span>
           <span class="md-mono">${escapeHtml(where(shown))}</span> · <span data-pv-ago>${ago(now - shown.at)}</span></div>
       </div>
       <div class="pv-tools">
@@ -187,6 +195,9 @@ export function previewPanel(session: Session): string {
         <button class="icon-button pv-tool md-state" type="button" data-pv="reload" title="Reload" aria-label="Reload">${ICON.sync}</button>
         <button class="icon-button pv-tool md-state" type="button" data-pv="copy" title="Copy link" aria-label="Copy link">${ICON.link}</button>
         <button class="icon-button pv-tool md-state" type="button" data-pv="remove" title="Remove from the panel" aria-label="Remove from the panel">${ICON.trash}</button>
+        ${shown.artifactUrl && !remote ? `<a class="button button--text pv-artifact md-state md-label-large"
+            href="${escapeHtml(shown.artifactUrl)}" target="_blank" rel="noopener"
+            title="The published page on claude.ai — what anyone you share it with sees">${ICON.globe}claude.ai</a>` : ""}
         <a class="pv-open md-state md-label-large" href="${escapeHtml(href)}" target="_blank" rel="noopener">${ICON.focus}Open</a>
       </div>
     </div>
