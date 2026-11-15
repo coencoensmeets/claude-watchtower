@@ -361,6 +361,105 @@ p.note { color: var(--wt-text-2); max-width: 66ch; margin: 0 0 var(--wt-s4); }
 .toolline .ib { width: 28px; height: 28px; }
 .toolline .ib svg { width: 14px; height: 14px; }
 
+/* Comments on a passage. A comment is a draft until it is sent, and drafts are
+   butter: the passage gets a highlighter stroke, the note a butter tint, and
+   the two read as one thing without a connector between them. */
+.hl {
+  background: linear-gradient(transparent 56%, color-mix(in srgb, var(--wt-butter) 75%, transparent) 56%);
+  border-radius: 3px; padding: 0 1px; -webkit-box-decoration-break: clone; box-decoration-break: clone;
+  transition: background-size .3s var(--wt-ease);
+}
+/* The passage whose note is open: the stroke fills the whole line. */
+.hl--on { background: var(--wt-butter); color: var(--wt-on-state); }
+/* On a dark surface a half-height stroke reads as a strike-through, so it
+   sinks to a low, thinner band there. */
+[data-theme="dark"] .bubble--claude .hl:not(.hl--on), [data-theme="dark"] .cnote .hl:not(.hl--on) {
+  background: linear-gradient(transparent 72%, color-mix(in srgb, var(--wt-butter) 70%, transparent) 72%);
+}
+/* On your own ink bubble a fill would sink the white text, so it is a stroke under it. */
+.bubble--you .hl { background: none; box-shadow: inset 0 -3px 0 var(--wt-butter); border-radius: 0; }
+
+.cnote {
+  --cn-tint: color-mix(in srgb, var(--wt-butter) 22%, var(--wt-surface));
+  position: relative; align-self: flex-start; width: min(420px, 86%);
+  margin: calc(var(--wt-s1) * -1) 0 var(--wt-s1) var(--wt-s5);
+  padding: 14px 16px 16px; border-radius: var(--wt-r-md); border-top-left-radius: 8px;
+  background: var(--cn-tint); color: var(--wt-text);
+}
+[data-theme="dark"] .cnote { --cn-tint: color-mix(in srgb, var(--wt-butter) 13%, var(--wt-surface)); }
+/* A note on your own message tucks under it from the right. */
+.cnote--you { align-self: flex-end; margin: calc(var(--wt-s1) * -1) var(--wt-s5) var(--wt-s1) 0;
+  border-top-left-radius: var(--wt-r-md); border-top-right-radius: 8px; }
+.cnote__head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.cnote__who {
+  width: 30px; height: 30px; flex: none; border-radius: 50%; display: grid; place-items: center;
+  background: var(--wt-act); color: var(--wt-on-act);
+}
+.cnote__who svg { width: 15px; height: 15px; }
+.cnote__name { font-weight: 700; font-size: 14px; }
+.cnote__tag {
+  height: 22px; padding: 0 10px; border-radius: var(--wt-r-pill); display: inline-flex; align-items: center;
+  background: var(--wt-butter); color: var(--wt-on-state); font-size: 11px; font-weight: 700; letter-spacing: .02em;
+}
+.cnote__tools { margin-left: auto; display: flex; gap: 2px; margin-right: -6px; }
+.cnote__tools .ib, .cnote__acts .ib { width: 32px; height: 32px; background: transparent; color: var(--wt-text-2); }
+.cnote__tools .ib:hover, .cnote__acts .ib:hover { background: color-mix(in srgb, var(--wt-text) 8%, transparent); color: var(--wt-text); }
+.cnote__tools .ib svg, .cnote__acts .ib svg { width: 16px; height: 16px; }
+.cnote__quote {
+  margin: 0 0 10px; padding: 1px 0 1px 12px; border-left: 3px solid var(--wt-butter); border-radius: 2px;
+  color: var(--wt-text-2); font-size: 13px; font-style: italic;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.cnote__text { margin: 0; font-size: 15px; line-height: 1.45; }
+.cnote__field {
+  display: block; width: 100%; min-height: 76px; resize: none; border: 0; outline: none;
+  padding: 12px 16px; border-radius: var(--wt-r-sm); background: var(--wt-surface); color: var(--wt-text);
+  font: 500 15px/1.45 var(--wt-font); transition: box-shadow .2s var(--wt-ease);
+}
+.cnote__field::placeholder { color: var(--wt-text-3); }
+.cnote__field:focus { box-shadow: 0 0 0 3px var(--wt-lilac); }
+.cnote__acts { display: flex; align-items: center; justify-content: flex-end; gap: var(--wt-s2); margin-top: var(--wt-s3); }
+.cnote__hint { margin-right: auto; font-size: 12px; color: var(--wt-text-3); }
+.cnote__hint kbd { font: 600 11px var(--wt-font); padding: 2px 6px; border-radius: 6px; background: var(--cn-tint);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--wt-butter) 60%, var(--wt-line)); color: var(--wt-text-2); }
+/* Done: the one ink pill on the note, with its check riding inside. */
+.btn--done { height: 40px; padding: 0 18px 0 5px; gap: 10px; font-size: 14px; }
+.btn--done .ride { width: 30px; height: 30px; }
+.btn--done .ride svg { width: 15px; height: 15px; }
+
+/* Rises over a selection: an ink pill split in two. */
+.selchip {
+  display: inline-flex; align-items: center; height: 40px; padding: 4px; gap: 2px;
+  border-radius: var(--wt-r-pill); background: var(--wt-act); color: var(--wt-on-act); box-shadow: var(--wt-float);
+}
+.selchip button {
+  display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 14px 0 10px; border: 0;
+  border-radius: var(--wt-r-pill); background: transparent; color: inherit; cursor: pointer; font: 600 13px var(--wt-font);
+  transition: background .2s var(--wt-ease);
+}
+.selchip button:hover { background: color-mix(in srgb, var(--wt-on-act) 14%, transparent); }
+.selchip svg { width: 15px; height: 15px; }
+.selchip .lit { background: var(--wt-butter); color: var(--wt-on-state); }
+.selchip .lit:hover { background: color-mix(in srgb, var(--wt-butter) 85%, var(--wt-on-act)); }
+
+/* Send: floats over the foot of the conversation, the count of drafts in a
+   butter bubble and the arrow riding at the end. */
+.sendpill {
+  display: inline-flex; align-items: center; gap: 12px; height: 52px; padding: 0 6px 0 8px; border: 0; cursor: pointer;
+  border-radius: var(--wt-r-pill); background: var(--wt-act); color: var(--wt-on-act);
+  font: 650 15px var(--wt-font); box-shadow: 0 0 0 6px var(--wt-surface), var(--wt-float);
+  transition: transform .2s var(--wt-ease);
+}
+.sendpill:active { transform: scale(.97); }
+.sendpill .n { min-width: 30px; height: 30px; padding: 0 8px; border-radius: var(--wt-r-pill); display: grid; place-items: center;
+  background: var(--wt-butter); color: var(--wt-on-state); font-weight: 800; font-size: 14px; }
+.sendpill .ride { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--wt-lime); color: var(--wt-on-state); }
+.sendpill .ride svg { width: 18px; height: 18px; }
+.comments-demo { position: relative; padding-bottom: 76px; }
+.comments-demo .sendpill { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); }
+.comments-demo .sendpill:active { transform: translateX(-50%) scale(.97); }
+
 /* Question callout: a bordered note in the state colour. */
 .ask {
   border-radius: var(--wt-r-md); padding: 6px; background: var(--wt-ember);
@@ -1314,6 +1413,62 @@ kbd { font: 600 12px/1 var(--wt-mono); padding: 4px 7px; border-radius: 7px; bac
       </div>
     </div>
 
+    <h3>Comments on a passage</h3>
+    <div class="grid g2">
+      <div class="board comments-demo">
+        <div class="convo">
+          <div class="bubble bubble--you">Can you make the session rows taller on phones?</div>
+          <div class="bubble bubble--claude">Done. Rows are now 64px below 640px wide, and <span class="hl hl--on">the avatar grows to 48px to match</span>. The change is in <code>responsive.css:41</code>.</div>
+          <div class="cnote">
+            <div class="cnote__head">
+              <span class="cnote__who" aria-hidden="true"><svg><use href="#i-chat"/></svg></span>
+              <span class="cnote__name">You</span><span class="cnote__tag">Draft</span>
+            </div>
+            <p class="cnote__quote">the avatar grows to 48px to match</p>
+            <textarea class="cnote__field" aria-label="Your comment" placeholder="What about it?">Why not 52px? 48 looks cramped next to the lamp.</textarea>
+            <div class="cnote__acts">
+              <span class="cnote__hint"><kbd>Enter</kbd> done · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line</span>
+              <button class="ib" aria-label="Delete this comment"><svg><use href="#i-trash"/></svg></button>
+              <button class="btn btn--done"><span class="ride"><svg><use href="#i-check"/></svg></span>Done</button>
+            </div>
+          </div>
+          <div class="bubble bubble--you">And <span class="hl">the lamp should stay put</span> when it grows.</div>
+          <div class="cnote cnote--you">
+            <div class="cnote__head">
+              <span class="cnote__who" aria-hidden="true"><svg><use href="#i-chat"/></svg></span>
+              <span class="cnote__name">You</span><span class="cnote__tag">Draft</span>
+              <span class="cnote__tools">
+                <button class="ib" aria-label="Edit this comment"><svg><use href="#i-edit"/></svg></button>
+                <button class="ib" aria-label="Delete this comment"><svg><use href="#i-trash"/></svg></button>
+              </span>
+            </div>
+            <p class="cnote__quote">the lamp should stay put</p>
+            <p class="cnote__text">Pinned to the top-right corner, not the centre.</p>
+          </div>
+        </div>
+        <button class="sendpill"><span class="n">2</span>Send comments<span class="ride"><svg><use href="#i-send"/></svg></span></button>
+      </div>
+      <div class="board">
+        <div style="display:flex;flex-direction:column;gap:var(--wt-s5)">
+          <div>
+            <div class="bubble bubble--claude" style="max-width:none">Rows are now 64px <span class="hl hl--on">below 640px wide</span>.</div>
+            <div style="display:flex;justify-content:center;margin-top:var(--wt-s3)">
+              <div class="selchip" role="toolbar" aria-label="Selection">
+                <button><svg><use href="#i-copy"/></svg>Copy</button>
+                <button class="lit"><svg><use href="#i-chat"/></svg>Comment</button>
+              </div>
+            </div>
+          </div>
+          <div style="display:grid;gap:var(--wt-s2)">
+            <div class="bubble bubble--claude" style="max-width:none">At rest: <span class="hl">a highlighter stroke</span> under the passage.</div>
+            <div class="bubble bubble--claude" style="max-width:none">Its note open: <span class="hl hl--on">the stroke fills the line</span>.</div>
+            <div class="bubble bubble--you" style="max-width:none">On your own message: <span class="hl">a butter underline</span>.</div>
+          </div>
+        </div>
+        <p class="spec">Select a passage and an ink pill rises over it: <b>Copy</b>, and <b>Comment</b> lit in butter. A comment is a draft until it is sent, and drafts are butter, so the passage gets a highlighter stroke and the note a butter tint. That shared colour ties them together, with no connector line. The note tucks under its message, indented 24px, with its tight 8px corner toward the message. It leads with an ink circle, <b>You</b> and a <b>Draft</b> tag, then the quote ruled in butter. Writing happens in a filled field with the lilac focus ring. <b>Done</b> is the one ink pill, with its check riding in a lime circle. Edit and delete are 32px circles that stay quiet until hovered. The <b>Send</b> pill floats over the foot of the conversation, with the number of drafts in a butter bubble and the arrow riding in lime.</p>
+      </div>
+    </div>
+
     <h3>Floating bar and sheets</h3>
     <div class="grid g2">
       <div class="board" style="display:grid;place-items:center;min-height:200px;background:var(--wt-page);box-shadow:inset 0 0 0 1.5px var(--wt-line)">
@@ -1328,7 +1483,7 @@ kbd { font: 600 12px/1 var(--wt-mono); padding: 4px 7px; border-radius: 7px; bac
         <div class="sheet"><b>Details</b><p class="note" style="margin:6px 0 0">A sheet hangs from a small tab with a grab handle. On phones it carries the detail tabs over the session's colour.</p></div>
       </div>
     </div>
-    <p class="note" style="margin-top:var(--wt-s3)">The floating tab bar is the only element with a shadow, because it is the only one that sits over scrolling content.</p>
+    <p class="note" style="margin-top:var(--wt-s3)">Only what sits over scrolling content casts a shadow: the floating tab bar, the selection pill and the Send pill for comments.</p>
   </div>
 </section>
 
