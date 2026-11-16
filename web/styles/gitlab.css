@@ -1,0 +1,532 @@
+/* The GitLab tab and the work items page.
+
+   The panel's own system does the colour and the type — this is Material 3 with
+   a palette generated from one seed, and a tab that invented its own would read
+   as a different application bolted on. What is designed here is the structure:
+   what a work item looks like when you are scanning forty of them, and what it
+   looks like when you are reading one.
+
+   Two ideas carry it.
+
+   A work item's *priority* is not a label, whatever GitLab thinks. It is the
+   order to do things in, so it is lifted out of the row of labels and given the
+   only position on the row that cannot be missed — a rail down the leading edge,
+   the one place nothing else competes for. Everything else about the item is
+   drawn quietly beside it.
+
+   And a *scoped label* is a field and its value, not a word. `priority::high`
+   is drawn as two halves, the way GitLab draws it and the way it actually
+   reads: the key recessed, the value filled, both in the colour the project
+   chose. Six of them in a row stay scannable by key instead of becoming a hedge
+   of identical pills. */
+
+/* ------------------------------------------------------------------ header */
+
+.gl-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 4px;
+}
+
+.gl-head__where { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 1; }
+
+.gl-head__project {
+  color: var(--md-sys-color-on-surface);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gl-head__project:hover { text-decoration: underline; }
+
+.gl-head__host { color: var(--md-sys-color-on-surface-variant); }
+
+.gl-head__acts { display: flex; align-items: center; gap: 6px; }
+
+/* The pipeline, as a word in the colour of what it means. Tones rather than
+   fixed colours: everything else here follows the seed, and this must too. */
+.gl-pipe {
+  padding: 4px 12px;
+  border-radius: 999px;
+  text-decoration: none;
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
+}
+.gl-pipe[data-tone="good"] {
+  background: color-mix(in srgb, var(--md-sys-color-primary) 16%, transparent);
+  color: var(--md-sys-color-primary);
+}
+.gl-pipe[data-tone="bad"] {
+  background: color-mix(in srgb, var(--md-sys-color-error) 16%, transparent);
+  color: var(--md-sys-color-error);
+}
+.gl-pipe[data-tone="busy"] {
+  background: color-mix(in srgb, var(--md-sys-color-tertiary) 16%, transparent);
+  color: var(--md-sys-color-tertiary);
+}
+
+/* --------------------------------------------------------------- the bar */
+
+.gl-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 12px;
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  margin-bottom: 4px;
+}
+
+.gl-chips { display: flex; gap: 6px; flex: none; }
+
+/* Two chips carrying their own counts, so *Yours* and *All open* answer "how
+   many" before they are pressed — the count is most of the reason to press. */
+.gl-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  background: transparent;
+  color: var(--md-sys-color-on-surface-variant);
+  cursor: pointer;
+}
+.gl-chip[aria-pressed="true"] {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  border-color: transparent;
+}
+.gl-chip__count {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+
+.gl-search {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--md-sys-color-surface-container-low);
+  color: var(--md-sys-color-on-surface);
+  font: inherit;
+}
+.gl-search:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: -2px;
+  border-color: transparent;
+}
+
+/* ---------------------------------------------------------------- the list */
+
+.gl-list { list-style: none; margin: 0; padding: 0; }
+
+.gl-row { display: block; }
+
+/* The whole row is the button. A title that is a link and a row that is not
+   makes you aim; here anywhere on the row opens the item, and the only other
+   target — the assignee — is a label rather than a control. */
+.gl-row__open {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px 10px 0;
+  border: 0;
+  border-radius: var(--md-sys-shape-corner-medium, 12px);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: none;
+}
+.gl-row__open:hover { background: var(--md-sys-color-surface-container); }
+.gl-row__open:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: -2px;
+}
+
+/* The priority rail: the one piece of this design that is allowed to shout.
+   Unset priorities keep the rail as a hairline, so the rows still align and an
+   untriaged item is quiet rather than absent. */
+.gl-row__rail {
+  flex: none;
+  align-self: stretch;
+  width: 3px;
+  min-height: 34px;
+  margin-right: 2px;
+  border-radius: 999px;
+  background: var(--md-sys-color-outline-variant);
+}
+.gl-row__rail[data-priority="critical"],
+.gl-row__rail[data-priority="urgent"],
+.gl-row__rail[data-priority="high"] { background: var(--md-sys-color-error); width: 4px; }
+.gl-row__rail[data-priority="medium"] { background: var(--md-sys-color-primary); }
+.gl-row__rail[data-priority="low"] {
+  background: color-mix(in srgb, var(--md-sys-color-primary) 40%, transparent);
+}
+
+.gl-row__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+
+.gl-row__head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+
+.gl-row__num {
+  flex: none;
+  color: var(--md-sys-color-on-surface-variant);
+  font-variant-numeric: tabular-nums;
+}
+
+.gl-row__title {
+  color: var(--md-sys-color-on-surface);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gl-row__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.gl-meta-fact { display: inline-flex; align-items: center; gap: 4px; }
+.gl-meta-fact svg { width: 13px; height: 13px; }
+.gl-meta-fact--quiet { opacity: 0.75; }
+
+/* ------------------------------------------------------------------ labels */
+
+.gl-label {
+  --label: var(--md-sys-color-surface-container-highest);
+  --on-label: var(--md-sys-color-on-surface-variant);
+  display: inline-flex;
+  align-items: stretch;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--label);
+  color: var(--on-label);
+  padding: 1px 9px;
+  line-height: 1.5;
+}
+
+/* A scoped label is a key and a value. The key sits in a darkened end of the
+   label's own colour and the value in the colour itself, so the pair reads as
+   one object at a glance and as two facts when you look. */
+.gl-label--scoped { padding: 0; }
+.gl-label__key {
+  padding: 1px 8px;
+  background: color-mix(in srgb, var(--label) 55%, var(--md-sys-color-surface));
+  color: var(--md-sys-color-on-surface-variant);
+}
+.gl-label__value { padding: 1px 9px; background: var(--label); color: var(--on-label); }
+
+/* Priority is drawn as itself rather than as a label, since the rail already
+   says it in colour and this says it in words. */
+.gl-priority {
+  padding: 1px 9px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  color: var(--md-sys-color-on-surface-variant);
+  text-transform: lowercase;
+}
+.gl-priority[data-priority="critical"],
+.gl-priority[data-priority="urgent"],
+.gl-priority[data-priority="high"] { color: var(--md-sys-color-error); }
+.gl-priority[data-priority="medium"] { color: var(--md-sys-color-primary); }
+.gl-priority[data-priority="draft"] { color: var(--md-sys-color-tertiary); }
+
+/* -------------------------------------------------------------- the people */
+
+/* Initials, not avatars. Every avatar is an image on somebody else's server,
+   and a panel that promises nothing leaves this machine should not have your
+   browser fetch forty pictures from a GitLab to draw a list. */
+.gl-faces { display: inline-flex; flex: none; }
+.gl-faces .gl-face + .gl-face { margin-left: -8px; }
+
+.gl-face {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  border: 2px solid var(--md-sys-color-surface);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* --------------------------------------------------------------- compose */
+
+.gl-compose {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  margin: 4px 0 12px;
+  border-radius: var(--md-sys-shape-corner-large, 16px);
+  background: var(--md-sys-color-surface-container-low);
+  border: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.gl-compose__title,
+.gl-compose__body {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--md-sys-shape-corner-small, 8px);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+  font: inherit;
+  resize: vertical;
+}
+.gl-compose__title { font: var(--md-sys-typescale-title-small-font, inherit); }
+.gl-compose__title:focus-visible,
+.gl-compose__body:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: -2px;
+}
+
+.gl-compose__labels { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* The picker holds the labels themselves, drawn as they will be drawn on the
+   item — so choosing one is recognising it rather than reading it. Unpicked
+   ones are dimmed rather than greyed: the colour is how you find the label. */
+.gl-label-pick {
+  padding: 2px;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+  opacity: 0.55;
+  filter: saturate(0.7);
+}
+.gl-label-pick:hover { opacity: 0.85; }
+.gl-label-pick[aria-pressed="true"] {
+  opacity: 1;
+  filter: none;
+  border-color: var(--md-sys-color-primary);
+}
+.gl-label-pick:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 1px;
+}
+
+.gl-compose__foot { display: flex; align-items: center; gap: 8px; }
+.gl-compose__says { flex: 1; min-width: 0; color: var(--md-sys-color-on-surface-variant); }
+
+/* ------------------------------------------------------------- one item */
+
+.gl-detail { display: flex; flex-direction: column; gap: 4px; }
+
+.gl-detail__bar { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.gl-detail__back { margin-right: auto; }
+
+.gl-detail__out {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  text-decoration: none;
+  color: var(--md-sys-color-primary);
+}
+.gl-detail__out:hover { background: var(--md-sys-color-surface-container); }
+.gl-detail__out svg { width: 16px; height: 16px; }
+
+/* The heading takes the same rail the row had, grown up: the item you were
+   scanning and the item you are reading are recognisably the same object. */
+.gl-detail__head {
+  padding: 4px 0 12px 16px;
+  border-left: 4px solid var(--md-sys-color-outline-variant);
+  margin-bottom: 4px;
+}
+.gl-detail__head[data-priority="critical"],
+.gl-detail__head[data-priority="urgent"],
+.gl-detail__head[data-priority="high"] { border-left-color: var(--md-sys-color-error); }
+.gl-detail__head[data-priority="medium"] { border-left-color: var(--md-sys-color-primary); }
+.gl-detail__head[data-priority="low"] {
+  border-left-color: color-mix(in srgb, var(--md-sys-color-primary) 40%, transparent);
+}
+
+.gl-detail__title { margin: 0 0 4px; color: var(--md-sys-color-on-surface); }
+.gl-detail__who { margin: 0; color: var(--md-sys-color-on-surface-variant); }
+.gl-detail__labels { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+
+.gl-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 4px 0 14px;
+}
+.gl-actions svg { width: 18px; height: 18px; }
+
+/* The description, at a line length you can actually read. Everything else in
+   the pane is a list and wants the width; prose does not. */
+.gl-body { max-width: 68ch; color: var(--md-sys-color-on-surface); }
+.gl-body > :first-child { margin-top: 0; }
+.gl-body > :last-child { margin-bottom: 0; }
+
+.gl-notes { margin-top: 20px; }
+
+.gl-note {
+  padding: 10px 0;
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+}
+.gl-note__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--md-sys-color-on-surface-variant);
+  margin-bottom: 6px;
+}
+.gl-note__head .gl-face { width: 22px; height: 22px; font-size: 9px; border-width: 0; }
+.gl-note__when { margin-left: auto; opacity: 0.8; }
+.gl-note__body { max-width: 68ch; }
+.gl-note__body > :first-child { margin-top: 0; }
+.gl-note__body > :last-child { margin-bottom: 0; }
+
+/* ------------------------------------------------- the work items page
+
+   Same rows as the tab, because they are the same objects. What differs is the
+   job: this page is a launcher, so every row ends in the press that starts the
+   work, and the folder that press depends on is stated once per project rather
+   than implied. A project with no checkout here is not an error — it is a row
+   that needs one more question answered first, and it says so and sorts last. */
+
+.wi-group { padding-bottom: 20px; }
+
+.wi-group__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 4px 6px 9px;
+  flex-wrap: wrap;
+  border-left: 3px solid transparent;
+}
+
+.wi-group__title { color: var(--md-sys-color-on-surface); }
+
+.wi-group__count {
+  color: var(--md-sys-color-on-surface-variant);
+  font-variant-numeric: tabular-nums;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--md-sys-color-surface-container-high);
+}
+
+/* The folder, with room to be read: it is the answer to "where will this run",
+   which is the only thing standing between the list and the work. */
+.wi-group__where {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wi-group__where svg { width: 14px; height: 14px; flex: none; }
+
+.wi-group__missing {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--md-sys-color-tertiary);
+}
+
+.wi-group__host { color: var(--md-sys-color-on-surface-variant); opacity: 0.75; }
+
+/* A group whose project is not checked out here reads as pending rather than
+   broken: its rows still work, they just ask where first. */
+.wi-group[data-ready="false"] .gl-row__open { opacity: 0.86; }
+
+/* A launcher row: the whole thing is the press, with the link out as the one
+   separate target. */
+.gl-row--launch { display: flex; align-items: center; gap: 2px; }
+.gl-row--launch .gl-row__open { flex: 1; min-width: 0; }
+
+.gl-row__out {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border-radius: 999px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.gl-row__out svg { width: 16px; height: 16px; }
+.gl-row__out:hover {
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-primary);
+}
+
+/* The press, named. Quiet until the row is under the pointer or the keyboard,
+   because eighteen filled buttons down a page is a wall rather than a list —
+   but never hidden, since a control that appears on hover is a control that
+   does not exist on a touchscreen. */
+.gl-go {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
+  transition: background var(--md-sys-motion-duration-short4, 200ms)
+              var(--md-sys-motion-easing-standard, ease),
+              color var(--md-sys-motion-duration-short4, 200ms)
+              var(--md-sys-motion-easing-standard, ease);
+}
+.gl-go svg { width: 16px; height: 16px; }
+
+.gl-row__open:hover .gl-go[data-ready="true"],
+.gl-row__open:focus-visible .gl-go[data-ready="true"] {
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+}
+.gl-row__open:hover .gl-go[data-ready="false"],
+.gl-row__open:focus-visible .gl-go[data-ready="false"] {
+  background: var(--md-sys-color-tertiary-container);
+  color: var(--md-sys-color-on-tertiary-container);
+}
+.gl-row__open[disabled] { cursor: default; }
+.gl-row__open[disabled] .gl-go { opacity: 0.7; }
+
+@media (prefers-reduced-motion: reduce) {
+  .gl-go { transition: none; }
+}
+
+/* A host that could not be reached is said beside the list rather than instead
+   of it: the other hosts answered, and their items are the point. */
+.wi-trouble {
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border-radius: var(--md-sys-shape-corner-medium, 12px);
+  background: color-mix(in srgb, var(--md-sys-color-error) 12%, transparent);
+  color: var(--md-sys-color-on-surface);
+}
+
+/* ---------------------------------------------------------------- narrow */
+
+@media (max-width: 560px) {
+  .gl-bar { flex-wrap: wrap; }
+  .gl-search { order: 3; flex-basis: 100%; }
+  .gl-row__title { white-space: normal; }
+  .gl-actions .button { flex: 1; justify-content: center; }
+  /* The word goes and the icon stays: the press is still a press, and the row
+     has somewhere to put a title instead. */
+  .gl-go { padding: 8px; }
+  .gl-go__word { display: none; }
+}

@@ -43,6 +43,7 @@ const STYLE_ORDER = [
   "update.css",       // a newer release of the panel, in the app bar beside it
   "usage.css",
   "git.css",          // Git and History
+  "gitlab.css",       // the GitLab tab, and the work items page
   "controls.css",     // buttons, switches, segmented buttons, the context menu
   "comments.css",     // the rail, its cards, and the quote chip
   "dialog.css",       // scrims, dialogs, the snackbar
