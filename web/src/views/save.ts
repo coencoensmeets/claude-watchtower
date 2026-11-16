@@ -20,6 +20,7 @@ import { ICON } from "../ui/icons.js";
 import { openMenu, sessionMenu } from "../ui/menu.js";
 import { copyText } from "../ui/clipboard.js";
 import { showSnackbar } from "../ui/snackbar.js";
+import { selectionMenuItems } from "./chat.js";
 import { messageKey } from "./owned.js";
 
 /* Whose words these were, in the plain form the file wants. The bubble says
@@ -131,14 +132,22 @@ function copyMessage(message, session) {
    survives every render, and a listener attached inside one would die with the
    bubbles it was bound to — or worse, pile up one per poll.
 
-   A right-click on a selection is left to the browser: that menu has Copy in it,
-   and the passage you have just selected is the thing you meant to take. */
+   A right-click on a selection gets the selection's own menu — Comment and
+   Copy, the chip's two actions — since the passage you have just selected is
+   the thing you meant to act on, not the whole message. */
 detailPane.addEventListener("contextmenu", (event) => {
   const row = hitClosest(event, ".msg, .activity-row");
   if (!row || !row.closest("#chatScroll")) return;
   const selection = window.getSelection();
   if (selection && !selection.isCollapsed && String(selection).trim()
-      && row.contains(selection.anchorNode)) return;
+      && row.contains(selection.anchorNode)) {
+    const items = selectionMenuItems();
+    if (!items) return;
+    event.preventDefault();
+    openMenu({ title: "Selected passage", label: "What to do with the selected passage", items },
+             event.clientX, event.clientY);
+    return;
+  }
   if (openMessageMenu(row, event.clientX, event.clientY)) event.preventDefault();
 });
 

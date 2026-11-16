@@ -6,6 +6,7 @@ import { detailPane } from "../ui/dom.js";
 import { ago, escapeHtml } from "../ui/format.js";
 import { ICON } from "../ui/icons.js";
 import type { Preview, Session } from "../types.js";
+import { fullButton, notesColumn, openInTab, wireNotes } from "./previewnotes.js";
 import { starFor, toggleStar } from "./starred.js";
 
 /* ==========================================================================
@@ -191,6 +192,7 @@ export function previewPanel(session: Session): string {
           ${DEVICES.map(([key, label]) => `<button class="pv-device md-state" type="button" data-device="${key}"
               aria-pressed="${d === key}" title="${label}" aria-label="${label}">${ICON[key]}</button>`).join("")}
         </div>
+        ${remote ? "" : fullButton()}
         ${starButton(shown)}
         <button class="icon-button pv-tool md-state" type="button" data-pv="reload" title="Reload" aria-label="Reload">${ICON.sync}</button>
         <button class="icon-button pv-tool md-state" type="button" data-pv="copy" title="Copy link" aria-label="Copy link">${ICON.link}</button>
@@ -201,6 +203,7 @@ export function previewPanel(session: Session): string {
         <a class="pv-open md-state md-label-large" href="${escapeHtml(href)}" target="_blank" rel="noopener">${ICON.focus}Open</a>
       </div>
     </div>
+    <div class="pv-body">
     <div class="pv-stage" data-device="${d}">
       <div class="pv-frame">
         <div class="pv-chrome" aria-hidden="true">
@@ -218,6 +221,9 @@ export function previewPanel(session: Session): string {
       <button class="pv-exit md-state" type="button" title="Leave full screen" aria-label="Leave full screen">${CLOSE_ICON}</button>
       ${mixed ? `<p class="pv-hint md-body-small">This panel is on https and the server is plain http, so the
         browser may refuse to show it inside the panel. <strong>Open</strong> shows it in a tab of its own.</p>` : ""}
+    </div>
+    ${remote ? "" : notesColumn()}
+    <button class="pv-leave md-state md-label-large" type="button" data-pv="leave-full">${ICON.shrink}Leave full screen</button>
     </div>
   </div>`;
 }
@@ -238,6 +244,15 @@ export function wirePreviews(session: Session, redraw: () => void): void {
   }
   root.dataset.wired = "1";
   wireImmersive(root, session);
+  const showing = chosenPreview(session);
+  if (showing) wireNotes(root, session, showing);
+  // A page from disk opens with its opener kept, so comments written in that
+  // tab come back here — see previewnotes.ts. Anything else opens as a link.
+  root.querySelector<HTMLAnchorElement>(".pv-open")?.addEventListener("click", (event) => {
+    const shown = chosenPreview(session);
+    if (!shown || shown.kind !== "file" || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    if (openInTab(session, shown, previewHref(shown))) event.preventDefault();
+  });
 
   const view = root.querySelector<HTMLIFrameElement>(".pv-view");
   const screen = root.querySelector<HTMLElement>(".pv-screen");

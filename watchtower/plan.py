@@ -104,7 +104,10 @@ def run_plan() -> dict:
         # rather than a repository — this is the account's reading, not a folder's.
         process = subprocess.Popen(
             [claude, "--print", "/usage", "--model", MESSAGE_MODEL,
-             "--allowed-tools", "", "--output-format", "text"],
+             "--allowed-tools", "", "--output-format", "text",
+             # A question the panel asked, not a conversation anybody had: no
+             # transcript, so it never turns up under Sessions.
+             "--no-session-persistence"],
             cwd=str(HOME), text=True,
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )

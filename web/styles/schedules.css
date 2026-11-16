@@ -1,0 +1,411 @@
+/* The Schedule tab: tasks run in this session's folder, later or on repeat.
+
+   The Sessions tab's language — the numeral on top, tiles with no borders —
+   with the house accents put to work, each meaning one thing:
+
+     lilac   Claude, and what is in progress: a Claude task's badge, the
+             cadence, a task running right now, the When and Where rows
+     lime    a command's badge, a run that went well, the rider in the ink
+             buttons
+     butter  a draft: the compose card, as comment drafts are
+     rose    a run that failed
+     ember   the one limit you can set, a command's timeout
+
+   Text on any of them is ink, in both themes. Paused and finished tasks are
+   faded rather than recoloured. */
+
+.sch-top .sch-new { margin-inline-start: auto; }
+
+/* ------------------------------------------------------------- compose */
+
+.sch-compose {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0 0 var(--md-sys-spacing-6);
+  padding: 18px;
+  border-radius: 24px;
+  background: var(--wt-field, var(--md-sys-color-surface-container));
+}
+.sch-compose__row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; }
+.sch-compose__foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sch-compose__foot .sch-hint { margin-inline-end: auto; }
+
+.sch-field {
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 14px;
+  padding: 10px 14px;
+  background: var(--md-sys-color-surface-container-lowest, var(--md-sys-color-surface));
+  color: var(--md-sys-color-on-surface);
+  font: inherit;
+  transition: box-shadow 0.2s var(--wt-ease, ease);
+}
+.sch-field::placeholder { color: var(--md-sys-color-outline); }
+.sch-field:focus { outline: none; box-shadow: 0 0 0 3px var(--wt-lilac, var(--md-sys-color-primary)); }
+.sch-field--area { width: 100%; resize: vertical; min-height: 84px; line-height: 1.45; }
+.sch-field--area.md-mono { font-family: var(--md-ref-typeface-mono); font-size: 13px; }
+.sch-field--num { width: 76px; padding-inline: 10px; }
+.sch-field--select { padding-inline: 10px; }
+.sch-field--when { padding-inline: 10px; }
+.sch-inline { display: inline-flex; align-items: center; gap: 8px; color: var(--md-sys-color-on-surface-variant); }
+.sch-hint { color: var(--md-sys-color-on-surface-variant); }
+
+/* A pill of choices; the chosen one is ink. */
+.sch-seg {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-surface-container-lowest, var(--md-sys-color-surface));
+}
+.sch-seg__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: transparent;
+  color: var(--md-sys-color-on-surface-variant);
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 0.2s var(--wt-ease, ease), color 0.2s var(--wt-ease, ease);
+}
+.sch-seg__item svg { width: 16px; height: 16px; }
+.sch-seg__item:hover { color: var(--md-sys-color-on-surface); }
+.sch-seg__item[aria-pressed="true"] {
+  background: var(--md-sys-color-on-surface);
+  color: var(--md-sys-color-surface);
+}
+.sch-seg__item:focus-visible { outline: 3px solid var(--wt-lilac, var(--md-sys-color-primary)); outline-offset: 1px; }
+
+/* ---------------------------------------------------------------- list */
+
+.sch-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.sch-item { display: block; }
+
+.sch {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  gap: 4px 14px;
+  padding: 14px 12px 14px 16px;
+  border-radius: 24px;
+  background: var(--wt-field, var(--md-sys-color-surface-container));
+}
+.sch--paused, .sch--done { opacity: 0.62; }
+
+.sch__icon {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-surface-container-lowest, var(--md-sys-color-surface));
+  color: var(--md-sys-color-on-surface);
+}
+.sch__icon svg { width: 20px; height: 20px; }
+
+
+.sch__body { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.sch__name { display: flex; align-items: center; gap: 8px; color: var(--md-sys-color-on-surface); font-weight: 650; overflow-wrap: anywhere; }
+.sch__what {
+  color: var(--md-sys-color-on-surface-variant);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.sch__what.md-mono { font-size: 12.5px; }
+.sch__lamp { display: inline-flex; align-items: center; gap: 5px; color: var(--md-sys-color-on-surface-variant); font-weight: 600; }
+.sch__lamp i { width: 8px; height: 8px; border-radius: 50%; background: var(--wt-lilac, #A59FE2); animation: sch-pulse 1.4s ease-in-out infinite; }
+@keyframes sch-pulse { 50% { opacity: 0.35; } }
+
+.sch__facts { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--md-sys-color-on-surface-variant); }
+.sch-fact { display: inline-flex; align-items: center; gap: 5px; }
+.sch-fact svg { width: 14px; height: 14px; }
+.sch-fact--cadence { color: var(--md-sys-color-on-surface); font-weight: 650; }
+
+/* The last run, and the press that opens every run. */
+.sch__last {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 2px;
+  padding: 4px 10px 4px 8px;
+  border: 0;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-surface-container-lowest, var(--md-sys-color-surface));
+  color: var(--md-sys-color-on-surface);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.sch__last > svg { width: 16px; height: 16px; flex: none; transition: transform 0.2s var(--wt-ease, ease); }
+.sch__last[aria-expanded="true"] > svg { transform: rotate(180deg); }
+.sch__last:focus-visible { outline: 3px solid var(--wt-lilac, var(--md-sys-color-primary)); outline-offset: 1px; }
+.sch__count { color: var(--md-sys-color-on-surface-variant); white-space: nowrap; }
+
+.sch-run { display: inline-flex; align-items: center; gap: 7px; min-width: 0; }
+.sch-run > span:not(.sch-run__at) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sch-run i { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--wt-lime, #CBDA72); }
+.sch-run--bad i { background: var(--wt-ember, #F28C4E); }
+.sch-run__at { color: var(--md-sys-color-on-surface-variant); white-space: nowrap; }
+
+.sch-link {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--md-sys-color-on-surface);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.sch-history { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; color: var(--md-sys-color-on-surface-variant); }
+.sch-history__head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; color: var(--md-sys-color-on-surface); }
+.sch-history__when { color: var(--md-sys-color-on-surface-variant); margin-inline-start: auto; }
+.sch-output {
+  margin: 6px 0 0;
+  padding: 10px 12px;
+  max-height: 260px;
+  overflow: auto;
+  border-radius: 14px;
+  background: var(--md-sys-color-surface-container-lowest, var(--md-sys-color-surface));
+  color: var(--md-sys-color-on-surface);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The quiet circles at the end of a row; Remove asks once in a pill. */
+.sch__acts { display: flex; align-items: flex-start; gap: 2px; }
+.sch-act {
+  min-width: 36px;
+  height: 36px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: transparent;
+  color: var(--md-sys-color-on-surface-variant);
+  cursor: pointer;
+  transition: background-color 0.2s var(--wt-ease, ease), color 0.2s var(--wt-ease, ease);
+}
+.sch-act svg { width: 18px; height: 18px; }
+.sch-act:hover:not(:disabled) { background: var(--md-sys-color-surface-container-lowest, var(--md-sys-color-surface)); color: var(--md-sys-color-on-surface); }
+.sch-act:disabled { opacity: 0.4; cursor: default; }
+.sch-act:focus-visible { outline: 3px solid var(--wt-lilac, var(--md-sys-color-primary)); outline-offset: 1px; }
+.sch-act--ask { background: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface); }
+.sch-act--ask:hover:not(:disabled) { background: var(--md-sys-color-on-surface); color: var(--wt-ember, #F28C4E); }
+
+@media (max-width: 640px) {
+  .sch { grid-template-columns: 32px minmax(0, 1fr); padding: 12px; }
+  .sch__icon { width: 32px; height: 32px; }
+  .sch__acts { grid-column: 1 / -1; justify-content: flex-end; }
+  .sch-compose { padding: 14px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sch__lamp i { animation: none; }
+  .sch-seg__item, .sch-act, .sch__last > svg { transition: none; }
+}
+
+/* Starred tasks, under the sessions. The starred-sites rows, as buttons; the
+   two lists share the bottom of the sidebar, so only the first is pushed down. */
+.starred:not([hidden]) ~ .starred--tasks { margin-top: 0; }
+button.starred-item {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.starred-item--running .starred-item__icon { box-shadow: 0 0 0 3px var(--md-sys-color-surface), 0 0 0 5px var(--wt-lilac, #A59FE2); }
+.starred-item--bad .starred-item__icon { box-shadow: 0 0 0 3px var(--md-sys-color-surface), 0 0 0 5px var(--wt-rose, #E9839B); }
+
+/* ================================================================= colour */
+
+.sch-compose, .sch, .sch-top, .starred--tasks {
+  --sch-ink: var(--wt-on-state, #1E1F24);
+  --sch-tint: 22%;
+  --sch-claude: var(--wt-lilac, #A59FE2);
+  --sch-command: var(--wt-lime, #CBDA72);
+}
+html[data-theme="dark"] :is(.sch-compose, .sch, .sch-top, .starred--tasks) { --sch-tint: 14%; }
+
+/* The kind badge: Claude in lilac, a command in lime, the glyph in ink. */
+.sch__icon, .starred-item__icon.sch-kind {
+  background: var(--sch-claude);
+  color: var(--sch-ink);
+}
+.starred-item__icon.sch-kind[data-kind="command"],
+.sch[data-kind="command"] .sch__icon { background: var(--sch-command); }
+.sch[data-kind="claude"] .sch__icon { background: var(--sch-claude); }
+.sch--failed .sch__icon { box-shadow: 0 0 0 3px var(--wt-field, var(--md-sys-color-surface-container)), 0 0 0 5px var(--wt-rose, #E9839B); }
+
+/* Running: the whole tile goes lilac, which is what in progress looks like. */
+.sch--running { background: color-mix(in srgb, var(--wt-lilac, #A59FE2) var(--sch-tint), var(--md-sys-color-surface)); }
+
+/* How often, in a lilac pill; when next, in a plain one. */
+.sch-fact--cadence, .sch-fact--next {
+  padding: 3px 10px 3px 8px;
+  border-radius: var(--md-sys-shape-corner-full);
+}
+.sch-fact--cadence {
+  background: color-mix(in srgb, var(--wt-lilac, #A59FE2) 38%, var(--md-sys-color-surface));
+  color: var(--sch-ink);
+}
+html[data-theme="dark"] .sch-fact--cadence { background: var(--wt-lilac, #A59FE2); }
+.sch-fact--next {
+  background: var(--md-sys-color-surface-container-lowest, var(--md-sys-color-surface));
+  color: var(--md-sys-color-on-surface);
+}
+
+/* The last run: lime when it went well, rose when it did not. */
+.sch__last:has(.sch-run--ok) { background: color-mix(in srgb, var(--wt-lime, #CBDA72) 34%, var(--md-sys-color-surface)); }
+.sch__last:has(.sch-run--bad) { background: color-mix(in srgb, var(--wt-rose, #E9839B) 30%, var(--md-sys-color-surface)); }
+html[data-theme="dark"] .sch__last:has(.sch-run--ok) { background: color-mix(in srgb, var(--wt-lime, #CBDA72) 18%, var(--md-sys-color-surface)); }
+html[data-theme="dark"] .sch__last:has(.sch-run--bad) { background: color-mix(in srgb, var(--wt-rose, #E9839B) 18%, var(--md-sys-color-surface)); }
+.sch-run--bad i { background: var(--wt-rose, #E9839B); }
+.sch-history__run:has(.sch-run--bad) .sch-output { box-shadow: inset 3px 0 0 var(--wt-rose, #E9839B); }
+.sch-history__run:has(.sch-run--ok) .sch-output { box-shadow: inset 3px 0 0 var(--wt-lime, #CBDA72); }
+
+/* A starred task's star, in butter: kept, the way a draft is kept. */
+.sch-act--on { color: var(--md-sys-color-on-surface); }
+.sch-act--on svg { fill: var(--wt-butter, #F5CD62); stroke: var(--sch-ink); }
+
+/* ---- the tally beside the numeral */
+.sch-tally { display: flex; flex-wrap: wrap; gap: 6px; }
+.sch-tally__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 12px 0 10px;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--wt-field, var(--md-sys-color-surface-container));
+  color: var(--md-sys-color-on-surface);
+  font-variant-numeric: tabular-nums;
+}
+.sch-tally__chip i { width: 10px; height: 10px; border-radius: 50%; }
+.sch-tally__chip[data-tone="running"] i { background: var(--wt-lilac, #A59FE2); animation: sch-pulse 1.4s ease-in-out infinite; }
+.sch-tally__chip[data-tone="on"] i { background: var(--wt-lime, #CBDA72); }
+.sch-tally__chip[data-tone="failed"] i { background: var(--wt-rose, #E9839B); }
+.sch-tally__chip[data-tone="paused"] i { background: var(--wt-hatch-fine); box-shadow: inset 0 0 0 1.5px var(--wt-line); }
+
+/* ---- the empty tab */
+.sch-empty__art { background: color-mix(in srgb, var(--wt-lilac, #A59FE2) 40%, var(--md-sys-color-surface)); color: var(--sch-ink, #1E1F24); }
+
+/* ---- the compose card: a draft, so butter */
+.sch-compose {
+  background: color-mix(in srgb, var(--wt-butter, #F5CD62) var(--sch-tint), var(--md-sys-color-surface));
+}
+.sch-compose__head { display: flex; align-items: center; gap: 8px; }
+.sch-compose__tag {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 12px;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--wt-butter, #F5CD62);
+  color: var(--sch-ink);
+}
+
+/* What it does: each choice carries its kind's colour in a riding circle. */
+.sch-seg__item--ride { padding-inline-start: 4px; gap: 8px; }
+.sch-seg__ride {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: color-mix(in srgb, var(--sch-claude) 45%, var(--md-sys-color-surface));
+  color: var(--sch-ink);
+}
+.sch-seg__ride[data-kind="command"] { background: color-mix(in srgb, var(--sch-command) 55%, var(--md-sys-color-surface)); }
+.sch-seg__item[aria-pressed="true"] .sch-seg__ride { background: var(--sch-claude); }
+.sch-seg__item[aria-pressed="true"] .sch-seg__ride[data-kind="command"] { background: var(--sch-command); }
+.sch-seg__ride svg { width: 15px; height: 15px; }
+
+/* The textarea takes its kind's colour as its focus ring and a rule down its edge. */
+.sch-compose .sch-field--area { box-shadow: inset 4px 0 0 var(--sch-claude); }
+.sch-compose[data-kind="command"] .sch-field--area { box-shadow: inset 4px 0 0 var(--sch-command); }
+.sch-compose .sch-field--area:focus { box-shadow: inset 4px 0 0 var(--sch-claude), 0 0 0 3px var(--wt-lilac, #A59FE2); }
+.sch-compose[data-kind="command"] .sch-field--area:focus { box-shadow: inset 4px 0 0 var(--sch-command), 0 0 0 3px var(--wt-lilac, #A59FE2); }
+
+/* A row's heading, its glyph in a coloured circle. */
+.sch-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 92px;
+  color: var(--md-sys-color-on-surface);
+}
+.sch-step__dot {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--wt-lilac, #A59FE2);
+  color: var(--sch-ink);
+}
+.sch-step__dot[data-tone="ember"] { background: var(--wt-ember, #F28C4E); }
+.sch-step__dot svg { width: 16px; height: 16px; }
+.sch-step__dot[data-tone="ember"] svg { width: 12px; height: 12px; }
+
+/* ---- the ink pill with a lime rider: Schedule it, New task */
+.sch-go {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  padding: 0 20px 0 6px;
+  border: 0;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-primary, #1E1F24);
+  color: var(--md-sys-color-on-primary, #F2F1F6);
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+  transition: transform 0.2s var(--wt-ease, ease);
+}
+.sch-go:active:not(:disabled) { transform: scale(0.96); }
+.sch-go:disabled { cursor: progress; opacity: 0.8; }
+.sch-go:focus-visible { outline: 3px solid var(--wt-lilac, #A59FE2); outline-offset: 2px; }
+.sch-go__ride {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--wt-lime, #CBDA72);
+  color: var(--wt-on-state, #1E1F24);
+  transition: transform 0.25s var(--wt-ease, ease);
+}
+.sch-go__ride svg { width: 17px; height: 17px; }
+.sch-go:hover:not(:disabled) .sch-go__ride { transform: rotate(-12deg) scale(1.06); }
+.sch-go__spin {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: sch-spin 0.8s linear infinite;
+}
+@keyframes sch-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .sch-tally__chip i, .sch-go__spin { animation: none; }
+  .sch-go, .sch-go__ride { transition: none; }
+}

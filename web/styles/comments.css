@@ -104,6 +104,11 @@
   .ccard__icon:focus-visible { outline: 3px solid var(--wt-lilac, var(--md-sys-color-primary)); outline-offset: 1px; }
 
   /* What was selected, ruled in butter. */
+  /* A draft written on a preview, shown on the conversation: which page it is
+     about, over the passage it quotes. */
+  .ccard__source { display: flex; align-items: center; gap: 6px; margin: -4px 0 8px;
+    color: var(--md-sys-color-on-surface-variant); }
+  .ccard__source svg { width: 14px; height: 14px; }
   .ccard__quote {
     margin: 0 0 10px; padding: 1px 0 1px 12px;
     border-inline-start: 3px solid var(--wt-butter, #F5CD62); border-radius: 2px;

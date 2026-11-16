@@ -1,3 +1,6 @@
+# A template: `python3 server.py --install-service` fills in the @…@ values
+# for the machine it runs on and installs the result as a systemd user unit.
+# Copying this file by hand will not work — the placeholders stay placeholders.
 [Unit]
 Description=claude-watchtower — live panel for local Claude Code sessions
 After=graphical-session.target
@@ -9,11 +12,15 @@ Type=simple
 # install and keeps in ~/.config/claude-watchtower/listen.json, and on every
 # interface, so a phone on the same network can open it with the key it prints —
 # see "From your phone" in the README. Add --local to keep it to this machine.
-ExecStart=/usr/bin/python3 %h/Workspace/Projects/claude-watchtower/server.py
+ExecStart=@PYTHON@ @ROOT@/server.py
+WorkingDirectory=@ROOT@
 Restart=on-failure
 RestartSec=3
-# xdotool needs the X display to raise windows.
-Environment=DISPLAY=:0
+# xdotool needs the X display to raise windows: the one the installing shell had.
+Environment=DISPLAY=@DISPLAY@
+# The PATH of the shell that installed it. systemd starts services with a bare
+# PATH that lacks ~/.local/bin and nvm, where `claude` and `node` usually live.
+Environment=PATH=@PATH@
 
 [Install]
 WantedBy=graphical-session.target

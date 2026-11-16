@@ -202,37 +202,28 @@ if (!picked) {
 
   const list = JSON.parse(await evaluate(`JSON.stringify({
     rows: [...document.querySelectorAll('.gl-list--items .gl-row__num')].map((n) => n.textContent.trim()),
-    chips: [...document.querySelectorAll('.gl-chip')].map((c) => c.textContent),
+    parts: [...document.querySelectorAll('.gl-part')].map((p) => ({
+      key: p.dataset.part, n: p.querySelector('.gl-part__n')?.textContent.trim(),
+      rows: [...p.querySelectorAll('.gl-row__num')].map((n) => n.textContent.trim()) })),
     pipe: document.querySelector('.gl-pipe')?.dataset.tone || "",
     scoped: document.querySelector('.gl-label--scoped')?.textContent || "",
     keys: [...document.querySelectorAll('.gl-label__key')].map((k) => k.textContent),
     rails: [...document.querySelectorAll('.gl-row__rail')].map((r) => r.dataset.priority || ""),
   })`));
 
-  /* Yours is the default, so the item assigned to somebody else is not in the
-     list — but the chip still counts it, which is the whole point of the pair. */
-  check("the tab opens on what is assigned to you", list.rows.join(",") === "#7,#4",
+  /* One list: everything open, with what is assigned to you in its own part
+     at the top, so a project where nothing is yours still shows its work. */
+  check("everything open is listed, yours first", list.rows.join(",") === "#7,#4,#9",
     list.rows.join(","));
-  check("and both chips carry honest counts",
-    list.chips.map(tidy).join(" / ") === "Yours 2 / All open 3", list.chips.map(tidy).join(" / "));
+  check("in two parts that carry honest counts",
+    list.parts.map((p) => `${p.key} ${p.n} ${p.rows.join(",")}`).join(" / ") === "mine 2 #7,#4 / rest 1 #9",
+    JSON.stringify(list.parts));
   check("high priority sorts above low, whatever the dates say",
     list.rails.slice(0, 2).join(",") === "high,low", list.rails.join(","));
   check("a scoped label is drawn as its two halves",
     tidy(list.scoped).replace(/ /g, "") === "typefeature" && list.keys.includes("type"),
     `${tidy(list.scoped)} | ${list.keys}`);
   check("a failed pipeline is drawn as failed", list.pipe === "bad", list.pipe);
-
-  /* The other chip is the same reading looked at differently: no request. */
-  const before = await evaluate(`window.__asked.filter((a) => a.url.startsWith("/api/forge?")).length`);
-  await evaluate(`document.querySelector('[data-scope="all"]').click()`);
-  await sleep(600);
-  const all = JSON.parse(await evaluate(`JSON.stringify({
-    rows: [...document.querySelectorAll('.gl-list--items .gl-row__num')].map((n) => n.textContent.trim()),
-    asked: window.__asked.filter((a) => a.url.startsWith("/api/forge?")).length,
-  })`));
-  check("All open shows the rest without asking GitLab again",
-    all.rows.includes("#9") && all.rows.length === 3 && all.asked === before,
-    `${all.rows} after ${all.asked - before} requests`);
 
   /* The filter runs over the list without taking the field from under the caret. */
   await evaluate(`(() => {

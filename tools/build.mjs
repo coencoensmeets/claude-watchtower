@@ -44,6 +44,8 @@ const STYLE_ORDER = [
   "usage.css",
   "git.css",          // Git and History
   "gitlab.css",       // the GitLab tab, and the work items page
+  "past.css",         // the Sessions tab: the other conversations in this folder
+  "schedules.css",    // the Schedule tab: tasks run later or on repeat
   "controls.css",     // buttons, switches, segmented buttons, the context menu
   "comments.css",     // the rail, its cards, and the quote chip
   "dialog.css",       // scrims, dialogs, the snackbar

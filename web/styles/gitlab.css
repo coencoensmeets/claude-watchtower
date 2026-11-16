@@ -2,10 +2,11 @@
 
    The panel's own system does the colour and the type — the Watchtower rules in
    docs/design/styleguide.html — and a tab that invented its own would read as a
-   different application bolted on. Two of those rules decide most of this file:
-   ember, lilac and lime belong to sessions, so nothing about a work item may be
-   drawn in them; and rose means something went wrong, so not even an urgent
-   item is red. Urgency is drawn in ink, and in how much of it there is. What is
+   different application bolted on. Ember and lilac belong to sessions, so
+   nothing about a work item is drawn in them. Priority is the one exception
+   made on purpose: it is red, yellow and green, as asked for, drawn in the
+   house's rose, butter and lime with ink text, so it reads at a glance as a
+   traffic light and still in the panel's own palette. What is
    designed here is the structure: what a work item looks like when you are
    scanning forty of them, and what it looks like when you are reading one.
 
@@ -14,8 +15,8 @@
    A work item's *priority* is not a label, whatever GitLab thinks. It is the
    order to do things in, so it is lifted out of the row of labels and given the
    only position on the row that cannot be missed — a rail down the leading edge,
-   the one place nothing else competes for, heavier and darker the more it
-   matters. Everything else about the item is drawn quietly beside it.
+   the one place nothing else competes for, red, yellow or green and wider the
+   more it matters. Everything else about the item is drawn quietly beside it.
 
    And a *scoped label* is a field and its value, not a word. `priority::high`
    is drawn as two halves, the way GitLab draws it and the way it actually
@@ -85,44 +86,37 @@
   padding: 4px 4px 12px;
 }
 
-.gl-chips { display: flex; gap: 6px; flex: none; }
-
-/* Two chips carrying their own counts, so *Yours* and *All open* answer "how
-   many" before they are pressed — the count is most of the reason to press.
-   The count is the styleguide's rider: a circle riding inside the pill. The
-   chosen chip is ink, as the chosen filter in the session list is. */
-.gl-chip {
-  display: inline-flex;
+/* The list's two parts: what is assigned to you, then everything else open.
+   A heading with its count riding beside it in a small circle — the count is
+   most of what the heading is for. Yours is first because it is what you came
+   for; the rest is there without a press, because a project where nothing is
+   yours used to open on an empty list. */
+.gl-part + .gl-part { margin-top: var(--md-sys-spacing-6); }
+.gl-part__h {
+  display: flex;
   align-items: center;
   gap: 8px;
-  height: 40px;
-  padding: 0 6px 0 16px;
-  border: 0;
-  border-radius: var(--md-sys-shape-corner-full);
-  background: var(--wt-field);
+  margin: 0 0 var(--md-sys-spacing-2) 4px;
   color: var(--md-sys-color-on-surface);
-  cursor: pointer;
+  font-weight: 650;
 }
-.gl-chip[aria-pressed="true"] {
-  background: var(--md-sys-color-primary);
-  color: var(--md-sys-color-on-primary);
-}
-.gl-chip__count {
+.gl-part__n {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  box-sizing: border-box;
   display: inline-grid;
   place-items: center;
-  min-width: 28px;
-  height: 28px;
-  padding: 0 8px;
-  box-sizing: border-box;
   border-radius: var(--md-sys-shape-corner-full);
-  background: var(--md-sys-color-surface);
-  color: var(--md-sys-color-on-surface);
+  background: var(--wt-field);
+  color: var(--md-sys-color-on-surface-variant);
   font-size: 12px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
-.gl-chip[aria-pressed="true"] .gl-chip__count {
-  background: color-mix(in srgb, var(--md-sys-color-on-primary) 18%, transparent);
+/* Yours: the count in ink, the one emphasis on the page. */
+.gl-part[data-part="mine"] .gl-part__n {
+  background: var(--md-sys-color-primary);
   color: var(--md-sys-color-on-primary);
 }
 
@@ -178,10 +172,10 @@
   outline-offset: -3px;
 }
 
-/* The priority rail: the one piece of this design that is allowed to shout,
-   and it shouts in ink — the colours that would be louder all mean something
-   else here. High is the full ink and the widest; medium is ink at half; low is
-   a hairline you can still see. Unset priorities keep the rail as a hatched
+/* The priority rail: the one piece of this design that is allowed to shout.
+   Red, yellow, green, as a traffic light reads — in the house's own rose,
+   butter and lime, so it is the panel's palette and not a stock one — and
+   wider the more it matters. Unset priorities keep the rail as a hatched
    ghost, so the rows still align and an untriaged item reads as "nothing set"
    rather than as absent. */
 .gl-row__rail {
@@ -197,11 +191,9 @@
 }
 .gl-row__rail[data-priority="critical"],
 .gl-row__rail[data-priority="urgent"],
-.gl-row__rail[data-priority="high"] { background: var(--md-sys-color-on-surface); width: 5px; }
-.gl-row__rail[data-priority="medium"] {
-  background: color-mix(in srgb, var(--md-sys-color-on-surface) 50%, transparent);
-}
-.gl-row__rail[data-priority="low"] { background: var(--md-sys-color-outline-variant); }
+.gl-row__rail[data-priority="high"] { background: var(--wt-rose, #E9839B); width: 5px; }
+.gl-row__rail[data-priority="medium"] { background: var(--wt-butter, #F5CD62); }
+.gl-row__rail[data-priority="low"] { background: var(--wt-lime, #CBDA72); }
 
 .gl-row__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 
@@ -233,6 +225,39 @@
 .gl-meta-fact svg { width: 13px; height: 13px; }
 .gl-meta-fact--quiet { opacity: 0.75; }
 
+/* The comment count, at the end of the row. A fixed column so the counts line
+   up from row to row; a pill one step darker than the field, the figure bold
+   and tabular, so a row with a discussion behind it is seen from across the
+   list. Five or more turns it ink: that is a conversation, not a remark. */
+.gl-talk-slot {
+  flex: none;
+  display: inline-flex;
+  justify-content: flex-end;
+  min-width: 64px;
+}
+.gl-talk {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px 0 10px;
+  box-sizing: border-box;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 9%, var(--md-sys-color-surface));
+  color: var(--md-sys-color-on-surface);
+}
+.gl-talk svg { width: 16px; height: 16px; flex: none; }
+.gl-talk__n {
+  font-size: 14px;
+  font-weight: 750;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.gl-talk--busy {
+  background: var(--md-sys-color-on-surface);
+  color: var(--md-sys-color-surface);
+}
+
 /* ------------------------------------------------------------------ labels */
 
 .gl-label {
@@ -260,25 +285,32 @@
 .gl-label__value { padding: 1px 9px; background: var(--label); color: var(--on-label); }
 
 /* Priority is drawn as itself rather than as a label, since the rail already
-   says it in weight and this says it in words. Ink again, never a state colour:
-   high is the darker, heavier outline, and a draft is dashed, because it is
-   not finished rather than not important. */
+   says it in weight and this says it in words — in the rail's colours: rose
+   for high, butter for medium, lime for low. Text on all three is ink, in both
+   themes, as it is on every house colour. A draft is dashed, because it is not
+   finished rather than not important. */
 .gl-priority {
-  padding: 1px 9px;
+  padding: 1px 10px;
   border-radius: var(--md-sys-shape-corner-full);
-  border: 1.5px solid var(--md-sys-color-outline-variant);
+  background: var(--wt-field, var(--md-sys-color-surface-container));
   color: var(--md-sys-color-on-surface-variant);
+  font-weight: 600;
   text-transform: lowercase;
 }
 .gl-priority[data-priority="critical"],
 .gl-priority[data-priority="urgent"],
 .gl-priority[data-priority="high"] {
-  border-color: var(--md-sys-color-on-surface);
-  color: var(--md-sys-color-on-surface);
+  background: var(--wt-rose, #E9839B);
+  color: var(--wt-on-state, #1E1F24);
   font-weight: 700;
 }
-.gl-priority[data-priority="medium"] { border-color: var(--md-sys-color-outline); color: var(--md-sys-color-on-surface); }
-.gl-priority[data-priority="draft"] { border-style: dashed; border-color: var(--md-sys-color-outline); }
+.gl-priority[data-priority="medium"] { background: var(--wt-butter, #F5CD62); color: var(--wt-on-state, #1E1F24); }
+.gl-priority[data-priority="low"] { background: var(--wt-lime, #CBDA72); color: var(--wt-on-state, #1E1F24); }
+.gl-priority[data-priority="draft"] {
+  padding: 0 8.5px;
+  background: transparent;
+  border: 1.5px dashed var(--md-sys-color-outline);
+}
 
 /* -------------------------------------------------------------- the people */
 
@@ -414,11 +446,9 @@
 }
 .gl-detail__head[data-priority="critical"]::before,
 .gl-detail__head[data-priority="urgent"]::before,
-.gl-detail__head[data-priority="high"]::before { background: var(--md-sys-color-on-surface); }
-.gl-detail__head[data-priority="medium"]::before {
-  background: color-mix(in srgb, var(--md-sys-color-on-surface) 50%, transparent);
-}
-.gl-detail__head[data-priority="low"]::before { background: var(--md-sys-color-outline-variant); }
+.gl-detail__head[data-priority="high"]::before { background: var(--wt-rose, #E9839B); }
+.gl-detail__head[data-priority="medium"]::before { background: var(--wt-butter, #F5CD62); }
+.gl-detail__head[data-priority="low"]::before { background: var(--wt-lime, #CBDA72); }
 
 .gl-detail__title { margin: 0 0 6px; color: var(--md-sys-color-on-surface); text-wrap: balance; }
 .gl-detail__who { margin: 0; color: var(--md-sys-color-on-surface-variant); }
@@ -672,4 +702,7 @@
      has somewhere to put a title instead. */
   .gl-go { padding: 8px; }
   .gl-go__word { display: none; }
+  /* No room for an empty column on a phone: the count takes only what it needs. */
+  .gl-talk-slot { min-width: 0; }
+  .gl-talk { padding: 0 9px 0 8px; }
 }

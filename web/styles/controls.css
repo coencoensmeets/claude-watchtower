@@ -121,6 +121,25 @@
     margin-bottom: var(--md-sys-spacing-6); padding-bottom: var(--md-sys-spacing-6);
     border-bottom: 1px solid var(--md-sys-color-outline-variant); }
   .reach__subtitle { margin: 0 0 var(--md-sys-spacing-3); }
+  /* Which address: one chip per network this computer is on, the one in use
+     ink, with what kind of network it is underneath. */
+  .reach__pick { display: flex; flex-direction: column; gap: 8px; }
+  .reach__pick-l { color: var(--md-sys-color-on-surface-variant); }
+  .reach__choices { display: flex; flex-wrap: wrap; gap: 6px; }
+  .reach__choice {
+    display: inline-flex; flex-direction: column; align-items: flex-start; justify-content: center;
+    min-height: 40px; padding: 4px 16px; border: 0; cursor: pointer;
+    border-radius: var(--md-sys-shape-corner-full);
+    background: var(--wt-field, var(--md-sys-color-surface-container)); color: var(--md-sys-color-on-surface);
+    font: inherit; font-variant-numeric: tabular-nums; line-height: 1.2;
+    transition: background-color .2s var(--wt-ease, ease), color .2s var(--wt-ease, ease), transform .2s var(--wt-ease, ease);
+  }
+  .reach__choice:active:not(:disabled) { transform: scale(.96); }
+  .reach__choice:disabled { cursor: default; }
+  .reach__choice[aria-pressed="true"] { background: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface); }
+  .reach__choice:focus-visible { outline: 3px solid var(--wt-lilac, var(--md-sys-color-primary)); outline-offset: 2px; }
+  .reach__choice-sub { opacity: .72; font-weight: 500; }
+  .reach__choice--quiet { background: transparent; box-shadow: inset 0 0 0 1.5px var(--wt-line, var(--md-sys-color-outline-variant)); }
   .reach__subtitle[hidden] { display: none; }
   .tailnet[hidden] { display: none; }
   .tailnet .reach, .tailnet .reach__line { align-self: stretch; }

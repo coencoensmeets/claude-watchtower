@@ -99,6 +99,23 @@ class Routes(unittest.TestCase):
         self.assertEqual((code, body), (200, b"h1{color:red}"))
         self.assertTrue(headers["Content-Type"].startswith("text/css"))
 
+    def test_a_page_carries_the_commenting_script_and_nothing_else_does(self):
+        """Selecting a passage to comment on needs the page to say what was
+        selected, so HTML gets the script — once, after the page's own markup —
+        and a stylesheet or any other file is served exactly as it is on disk."""
+        _, said = self.post("/api/previews", {"sessionId": SID, "target": str(self.site)})
+        _, _, body = self.get(said["path"])
+        self.assertEqual(body.count(b"<script data-wt-pin>"), 1)
+        self.assertTrue(body.startswith(b'<link rel="stylesheet" href="assets/s.css"><h1>Hi</h1>'))
+        self.assertIn(b"sel-take", body)
+        token = said["preview"]["token"]
+        self.assertEqual(self.get(f"/preview/{token}/assets/s.css")[2], b"h1{color:red}")
+
+    def test_a_fragment_with_no_body_still_gets_the_script(self):
+        self.assertTrue(previews.with_pin_script(b"<p>hi</p>").startswith(b"<p>hi</p><script data-wt-pin>"))
+        out = previews.with_pin_script(b"<BODY>x</BODY>")
+        self.assertTrue(out.endswith(b"</script></BODY>"))
+
     def test_nothing_outside_the_folder_and_no_guessing(self):
         _, said = self.post("/api/previews", {"sessionId": SID, "target": str(self.site / "index.html")})
         token = said["preview"]["token"]

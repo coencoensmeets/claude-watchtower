@@ -17,9 +17,13 @@ so it answers nobody who cannot show the key. It is short on purpose. It has to
 be typed on a phone once, and it is a key to a socket on your own network for
 the length of an afternoon, not a password.
 
-**The address to type.** The panel prints the one a phone will actually reach:
-the address of the interface holding the default route, not `0.0.0.0`, which is
-what it is bound to and what nothing can open.
+**The address to type.** The panel prints the one a phone will actually reach,
+not `0.0.0.0`, which is what it is bound to and what nothing can open. Usually
+that is the interface holding the default route. But a laptop on ethernet and
+Wi-Fi at once has two, and the phone is on only one of them; Docker and VPNs
+add more that no phone can reach. So the panel lists the candidates
+(`address_candidates`) and you can pick one in Settings, or name an address or
+host name outright with CLAUDE_WATCHTOWER_ADDRESS (`chosen_address`).
 
 Standard library only, like the rest of the panel.
 """
@@ -30,7 +34,9 @@ import hashlib
 import json
 import os
 import secrets
+import re
 import socket
+import subprocess
 from pathlib import Path
 
 from watchtower.config import LISTEN_FILE, ROOT
@@ -236,3 +242,115 @@ def lan_address() -> str | None:
 
 def where_kept() -> Path:
     return LISTEN_FILE
+
+
+# ----------------------------------------------------------- which address
+
+ADDRESS_ENV = "CLAUDE_WATCHTOWER_ADDRESS"
+# What an interface's name says about it. Bridges and container networks are
+# this machine talking to itself; a phone never reaches them. Tailscale has its
+# own section in Settings. Other tunnels are VPNs: offered, but last.
+_INNER = re.compile(r"^(docker|br-|veth|virbr|vnet|cni|flannel|podman|lxc|lxd|kube|tailscale)")
+_TUNNEL = re.compile(r"^(tun|tap|wg|ppp|zt|utun|ipsec|vpn|nordlynx|proton)")
+_KIND_ORDER = {"wifi": 0, "wired": 0, "other": 1, "vpn": 2}
+_HOST = re.compile(r"^(?=.{1,253}$)[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$")
+
+
+def _kind(name: str) -> str | None:
+    if name == "lo" or _INNER.match(name):
+        return None
+    if _TUNNEL.match(name):
+        return "vpn"
+    if name.startswith(("wl", "wlan", "wifi", "ath")):
+        return "wifi"
+    if name.startswith(("en", "eth", "em", "eno", "ens", "enp", "enx")):
+        return "wired"
+    return "other"
+
+
+def address_candidates(raw: str | None = None) -> list[dict]:
+    """Every IPv4 address on this machine a phone might reach, best first:
+    `{"address", "iface", "kind"}`, kind being wifi, wired, vpn or other.
+
+    Read from `ip -j addr`. Without it (not Linux, or no iproute2) the one
+    address the routing table gives is the whole list."""
+    if raw is None:
+        try:
+            raw = subprocess.run(["ip", "-j", "-4", "addr", "show", "up"], capture_output=True,
+                                 text=True, timeout=2).stdout
+        except (OSError, subprocess.SubprocessError):
+            raw = ""
+    found = []
+    try:
+        interfaces = json.loads(raw or "[]")
+    except ValueError:
+        interfaces = []
+    for iface in interfaces if isinstance(interfaces, list) else []:
+        name = str(iface.get("ifname") or "")
+        kind = _kind(name)
+        if not kind:
+            continue
+        for info in iface.get("addr_info") or []:
+            address = info.get("local")
+            if info.get("family") in (None, "inet") and address and not address.startswith(("127.", "169.254.")):
+                found.append({"address": address, "iface": name, "kind": kind})
+    if not found:
+        routed = lan_address()
+        return [{"address": routed, "iface": "", "kind": "other"}] if routed else []
+    routed = lan_address()
+    # The route's own pick first among equals: it is where traffic leaves from.
+    found.sort(key=lambda c: (_KIND_ORDER[c["kind"]], c["address"] != routed))
+    return found
+
+
+def valid_host(text: str) -> bool:
+    """An IPv4 address or a host name: what may go in front of the port."""
+    return bool(text) and bool(_HOST.match(text))
+
+
+def saved_address() -> str | None:
+    picked = _read().get("address")
+    return picked if isinstance(picked, str) and valid_host(picked) else None
+
+
+def set_address(address: str | None) -> bool:
+    """Remember the address a phone should use, or forget it (None) and go
+    back to working it out. Kept beside the port and the key."""
+    if address and not valid_host(address):
+        return False
+    entry = _read()
+    if address:
+        entry["address"] = address
+    else:
+        entry.pop("address", None)
+    _write(entry)
+    return True
+
+
+def _is_ip(text: str) -> bool:
+    try:
+        socket.inet_aton(text)
+    except OSError:
+        return False
+    return text.count(".") == 3
+
+
+def chosen_address(candidates: list[dict] | None = None,
+                   env: dict | None = None) -> tuple[str | None, str]:
+    """The address to hand a phone, and where it came from:
+
+      env     CLAUDE_WATCHTOWER_ADDRESS, as given — an address or a host name
+      picked  chosen in Settings; an address only while this machine has it,
+              since a laptop that moved networks no longer does
+      auto    the best candidate: the routing table's pick unless that is a
+              VPN or a container bridge, then Wi-Fi or wired
+    """
+    env = os.environ if env is None else env
+    given = (env.get(ADDRESS_ENV) or "").strip()
+    if given and valid_host(given):
+        return given, "env"
+    candidates = address_candidates() if candidates is None else candidates
+    picked = saved_address()
+    if picked and (not _is_ip(picked) or any(c["address"] == picked for c in candidates)):
+        return picked, "picked"
+    return (candidates[0]["address"], "auto") if candidates else (None, "auto")
