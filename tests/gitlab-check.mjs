@@ -3,7 +3,7 @@
 // Almost everything this covers is a state you cannot arrange on the machine
 // running it: a repository whose remote is not on a GitLab, a host glab has no
 // token for, a work item with no checkout to start a session in. So the panel
-// is served its answers here — /api/gitlab and /api/gitlab/items are stubbed in
+// is served its answers here — /api/forge and /api/forge/items are stubbed in
 // the page before the tab is opened — and what is checked is what the panel
 // draws from them, which is the part that has to be right whatever GitLab says.
 //
@@ -97,15 +97,15 @@ await evaluate(`(() => {
   window.fetch = (input, init) => {
     const url = String(input);
     window.__asked.push({ url, body: init?.body ? String(init.body) : "" });
-    if (url.startsWith("/api/gitlab/items")) {
+    if (url.startsWith("/api/forge/items")) {
       return Promise.resolve(new Response(JSON.stringify(${JSON.stringify(ITEMS)}),
         { headers: { "Content-Type": "application/json" } }));
     }
-    if (url.startsWith("/api/gitlab/start")) {
+    if (url.startsWith("/api/forge/start")) {
       return Promise.resolve(new Response(JSON.stringify({ ok: true, message: "Starting it up…" }),
         { headers: { "Content-Type": "application/json" } }));
     }
-    if (url.startsWith("/api/gitlab?")) {
+    if (url.startsWith("/api/forge?")) {
       return Promise.resolve(new Response(JSON.stringify(window.__gitlab || {}),
         { headers: { "Content-Type": "application/json" } }));
     }
@@ -152,8 +152,8 @@ if (!picked) {
     notGitlab.includes("github.com") && notGitlab.includes("not set up for"),
     notGitlab.slice(0, 80));
 
-  /* A host whose token has expired: the fix is a command, and it has to be on
-     screen rather than in the documentation. */
+  /* A host whose token has expired: the fix is the CLI's login, and it has to
+     be a button on screen rather than a line in the documentation. */
   await evaluate(`(() => {
     window.__gitlab = { ok: false, isRepo: true, isProject: true, reason: "unauthorized",
       project: { host: "git.example.com", path: "group/proj", url: "https://git.example.com/group/proj" },
@@ -163,8 +163,13 @@ if (!picked) {
   await evaluate(`document.querySelector('#gitlabRefresh')?.click()`);
   await sleep(1200);
   const stale = await evaluate(`document.querySelector('.tab-panel').textContent`);
-  check("an expired token is reported with the command that fixes it",
-    stale.includes("glab auth login --hostname git.example.com"), stale.slice(0, 120));
+  const loginButton = await evaluate(`(() => {
+    const b = document.querySelector('[data-act="forge-login"]');
+    return b ? b.dataset.forge + "@" + b.dataset.host : "";
+  })()`);
+  check("an expired token is reported with a button that logs glab in to that host",
+    stale.includes("Log in to git.example.com") && loginButton === "gitlab@git.example.com",
+    `${loginButton} ${stale.slice(0, 120)}`);
 
   /* And the ordinary case, with the content this tab is actually designed
      around: scoped labels, which are a field and a value rather than a word,
@@ -218,12 +223,12 @@ if (!picked) {
   check("a failed pipeline is drawn as failed", list.pipe === "bad", list.pipe);
 
   /* The other chip is the same reading looked at differently: no request. */
-  const before = await evaluate(`window.__asked.filter((a) => a.url.startsWith("/api/gitlab?")).length`);
+  const before = await evaluate(`window.__asked.filter((a) => a.url.startsWith("/api/forge?")).length`);
   await evaluate(`document.querySelector('[data-scope="all"]').click()`);
   await sleep(600);
   const all = JSON.parse(await evaluate(`JSON.stringify({
     rows: [...document.querySelectorAll('.gl-list--items .gl-row__num')].map((n) => n.textContent.trim()),
-    asked: window.__asked.filter((a) => a.url.startsWith("/api/gitlab?")).length,
+    asked: window.__asked.filter((a) => a.url.startsWith("/api/forge?")).length,
   })`));
   check("All open shows the rest without asking GitLab again",
     all.rows.includes("#9") && all.rows.length === 3 && all.asked === before,
@@ -266,9 +271,9 @@ if (!picked) {
     const real = window.fetch;
     window.fetch = (input, init) => {
       const url = String(input);
-      // The query mark matters: /api/gitlab/items starts with /api/gitlab/item,
+      // The query mark matters: /api/forge/items starts with /api/forge/item,
       // and a prefix match here quietly answers the list with one item.
-      if (url.startsWith("/api/gitlab/item?")) {
+      if (url.startsWith("/api/forge/item?")) {
         window.__asked.push({ url, body: "" });
         return Promise.resolve(new Response(JSON.stringify(window.__item),
           { headers: { "Content-Type": "application/json" } }));
@@ -334,7 +339,7 @@ await sleep(2500);
 const pageText = await evaluate(`document.querySelector('.detail-pane').textContent`);
 check("the page opens from the app bar", pageText.includes("Work items"), pageText.slice(0, 60));
 check("and it asked for every item rather than one session's",
-  await evaluate(`window.__asked.some((a) => a.url.startsWith("/api/gitlab/items"))`));
+  await evaluate(`window.__asked.some((a) => a.url.startsWith("/api/forge/items"))`));
 
 const shape = JSON.parse(await evaluate(`JSON.stringify({
   groups: [...document.querySelectorAll('.wi-group__title')].map((g) => g.textContent),
@@ -388,7 +393,7 @@ check("and the field keeps the focus and what was typed in it",
 await evaluate(`document.querySelector('[data-start]').click()`);
 await sleep(900);
 const asked = JSON.parse(await evaluate(
-  `JSON.stringify(window.__asked.filter((a) => a.url.startsWith("/api/gitlab/start")))`));
+  `JSON.stringify(window.__asked.filter((a) => a.url.startsWith("/api/forge/start")))`));
 check("starting a session names the work item, and not a folder",
   asked.length === 1 && asked[0].body.includes('"iid":9') && !asked[0].body.includes("folder"),
   asked[0]?.body || "nothing was sent");

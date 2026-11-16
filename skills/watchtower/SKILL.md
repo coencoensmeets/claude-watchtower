@@ -8,7 +8,7 @@ description: Use when the user mentions their other Claude Code sessions on this
 The user runs several Claude Code sessions at once, and the Watchtower panel
 watches all of them. Its MCP tools (`mcp__watchtower__…`) let you do from here
 what the user would do in the panel. If those tools are not available, say the
-user can turn them on in the panel under **Settings → Claude skills**.
+user can turn them on in the panel under **Settings → Skills**.
 
 ## Start by looking
 

@@ -9,12 +9,16 @@ tab is opened, a session is switched to, or the refresh button is pressed.
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import subprocess
 import threading
 import time
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
+from watchtower.github.cli import configured_hosts as configured_gh_hosts
 from watchtower.gitlab.cli import (FAILED, NOT_LOGGED_IN, NO_CLI, OFFLINE, UNAUTHORIZED,
                                    api, have_glab, run_glab)
 
@@ -211,6 +215,82 @@ def hosts(force: bool = False) -> dict:
 SCP_REMOTE = re.compile(r"^(?:(?P<user>[^@/]+)@)?(?P<host>[^:/]+):(?P<path>.+)$")
 
 
+def glab_config_hosts() -> list[str]:
+    """The hosts glab has an entry for, from its config.yml. No network, no tokens.
+
+    Only the keys one level under `hosts:` are read; the values under them,
+    which is where a token lives, never are.
+    """
+    if os.environ.get("GLAB_CONFIG_DIR"):
+        where = Path(os.environ["GLAB_CONFIG_DIR"])
+    else:
+        where = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "glab-cli"
+    try:
+        lines = (where / "config.yml").read_text(errors="replace").splitlines()
+    except OSError:
+        return []
+    found: list[str] = []
+    inside = False
+    for line in lines:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if not line[:1].isspace():
+            inside = line.rstrip() == "hosts:"
+            continue
+        key = HOST_KEY.match(line) if inside else None
+        if key:
+            found.append(key.group(1).lower())
+    return found
+
+
+HOST_KEY = re.compile(r"^ {2,4}([A-Za-z0-9][A-Za-z0-9.:-]*):\s*$")
+
+
+def forge_hosts() -> set[str]:
+    """Every host either CLI has heard of, plus the two public ones."""
+    return {"github.com", "gitlab.com", *configured_gh_hosts(), *glab_config_hosts()}
+
+
+ALIASES: dict[str, str] = {}
+
+ALIASES_LOCK = threading.Lock()
+
+
+def unaliased(host: str) -> str:
+    """An ssh remote's host as the forge knows it, when it is an ~/.ssh/config alias.
+
+    Two accounts on one GitHub are usually told apart with `Host github-work` /
+    `HostName github.com` in ssh's config, so a remote can say `github-work` and
+    mean github.com. `ssh -G` reads that config the way ssh itself would, without
+    connecting anywhere. Only taken when the host is not already one a CLI
+    knows and the alias leads to one that is: ssh's config also says
+    git.example.com is reached through ssh.example.com, and the forge is still
+    git.example.com.
+    """
+    host = (host or "").lower()
+    known = forge_hosts()
+    if not host or host in known:
+        return host
+    with ALIASES_LOCK:
+        if host in ALIASES:
+            return ALIASES[host]
+    real = host
+    ssh = shutil.which("ssh")
+    if ssh and not host.startswith("-"):
+        try:
+            out = subprocess.run([ssh, "-G", host], capture_output=True, text=True,
+                                 timeout=3, stdin=subprocess.DEVNULL).stdout
+            named = next((line.split(None, 1)[1].strip().lower() for line in out.splitlines()
+                          if line.lower().startswith("hostname ")), "")
+            if named in known:
+                real = named
+        except (OSError, subprocess.SubprocessError, IndexError):
+            pass
+    with ALIASES_LOCK:
+        ALIASES[host] = real
+    return real
+
+
 def split_remote(url: str) -> tuple[str, str]:
     """A remote URL as (host, project path), or ("", "") if it is not one.
 
@@ -225,11 +305,13 @@ def split_remote(url: str) -> tuple[str, str]:
     if "://" in url:
         parts = urlsplit(url)
         host, path = parts.hostname or "", parts.path
+        if parts.scheme == "ssh" and host:
+            host = unaliased(host)
     else:
         found = SCP_REMOTE.match(url)
         if not found:
             return "", ""
-        host, path = found.group("host"), found.group("path")
+        host, path = unaliased(found.group("host")), found.group("path")
     path = path.strip("/")
     if path.endswith(".git"):
         path = path[:-4]

@@ -39,10 +39,10 @@ from watchtower.control import (can_pick_folder, new_session, open_editor, pick_
 from watchtower.git.actions import git_action
 from watchtower.git.message import suggest_message
 from watchtower.git.read import read_diff, read_git
-from watchtower.gitlab.actions import create_issue
+from watchtower.forges import (assigned_items, create_issue, hosts as forge_hosts,
+                               item_detail, login as forge_login, project_of as project_for,
+                               project_items)
 from watchtower.gitlab.match import folder_for, index as repo_index, remember as remember_repos
-from watchtower.gitlab.read import (assigned_items, hosts as gitlab_hosts, item_detail,
-                                    project_for, project_items)
 from watchtower.gitlab.start import start_on
 from watchtower.input import (
     deliver_later, end_process, is_loopback, say_to_session, session_listening,
@@ -951,15 +951,16 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._json(read_diff(root, file_path, (query.get("staged") or [""])[0] == "1"))
 
-    # ------------------------------------------------------------- GitLab
+    # ------------------------------------------------------ GitHub and GitLab
     #
     # Every one of these is a request to somebody else's server, made on your
-    # `glab` credentials rather than on a token the panel keeps. Two of them act:
-    # filing a work item and opening a session on one, both behind the same
-    # loopback gate as everything else that acts.
+    # `gh` or `glab` credentials rather than on a token the panel keeps — see
+    # watchtower.forges for which. Three of them act: filing a work item,
+    # opening a session on one, and opening a terminal to log a CLI in, all
+    # behind the same loopback gate as everything else that acts.
 
-    @route("GET", "/api/gitlab")
-    def _get_gitlab(self) -> None:
+    @route("GET", "/api/forge")
+    def _get_forge(self) -> None:
         query = parse_qs(urlparse(self.path).query)
         session_id = (query.get("sessionId") or [""])[0]
         session = self._session_by_id(session_id)
@@ -975,8 +976,8 @@ class Handler(BaseHTTPRequestHandler):
         answer = project_items(root, session.get("branch") or "", force)
         self._json({**answer, "isRepo": True, "canWrite": config.SAY_ENABLED})
 
-    @route("GET", "/api/gitlab/items")
-    def _get_gitlab_items(self) -> None:
+    @route("GET", "/api/forge/items")
+    def _get_forge_items(self) -> None:
         """Every open work item assigned to you, and where each one lives here.
 
         The folder is worked out on this side rather than in the browser, and it
@@ -997,8 +998,8 @@ class Handler(BaseHTTPRequestHandler):
         self._json({**answer, "items": items, "canWrite": config.SAY_ENABLED,
                     "canPick": can_pick_folder()})
 
-    @route("GET", "/api/gitlab/item")
-    def _get_gitlab_item(self) -> None:
+    @route("GET", "/api/forge/item")
+    def _get_forge_item(self) -> None:
         """One work item in full, for the tab to open in place.
 
         Named by number against a session, never by project: the project is read
@@ -1012,7 +1013,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         project = project_for(root)
         if not project:
-            self._json({"ok": False, "message": "This repository has no GitLab behind it"}, 404)
+            self._json({"ok": False, "message": "This repository has no GitHub or GitLab behind it"}, 404)
             return
         try:
             iid = int((query.get("iid") or ["0"])[0])
@@ -1025,13 +1026,27 @@ class Handler(BaseHTTPRequestHandler):
                              (query.get("force") or [""])[0] == "1")
         self._json(answer, 200 if answer.get("ok") else 502)
 
-    @route("GET", "/api/gitlab/hosts")
-    def _get_gitlab_hosts(self) -> None:
+    @route("GET", "/api/forge/hosts")
+    def _get_forge_hosts(self) -> None:
         query = parse_qs(urlparse(self.path).query)
-        self._json(gitlab_hosts((query.get("force") or [""])[0] == "1"))
+        self._json({**forge_hosts((query.get("force") or [""])[0] == "1"),
+                    "canLogin": config.SAY_ENABLED and is_loopback(self.client_address[0])})
 
-    @route("POST", "/api/gitlab/issue")
-    def _post_gitlab_issue(self, payload: dict, session_id: str) -> None:
+    @route("POST", "/api/forge/login")
+    def _post_forge_login(self, payload: dict, session_id: str) -> None:
+        """Open a terminal running `gh auth login` or `glab auth login` for a host.
+
+        A window on this desktop, so only this computer may ask for one. The host
+        is cut down to a bare host name before it goes anywhere near a command.
+        """
+        if not config.SAY_ENABLED or not is_loopback(self.client_address[0]):
+            self._json({"ok": False, "message": "Only this computer can do that"}, 403)
+            return
+        ok, message, status = forge_login(str(payload.get("forge") or ""), payload.get("host"))
+        self._json({"ok": ok, "message": message}, status)
+
+    @route("POST", "/api/forge/issue")
+    def _post_forge_issue(self, payload: dict, session_id: str) -> None:
         if not config.SAY_ENABLED:
             self._json({"ok": False, "message": "Filing a work item is off — this panel is "
                                                 "serving read-only"}, 403)
@@ -1048,8 +1063,8 @@ class Handler(BaseHTTPRequestHandler):
         ok, message, status, item = create_issue(project, payload)
         self._json({"ok": ok, "message": message, "item": item}, status)
 
-    @route("POST", "/api/gitlab/start")
-    def _post_gitlab_start(self, payload: dict, session_id: str) -> None:
+    @route("POST", "/api/forge/start")
+    def _post_forge_start(self, payload: dict, session_id: str) -> None:
         """Open a terminal on a work item, in the checkout that work item is for.
 
         The folder is not in the request. It is either the one the matcher found

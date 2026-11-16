@@ -124,7 +124,7 @@ The same panel on your phone. Scan the code in Settings on the same wifi, or rea
 
 ### Let Claude drive it
 
-Watchtower is also an MCP server. Switch on **Watchtower tools** and any session can list the others, read what they said, message them, start new ones or stop a turn. That makes one Claude a coordinator for the rest. **Settings → Claude skills** also installs a house style, a preview skill and a research method for every session on the machine.
+Watchtower is also an MCP server. Switch on **Watchtower tools** and any session can list the others, read what they said, message them, start new ones or stop a turn. That makes one Claude a coordinator for the rest. **Settings → Skills** also installs a house style, a preview skill and a research method for every session on the machine.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/readme/skills-dark.png">
@@ -200,7 +200,7 @@ Everything below is the full reference: how each part works, and why it works th
 | [Commenting on a passage](#commenting-on-a-passage) | Select what it said, and say what you think of it |
 | [Permission mode](#permission-mode) | How much rope a session has, when it was true, and why it is read-only |
 | [Git and History](#git-and-history) | Staging, committing and pushing in the editor's own Source Control layout, and a commit graph drawn from real ancestry |
-| [GitLab and work items](#gitlab-and-work-items) | What is assigned to you, across every GitLab, and a session started in the right folder already knowing the item |
+| [GitHub, GitLab and work items](#github-gitlab-and-work-items) | What is assigned to you, across every GitHub and GitLab, and a session started in the right folder already knowing the item |
 | [Usage and cost](#usage-and-cost) | What a session has spent in tokens, and what that comes to at list price |
 | [How much of your plan has gone](#how-much-of-your-plan-has-gone) | The subscription's session and weekly limits, in the app bar |
 | [Updating the panel](#updating-the-panel) | The release tags on its own repository, the one button that moves to the newest, and what it warns you it will stop |
@@ -208,7 +208,7 @@ Everything below is the full reference: how each part works, and why it works th
 | [Focusing a window](#focusing-a-window) | Matching by pid, identifying over the pty, pairing by hand |
 | [Ending a session](#ending-a-session) | SIGTERM, force quit, and the stale-pid check |
 | [Keeping a session](#keeping-a-session-after-it-closes) | Rows that outlive their process, and resuming them |
-| [Letting Claude drive the panel](#letting-claude-drive-the-panel) | The MCP server, Settings → Claude skills that installs it, its tools, and what it will not do |
+| [Letting Claude drive the panel](#letting-claude-drive-the-panel) | The MCP server, Settings → Skills that installs it, its tools, and what it will not do |
 | [Design](#design) | The Watchtower look: state colours, Urbanist, shapes and motion |
 | [Options](#options) | Flags, URL overrides, fixture sessions |
 | [Keeping it running](#keeping-it-running) | The bundled systemd user unit |
@@ -623,11 +623,11 @@ Each row reads name first, then the folder it sits in, then one letter for what 
 
 **The panel does not choose for you.** A pull that cannot fast-forward, a merge, a rebase, a force-push without a lease: none of them happen here. `pull --ff-only` refuses and says the branch has diverged, because deciding between a merge and a rebase under a session that is editing the same tree belongs to whoever can see the conflict. Discarding is the one action that cannot be undone with git, so it is the one action that asks first — and it says *delete* rather than *discard* for a file that was never committed, because that is what happens to it.
 
-## GitLab and work items
+## GitHub, GitLab and work items
 
-The panel shows what your sessions are doing. It could not tell you what you are *supposed* to be doing — that lives in GitLab, and the trip from "an issue is assigned to me" to "a session is running in the right folder knowing what the issue says" was entirely by hand: find the item, find the checkout, open a terminal, paste the description in.
+The panel shows what your sessions are doing. It could not tell you what you are *supposed* to be doing — that lives in GitHub or GitLab, and the trip from "an issue is assigned to me" to "a session is running in the right folder knowing what the issue says" was entirely by hand: find the item, find the checkout, open a terminal, paste the description in.
 
-**The work items icon in the app bar, beside Settings, is that trip.** It opens every open item assigned to you, on every GitLab this machine is logged in to — and it is a launcher rather than a report. The whole row is the press: it opens a terminal running `claude` in that project's folder, with the item as the first thing it reads — the title, the link, the labels, the milestone, the description and the last few comments. The briefing is written as a briefing rather than as an order, ending by asking the session to get its bearings and say what it thinks the work is, because a prompt ending in *now implement this* gets an implementation of the first paragraph before anybody has read the code.
+**The work items icon in the app bar, beside Settings, is that trip.** It opens every open item assigned to you, on every GitHub and GitLab this machine is logged in to — and it is a launcher rather than a report. The whole row is the press: it opens a terminal running `claude` in that project's folder, with the item as the first thing it reads — the title, the link, the labels, the milestone, the description and the last few comments. The briefing is written as a briefing rather than as an order, ending by asking the session to get its bearings and say what it thinks the work is, because a prompt ending in *now implement this* gets an implementation of the first paragraph before anybody has read the code.
 
 Items are grouped by project, because the project is the folder and the folder is what makes the press work: it is stated in each group's header rather than repeated on every row. Groups are ordered by their most urgent item, so the thing to do next is at the top of the page, and a project with no checkout on this machine sorts last however urgent it is — it cannot be started on without answering one more question first. Rows are drawn exactly as the GitLab tab draws them, priority rail and scoped labels and all, because they are the same objects seen from two places.
 
@@ -635,19 +635,21 @@ A project with no checkout here says so rather than offering a button that canno
 
 **Matching an item to a folder is done here, not there.** Nothing on GitLab knows where your checkout is, so the panel keeps its own index, keyed by the remote each checkout points at and built from the sessions in the list — a folder with a session in it is certainly one you work in — plus the folders it has been shown before. `CLAUDE_WATCHTOWER_PROJECT_DIRS` widens it if you want: a colon-separated list of folders, each scanned one level down. It is empty by default, because walking a home directory is not something to do because a page was opened.
 
-**The GitLab tab** is the same thing for the session you are looking at, and it goes two deep.
+**The GitHub or GitLab tab** is the same thing for the session you are looking at, and it goes two deep. It is named for the server the checkout's remote is on, which is read from `.git/config` without a request — github.com or any host `gh` has an entry for is a GitHub, anything else a GitLab — and a remote spelt with an `~/.ssh/config` alias (`git@github-work:me/thing`, with `HostName github.com`) is followed to the host it stands for.
 
-The list is the project's open work items: **Yours** and **All open** as two chips carrying their own counts, a filter, the merge requests from the branch this session is on, and whether that branch's last pipeline passed. Both chips are the same reading looked at two ways — the project is fetched once — so switching between them costs nothing and the counts are always honest.
+The list is the project's open work items: **Yours** and **All open** as two chips carrying their own counts, a filter, the merge requests (on GitHub, pull requests) from the branch this session is on, and whether that branch's last pipeline or workflow run passed. Both chips are the same reading looked at two ways — the project is fetched once — so switching between them costs nothing and the counts are always honest.
 
-Two things about a work item are drawn as what they are rather than as labels. **Priority** is an order to work in, so it is lifted out of the labels into a rail down the leading edge of the row and becomes the sort: highest first, untriaged last, most recently touched within each band. The rail is drawn in ink — the heavier and darker, the more it matters — rather than in a colour, because here colour means a session's state and rose means something failed. And a **scoped label** — `priority::high`, `type::feature` — is a field and its value, so it is drawn as two halves in the colour the project gave it, the way GitLab draws it. Six labels on a row stay scannable by key instead of becoming a hedge of identical pills. Assignees appear as initials, never avatars: an avatar is an image on somebody else's server, and a list of forty would have your browser fetch forty pictures from a GitLab.
+Two things about a work item are drawn as what they are rather than as labels. **Priority** is an order to work in, so it is lifted out of the labels into a rail down the leading edge of the row and becomes the sort: highest first, untriaged last, most recently touched within each band. The rail is drawn in ink — the heavier and darker, the more it matters — rather than in a colour, because here colour means a session's state and rose means something failed. GitHub has no scoped labels, so `priority: high` and `priority/high` count as the same field there. And a **scoped label** — `priority::high`, `type::feature` — is a field and its value, so it is drawn as two halves in the colour the project gave it, the way GitLab draws it. Six labels on a row stay scannable by key instead of becoming a hedge of identical pills. Assignees appear as initials, never avatars: an avatar is an image on somebody else's server, and a list of forty would have your browser fetch forty pictures from a GitLab.
 
 **Opening an item stands it in front of the list**, the way a subagent's conversation stands in front of a session's, because the point of reading it here is that the session working on it is one tab away. The description and the comments are rendered as markdown — tables, code blocks and all — and three actions sit under the title: **Start a session on this**, which is the same briefed terminal the work items page opens; **Branch for it**, which proposes the branch GitLab itself would name (`6-clean-up-the-repo`) in a box you can edit before it runs; and a copy of its reference. Escape comes back to the list.
 
 **New work item** opens a compose card above the list rather than a dialog, so what you are writing sits over the list it is about. It offers the project's own labels, drawn exactly as they will appear on the item once it is filed.
 
-**The panel holds no GitLab credentials.** Everything here shells out to [`glab`](https://gitlab.com/gitlab-org/cli), the GitLab CLI, which already holds your tokens, already knows which hosts you have, and already refreshes them. So there is nothing to configure in the panel, nothing to store, and nothing that outlives the access you meant to give: log out of `glab` and the panel is out too. **Settings → Sessions → GitLab** says which hosts it can read and, for one it cannot, the `glab auth login --hostname …` line that fixes it. Whether a host can be read is settled by asking that host — one call to `/user` — rather than by reading `glab auth status`, which is wrong in both directions: it prints `! Invalid token provided` for any token it cannot fetch the metadata of, including tokens that are scoped for the API and work perfectly, and it has nothing to say about one revoked a minute ago. The only line taken at its word is *No token provided*, because then there is nothing to try.
+**The panel holds no credentials.** There is no universal API for issues — GitHub and GitLab are different servers with different endpoints — so the panel speaks to each through its own command-line tool: [`gh`](https://cli.github.com) for GitHub and [`glab`](https://gitlab.com/gitlab-org/cli) for GitLab. Each already holds your tokens, knows which hosts you have and refreshes them, so there is nothing stored in the panel and nothing that outlives the access you meant to give: log a tool out and the panel is out too. Install whichever you use; one missing is not an error.
 
-Reading is all it does unless the panel is bound to loopback. Filing a work item and starting a session both change something, so both sit behind the same gate as [sending a message](#sending-a-message); served to the network or started with `--no-send`, they are not offered and the endpoints answer 403. No endpoint here takes a URL, a host or a project from the browser: a request names a session, and the project is read out of that checkout's own remote.
+**Settings → Work items** lists every host either tool knows — github.com always, plus any GitHub Enterprise in `gh`'s config and every GitLab in `glab`'s — with who you are on each. A host you are not logged in to has a **Log in** button, which opens a terminal running that tool's own `auth login --hostname …`; the page keeps asking until the host answers, so you come back to it already logged in. **Another server** does the same for a GitHub Enterprise or a self-hosted GitLab neither tool has heard of yet. From another device the buttons are replaced by the command to copy, since only this computer can open a window on itself. Whether a host can be read is settled by asking that host — one call to `/user` — rather than by reading `glab auth status`, which is wrong in both directions: it prints `! Invalid token provided` for any token it cannot fetch the metadata of, including tokens that are scoped for the API and work perfectly, and it has nothing to say about one revoked a minute ago. The only line taken at its word is *No token provided*, because then there is nothing to try.
+
+Reading is all it does unless the panel is bound to loopback. Filing a work item, starting a session and opening a login terminal all change something, so all three sit behind the same gate as [sending a message](#sending-a-message); served to the network or started with `--no-send`, they are not offered and the endpoints answer 403. No endpoint here takes a URL, a host or a project from the browser: a request names a session, and the project is read out of that checkout's own remote.
 
 ## Usage and cost
 
@@ -967,13 +969,13 @@ The turn is launched and let go of: the panel does not sit holding it. What come
 
 ## Letting Claude drive the panel
 
-The panel is also an MCP server, so a Claude session can do what you do here: see every session on the machine, read what one has been saying, send it a message, start a new one, stop a turn, answer a question, and so on. Turn on **Watchtower tools** in **Settings → Claude skills** and the panel registers it with Claude Code for you, user-wide; turning it off removes it. By hand it is:
+The panel is also an MCP server, so a Claude session can do what you do here: see every session on the machine, read what one has been saying, send it a message, start a new one, stop a turn, answer a question, and so on. Turn on **Watchtower tools** in **Settings → Skills** and the panel registers it with Claude Code for you, user-wide; turning it off removes it. By hand it is:
 
 ```bash
 claude mcp add --scope user watchtower -- python3 /path/to/claude-watchtower/mcp_server.py
 ```
 
-### Settings → Claude skills
+### Settings → Skills
 
 Recommended add-ons for Claude Code itself, each behind a switch. Nothing is installed until you turn it on.
 
@@ -1136,7 +1138,7 @@ The unit names no port and no host, so the service is on this install's remember
 |---|---|
 | `server.py` | The way in: arguments, the frontend build, the polling thread, serve |
 | `mcp_server.py` | The panel as an MCP server for Claude Code; the work is in `watchtower/mcp.py` |
-| `skills/` | Claude Code skills the panel can install from **Settings → Claude skills** (`watchtower/skills.py`) |
+| `skills/` | Claude Code skills the panel can install from **Settings → Skills** (`watchtower/skills.py`) |
 | `watchtower/` | The panel itself — `config`, `proc`, `sessions`, `rows`, `store`, `transcript`, `usage`, `catalog`, `windows`, `control`, `input`, `owned`, `paste`, `plan`, `update`, `mcp`, `previews`, `route`, `skills`, `git/`, `http` |
 | `watchtower/build.py` | Finds Node and runs the frontend build when `web/` has changed |
 | `tools/build.mjs` | The build: strips types, concatenates stylesheets, copies assets |
@@ -1273,7 +1275,7 @@ PANEL_URL=http://127.0.0.1:8787 node tests/ui-check.mjs
 | `POST /api/reach/tls` | Ask `tailscale cert` for the tailnet name's certificate again now and serve it — after switching HTTPS on in the admin console. Loopback only |
 | `POST /api/reach/tailnet` | `{"on": true\|false}` — `tailscale up` or `tailscale down`, answering with the new state and, when signing in is needed, the link. Loopback only, whatever the key |
 | `POST /api/reach/firewall` | Ask Windows to let the network in to the panel's port, for a panel running in WSL: raises a UAC prompt on the desktop, and answers with the firewall's new state. Behind the same gate as the update button, and only when the panel listens beyond loopback |
-| `GET /api/skills` | The recommended Claude Code add-ons in **Settings → Claude skills**, each with whether it is installed — read from `~/.claude.json` and `~/.claude/skills/`, not remembered — and why it cannot be switched when it cannot |
+| `GET /api/skills` | The recommended Claude Code add-ons in **Settings → Skills**, each with whether it is installed — read from `~/.claude.json` and `~/.claude/skills/`, not remembered — and why it cannot be switched when it cannot |
 | `POST /api/skills` | `{"id": "mcp"\|"mcp-approvals"\|"skill"\|"preview-skill"\|"style-skill"\|"research-skill", "on": true\|false}` — install or remove one, answering with the list as it now is. Changes Claude Code's configuration for every session, so this computer only, whatever the key |
 | `POST /api/previews` | `{"sessionId", "target", "title"?}` — a session showing you something it made, from the `show_preview` MCP tool: a path to an HTML page or a folder with an `index.html` (inside your home, the session's folder or the temporary folder, and not one of those folders itself), or an http(s) address. It lands in that session's **Preview** tab; showing the same thing again moves it to the top and keeps its address |
 | `POST /api/previews/remove` | `{"sessionId", "id"}` — take one off the Preview tab. The page itself is left alone |
@@ -1288,12 +1290,13 @@ PANEL_URL=http://127.0.0.1:8787 node tests/ui-check.mjs
 | `GET /api/git` | `?sessionId=…` — that session's repository: branch, upstream drift, changed files, recent commits with their parents, and the branches it could switch to |
 | `GET /api/git/diff` | `?sessionId=…&path=…&staged=1` — one changed file's unified diff, one side at a time |
 | `POST /api/git` | `{"sessionId": "...", "action": "...", …}` — one source-control action: `stage`, `unstage`, `discard` (each with `paths`), `stageAll`, `unstageAll`, `discardAll`, `commit` (`message`, `amend`, `stageAll`), `push` (`force` uses a lease), `pull`, `fetch`, `sync`, `stash`, `stashPop`, `switch` (`branch`, `create`, `from`), `suggestMessage` (answers with `text`, the message it wrote); loopback only |
-| `GET /api/gitlab` | `?sessionId=…` — the GitLab project behind that session's repository: the work items assigned to you in it, the merge requests from its branch, and that branch's last pipeline. `?force=1` asks GitLab again rather than answering from the held reading |
-| `GET /api/gitlab/items` | Every open work item assigned to you, on every GitLab `glab` is logged in to, each carrying the folder on this machine the panel matched it to. `?force=1` asks again |
-| `GET /api/gitlab/item` | `?sessionId=…&iid=4` — one work item in full: its description, its labels and the last few comments, for the tab to open in place. Named by number against a session; the project comes from that session's own checkout |
-| `GET /api/gitlab/hosts` | Which GitLabs `glab` knows about and which of them its credentials actually work for |
-| `POST /api/gitlab/issue` | `{"sessionId": "...", "title": "...", "description": "...", "labels": […], "assignToMe": true}` — file a work item on that session's project; loopback only |
-| `POST /api/gitlab/start` | `{"host": "...", "project": "...", "iid": 4, "pick": false}` — open a terminal running `claude` in that work item's checkout, briefed with the item. `pick` opens the desktop's folder chooser first, for a project with no checkout here. The folder is never taken from the request; loopback only |
+| `GET /api/forge` | `?sessionId=…` — the GitHub or GitLab project behind that session's repository: its open work items (`mine` marks yours), the merge or pull requests from its branch, and that branch's last pipeline or workflow run. `forge` says which it was. `?force=1` asks again rather than answering from the held reading |
+| `GET /api/forge/items` | Every open work item assigned to you, on every GitHub `gh` and every GitLab `glab` is logged in to, each carrying its `forge` and the folder on this machine the panel matched it to. `?force=1` asks again |
+| `GET /api/forge/item` | `?sessionId=…&iid=4` — one work item in full: its description, its labels and the last few comments, for the tab to open in place. Named by number against a session; the project comes from that session's own checkout |
+| `GET /api/forge/hosts` | `{github: {...}, gitlab: {...}}` — for each CLI, whether it is installed, the hosts it knows about and which of them its credentials actually work for; `canLogin` says whether this browser may press *Log in* |
+| `POST /api/forge/login` | `{"forge": "github" \| "gitlab", "host": "..."}` — open a terminal running `gh auth login` or `glab auth login` for that host. The token lands in the CLI's own store, not the panel's; loopback only |
+| `POST /api/forge/issue` | `{"sessionId": "...", "title": "...", "description": "...", "labels": […], "assignToMe": true}` — file a work item on that session's project, on GitHub or GitLab; loopback only |
+| `POST /api/forge/start` | `{"host": "...", "project": "...", "iid": 4, "pick": false}` — open a terminal running `claude` in that work item's checkout, briefed with the item. `pick` opens the desktop's folder chooser first, for a project with no checkout here. The folder is never taken from the request; loopback only |
 | `POST /api/focus` | `{"sessionId": "..."}` — raise that session's window |
 | `POST /api/identify` | Ask a session's terminal which window it is showing, and remember it |
 | `POST /api/pair` | Click a window to bind it to a session |

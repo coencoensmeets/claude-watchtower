@@ -26,6 +26,7 @@ from watchtower.config import (
 )
 from watchtower.control import can_pick_folder
 from watchtower.errands import is_own_errand
+from watchtower.forges import forge_of_repo
 from watchtower.git.read import git_branch, git_root
 from watchtower.owned import OWNED_ASK, OWNED_BUSY, owned_running, owned_moved, owned_state
 from watchtower.proc import (
@@ -623,6 +624,9 @@ class SessionStore:
                 # repository whose HEAD would not read", which a null branch
                 # cannot. Everything git runs against this root, not the cwd.
                 "repoRoot": self._repo_root(cwd) if cwd else None,
+                # GitHub or GitLab, read from the remote with no request, so the
+                # tab can be named for the right one before it is opened.
+                "forge": forge_of_repo(self._repo_root(cwd)) if cwd else None,
                 "activity": self._activity(session_id, cwd) if cwd else None,
                 # How many subagents it has going. A session that has fanned out
                 # six agents reads as one session doing one thing without this.
@@ -773,6 +777,9 @@ class SessionStore:
                 "statusSince": entry.get("lastSeen") or now,
                 "branch": self._branch(cwd) if cwd else None,
                 "repoRoot": self._repo_root(cwd) if cwd else None,
+                # GitHub or GitLab, read from the remote with no request, so the
+                # tab can be named for the right one before it is opened.
+                "forge": forge_of_repo(self._repo_root(cwd)) if cwd else None,
                 "activity": self._activity(session_id, cwd) if cwd else None,
                 # A stopped session's agents are stopped with it, and the count
                 # reads as whatever its files say, which is the truth.

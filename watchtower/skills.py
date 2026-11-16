@@ -1,6 +1,6 @@
 """Recommended Claude Code add-ons the panel can install for you.
 
-**Settings → Claude skills** lists them with a switch each. On installs, off
+**Settings → Skills** lists them with a switch each. On installs, off
 removes, and nothing is installed until someone turns it on. Six so far:
 
   - the panel's own MCP server (see watchtower/mcp.py), registered user-wide

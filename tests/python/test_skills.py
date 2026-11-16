@@ -1,4 +1,4 @@
-"""Settings → Claude skills: reading what is installed, and installing it.
+"""Settings → Skills: reading what is installed, and installing it.
 
 Claude Code's files are moved into a temporary folder and the `claude` CLI is
 a fake that records what it was asked, so nothing here touches the real

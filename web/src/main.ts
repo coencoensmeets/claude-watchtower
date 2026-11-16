@@ -33,7 +33,7 @@ import { changeBusy, chatPanel, hideChange, showChange } from "./views/change.js
 import { agentBusy, hideAgent, refreshAgent, showAgent } from "./views/subagent.js";
 import { IDENTIFY_NOTE, commentIsOpen, markCommented, paintTrace, questionCard, renderRail, startRename, wireTrace } from "./views/chat.js";
 import { closeDiff, fetchGit, gitPanel, gitStamp, historyPanel, wireGit } from "./views/git.js";
-import { closeItem, fetchGitlab, gitlabPanel, gitlabStamp, wireGitlab } from "./views/gitlab.js";
+import { closeItem, fetchGitlab, forgeName, gitlabPanel, gitlabStamp, wireGitlab } from "./views/gitlab.js";
 import { openItems, paintItems } from "./views/items.js";
 import { askPicksFor, compactPct, composer, detailHeader, ownedFor, pickMode, pickTmuxMode, runsHere, sendAskAnswer } from "./views/owned.js";
 import { fetchPlan, openPlan, planScrim } from "./views/plan.js";
@@ -1744,7 +1744,7 @@ function renderDetail(force = false) {
       ${session.repoRoot ? `
         <button class="tab md-state md-label-large" role="tab" data-tab="git" aria-selected="${app.tab === "git"}">${ICON.branch}Git</button>
         <button class="tab md-state md-label-large" role="tab" data-tab="history" aria-selected="${app.tab === "history"}">${ICON.history}History</button>
-        <button class="tab md-state md-label-large" role="tab" data-tab="gitlab" aria-selected="${app.tab === "gitlab"}">${ICON.ticket}GitLab</button>` : ""}
+        <button class="tab md-state md-label-large" role="tab" data-tab="gitlab" aria-selected="${app.tab === "gitlab"}">${ICON.ticket}${forgeName(session.forge)}</button>` : ""}
       <button class="tab md-state md-label-large" role="tab" data-tab="usage" aria-selected="${app.tab === "usage"}">${ICON.coin}Usage</button>
       <button class="tab md-state md-label-large" role="tab" data-tab="about" aria-selected="${app.tab === "about"}">${ICON.info}Details</button>
     </div>

@@ -799,10 +799,10 @@ check("the page has a theme switch, no palette picker, and a switch per kind", a
 
 /* Tabs rather than one long page: one panel shows at a time, the strip says
    which, and the choice survives leaving and coming back. */
-check("settings is split into five tabs, one panel showing", await evaluate(`(() => {
+check("settings is split into eight tabs, one panel showing", await evaluate(`(() => {
   const tabs = document.querySelectorAll('#detailPane [data-settings-tab]');
   const shown = [...document.querySelectorAll('#detailPane [id^="settingsPanel-"]')].filter(p => !p.hidden);
-  return tabs.length === 5 && shown.length === 1; })()`));
+  return tabs.length === 8 && shown.length === 1; })()`));
 await evaluate(`document.querySelector('#detailPane [data-settings-tab="phone"]').click()`);
 await sleep(200);
 check("picking a tab shows its panel and marks it selected", await evaluate(

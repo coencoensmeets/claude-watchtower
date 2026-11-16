@@ -28,6 +28,31 @@ import { showSnackbar } from "../ui/snackbar.js";
    an age and says "690mo ago" on an item touched this morning. */
 export const since = (iso) => ago((Date.now() - Date.parse(iso)) / 1000);
 
+/* Which server a repository is on, by name. The tab is named for it before it
+   has asked anything — the session row carries the forge, read from the
+   remote with no request — and "Issues" only for a repository with no remote. */
+export const forgeName = (forge) =>
+  forge === "github" ? "GitHub" : forge === "gitlab" ? "GitLab" : "Issues";
+
+/* Open a terminal running `gh auth login` or `glab auth login` for a host. The
+   login is the CLI's own, typed into its own window; the panel still keeps no
+   token. Shared with Settings, which offers the same button. */
+export async function forgeLogin(forge: string, host: string) {
+  try {
+    const response = await fetch("/api/forge/login", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ forge, host }),
+    });
+    const data = await response.json().catch(() => ({}));
+    showSnackbar(data.message || (data.ok ? "Opening a terminal…" : "That did not work"),
+                 data.ok ? 6000 : 8000);
+    return Boolean(data.ok);
+  } catch (error) {
+    showSnackbar("Could not reach the server");
+    return false;
+  }
+}
+
 /* Slower than the Git tab's twenty seconds, and for a different reason. That
    one is cheap and local; this is a request to a server across the internet,
    for a list that changes when a person assigns you something. The server holds
@@ -53,7 +78,7 @@ export async function fetchGitlab(force = false) {
   polledAt = Date.now();
   try {
     const query = new URLSearchParams({ sessionId: id, ...(force ? { force: "1" } : {}) });
-    const response = await fetch(`/api/gitlab?${query}`, { cache: "no-store" });
+    const response = await fetch(`/api/forge?${query}`, { cache: "no-store" });
     if (!response.ok && response.status !== 404) throw new Error(String(response.status));
     const data = await response.json();
     if (app.selectedId !== id) return;          // selection moved on while fetching
@@ -75,7 +100,7 @@ async function fetchItem(iid, force = false) {
   try {
     const query = new URLSearchParams({ sessionId: id, iid: String(iid),
                                         ...(force ? { force: "1" } : {}) });
-    const response = await fetch(`/api/gitlab/item?${query}`, { cache: "no-store" });
+    const response = await fetch(`/api/forge/item?${query}`, { cache: "no-store" });
     const data = await response.json().catch(() => ({}));
     if (app.selectedId !== id || forge.shown !== iid) return;
     forge.detail = data.ok ? data.item : null;
@@ -137,11 +162,18 @@ export const asLabels = (item) => (item?.labels || []).map((label) =>
   typeof label === "string" ? { name: label, colour: "", onColour: "" } : label)
   .filter((label) => label?.name);
 
+/* `priority::high` is GitLab's scoped spelling; a GitHub repository has no
+   scoped labels and writes `priority: high` or `priority/high` instead. All of
+   them are the same field, so all of them are lifted out the same way. */
+const PRIORITY_LABEL = /^priority\s*(?:::|:|\/)\s*(.+)$/i;
+
+export const isPriority = (name: string) => PRIORITY_LABEL.test(name || "");
+
 export const priorityOf = (item) => {
-  const found = asLabels(item).map((l) => l.name)
-    .find((n) => n.toLowerCase().startsWith("priority::"));
-  const rank = found ? PRIORITY.indexOf(found.split("::")[1].toLowerCase()) : -1;
-  return { name: found ? found.split("::")[1] : "", rank: rank === -1 ? PRIORITY.length : rank };
+  const found = asLabels(item).map((l) => l.name).find(isPriority);
+  const value = found ? found.match(PRIORITY_LABEL)[1].trim() : "";
+  const rank = value ? PRIORITY.indexOf(value.toLowerCase()) : -1;
+  return { name: value, rank: rank === -1 ? PRIORITY.length : rank };
 };
 
 export function ordered(items) {
@@ -166,7 +198,7 @@ export function faces(people, me = "") {
 function itemRow(item, me = "") {
   const priority = priorityOf(item);
   const rest = asLabels(item).filter((l) =>
-    !l.name.toLowerCase().startsWith("priority::"));
+    !isPriority(l.name));
   return `
     <li class="gl-row" data-iid="${item.iid}" data-rank="${priority.rank}">
       <button class="gl-row__open md-state" type="button" data-act="open-item" data-iid="${item.iid}">
@@ -194,21 +226,35 @@ function itemRow(item, me = "") {
 
 /* Why there is nothing to show, said in the words of the thing to do about it.
    Each of these is something you can go and fix, and only one is about the
-   panel, so each one names the command or the fact rather than the failure. */
-function gitlabNotice(data) {
-  if (!data) return `<p class="git-empty md-body-medium">Asking GitLab…</p>`;
+   panel. Where the fix is logging a CLI in, the button does it — a terminal
+   opens on the login, and pressing refresh afterwards picks it up. */
+function gitlabNotice(data, session) {
+  const name = forgeName(data?.forge || session.forge);
+  if (!data) return `<p class="git-empty md-body-medium">Asking ${name}…</p>`;
   if (data.ok) return "";
-  const host = escapeHtml(data.project?.host || "");
+  const host = data.project?.host || "";
+  const cli = data.forge === "github" ? "gh" : "glab";
+  const login = host ? `<button class="button button--tonal md-state" type="button"
+      data-act="forge-login" data-forge="${escapeHtml(data.forge || "gitlab")}"
+      data-host="${escapeHtml(host)}">${ICON.terminal}Log in to ${escapeHtml(host)}</button>` : "";
   const fix = {
-    "no-cli": `Install the GitLab CLI — <span class="md-mono">glab</span> — and this tab reads the project with it.`,
-    "not-logged-in": `Run <span class="md-mono">glab auth login --hostname ${host}</span> in a terminal, then ask again.`,
-    unauthorized: `Run <span class="md-mono">glab auth login --hostname ${host}</span> — the token it has was turned down.`,
-    "not-gitlab": `This tab is for repositories hosted on a GitLab. Nothing to fix.`,
+    "no-cli": `Install the ${name} CLI — <span class="md-mono">${cli}</span> — and this tab reads the project with it.`,
+    "not-logged-in": `Log <span class="md-mono">${cli}</span> in to ${escapeHtml(host)}, then ask again.`,
+    unauthorized: `The token <span class="md-mono">${cli}</span> has was turned down — log in again.`,
+    "not-gitlab": `If it is a GitHub Enterprise or a GitLab, log the matching CLI in to it.`,
+    "no-remote": "",
     offline: `It may be behind a VPN that is not up.`,
   }[data.reason] || "";
+  const buttons = data.reason === "not-gitlab" && host
+    ? `<button class="button button--tonal md-state" type="button" data-act="forge-login"
+         data-forge="github" data-host="${escapeHtml(host)}">${ICON.terminal}It is a GitHub</button>
+       <button class="button button--tonal md-state" type="button" data-act="forge-login"
+         data-forge="gitlab" data-host="${escapeHtml(host)}">${ICON.terminal}It is a GitLab</button>`
+    : ["not-logged-in", "unauthorized"].includes(data.reason) ? login : "";
   return `<div class="git-empty md-body-medium">
-    <p>${escapeHtml(data.message || "GitLab did not answer")}</p>
+    <p>${escapeHtml(data.message || `${name} did not answer`)}</p>
     ${fix ? `<p class="fact-note">${fix}</p>` : ""}
+    ${buttons ? `<div class="gl-actions">${buttons}</div>` : ""}
   </div>`;
 }
 
@@ -289,14 +335,14 @@ function detailPanel(data) {
   }
   const priority = priorityOf(item);
   const rest = coloured(asLabels(item), data?.items).filter((l) =>
-    !l.name.toLowerCase().startsWith("priority::"));
+    !isPriority(l.name));
   const notes = item.notes || [];
   return `
     <article class="gl-detail">
       <div class="gl-detail__bar">
         ${back}
         <a class="gl-detail__out md-label-large" href="${escapeHtml(item.webUrl || "#")}"
-           target="_blank" rel="noopener">${ICON.focus}Open in GitLab</a>
+           target="_blank" rel="noopener">${ICON.focus}Open in ${forgeName(item.forge)}</a>
       </div>
 
       <header class="gl-detail__head" data-priority="${escapeHtml(priority.name.toLowerCase())}">
@@ -348,6 +394,8 @@ function detailPanel(data) {
 export function gitlabPanel(session) {
   const data = forge.for === session.sessionId ? forge.data : null;
   const project = data?.project;
+  const name = forgeName(data?.forge || session.forge);
+  const hub = (data?.forge || session.forge) === "github";
 
   const head = project ? `
     <header class="gl-head">
@@ -360,13 +408,13 @@ export function gitlabPanel(session) {
         ${data?.pipeline ? `<a class="gl-pipe md-label-small" data-tone="${
             PIPE_TONE[data.pipeline.status] || "muted"}" target="_blank" rel="noopener"
             href="${escapeHtml(data.pipeline.webUrl || "#")}"
-            title="The last pipeline on this branch">${escapeHtml(data.pipeline.status)}</a>` : ""}
+            title="${hub ? "The last workflow run on this branch" : "The last pipeline on this branch"}">${escapeHtml(data.pipeline.status)}</a>` : ""}
         <button class="scm-icon md-state" type="button" id="gitlabRefresh"
-          title="Ask GitLab again" aria-label="Ask GitLab again">${ICON.refresh}</button>
+          title="Ask ${name} again" aria-label="Ask ${name} again">${ICON.refresh}</button>
       </div>
     </header>` : "";
 
-  const notice = gitlabNotice(data);
+  const notice = gitlabNotice(data, session);
   if (notice) return head + notice;
 
   // One work item, standing in front of the list it came from.
@@ -411,7 +459,7 @@ export function gitlabPanel(session) {
             : "Nothing open in this project."}</p>`}
 
     ${mrs.length ? `<section class="section">
-      <h3 class="section__title md-title-small">Merge requests from this branch</h3>
+      <h3 class="section__title md-title-small">${hub ? "Pull requests" : "Merge requests"} from this branch</h3>
       <ul class="gl-list gl-list--mrs">${mrs.map((mr) => `
         <li class="gl-row gl-row--flat">
           <a class="gl-row__open gl-row__open--link md-state" href="${escapeHtml(mr.webUrl || "#")}"
@@ -419,7 +467,7 @@ export function gitlabPanel(session) {
             <span class="gl-row__rail" aria-hidden="true"></span>
             <span class="gl-row__body">
               <span class="gl-row__head">
-                <span class="gl-row__num md-mono md-label-medium">!${mr.iid}</span>
+                <span class="gl-row__num md-mono md-label-medium">${hub ? "#" : "!"}${mr.iid}</span>
                 <span class="gl-row__title md-body-medium">${escapeHtml(mr.title)}</span>
               </span>
               <span class="gl-row__meta md-label-small">
@@ -436,7 +484,7 @@ export function gitlabPanel(session) {
 
 export async function startOn(host: string, project: string, iid: number, pick = false) {
   try {
-    const response = await fetch("/api/gitlab/start", {
+    const response = await fetch("/api/forge/start", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ host, project, iid, pick }),
     });
@@ -494,7 +542,7 @@ async function fileItem(session) {
   forge.filing = true;
   refreshDetail(true);
   try {
-    const response = await fetch("/api/gitlab/issue", {
+    const response = await fetch("/api/forge/issue", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sessionId: session.sessionId, title,
                              description: forge.draft.body,
@@ -612,6 +660,11 @@ export function wireGitlab(session) {
     await startOn(data.project.host, data.project.path, item.iid);
     forge.acting = false;
     refreshDetail(true);
+  });
+
+  on('[data-act="forge-login"]', "click", (event) => {
+    const button = event.currentTarget as HTMLElement;
+    forgeLogin(button.dataset.forge, button.dataset.host);
   });
 
   on('[data-act="branch-item"]', "click", () => {
