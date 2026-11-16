@@ -10,8 +10,8 @@ context it gets for free.
 from __future__ import annotations
 
 from watchtower.control import new_session
+from watchtower.forges import item_detail
 from watchtower.gitlab.match import folder_for
-from watchtower.gitlab.read import item_detail
 
 
 # The whole brief, however long the item is. A description and eight comments
@@ -30,16 +30,24 @@ def brief(item: dict) -> str:
     there because the description is a copy and the item is the original.
     """
     head = f"# {item.get('reference') or ''} {item.get('title') or ''}".strip()
-    lines = ["I'm picking up this GitLab work item.", head]
+    kind = "GitHub issue" if item.get("forge") == "github" else "GitLab work item"
+    lines = [f"I'm picking up this {kind}.", head]
     facts = []
     if item.get("webUrl"):
         facts.append(item["webUrl"])
-    if item.get("labels"):
-        facts.append("Labels: " + ", ".join(item["labels"]))
+    # A label arrives as {name, colour} from the readers and as a bare name from
+    # older callers; an author as {name, username} or as a name. Both are said
+    # by name — a dict pasted into a prompt is noise, and joining one raised.
+    labels = [str(l.get("name") if isinstance(l, dict) else l) for l in item.get("labels") or []]
+    labels = [l for l in labels if l and l != "None"]
+    if labels:
+        facts.append("Labels: " + ", ".join(labels))
     if item.get("milestone"):
         facts.append(f"Milestone: {item['milestone']}")
-    if item.get("author"):
-        facts.append(f"Raised by {item['author']}")
+    author = item.get("author")
+    author = author.get("name") if isinstance(author, dict) else author
+    if author:
+        facts.append(f"Raised by {author}")
     if facts:
         lines.append("\n".join(facts))
     body = (item.get("description") or "").strip()

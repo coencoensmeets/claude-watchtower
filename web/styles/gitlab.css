@@ -593,6 +593,37 @@
 .gl-row__open[disabled] { cursor: default; }
 .gl-row__open[disabled] .gl-go { opacity: 0.7; }
 
+/* Settings → Work items: one row per host, who you are on it, and the login.
+
+   The dot follows the file's rule — lime, lilac and ember are a session's
+   colours, so a host is drawn in ink: filled when it can be read, hollow when
+   nobody has logged in, and rose only for a token that was refused or a server
+   that did not answer, which is the one case here where something went wrong. */
+.forge-via { margin-left: 6px; color: var(--md-sys-color-on-surface-variant); font-weight: 500; }
+.forge-host {
+  display: flex; align-items: center; gap: 14px;
+  margin-top: 8px; padding: 10px 10px 10px 16px;
+  border-radius: var(--md-sys-shape-corner-large);
+  background: var(--wt-field, var(--md-sys-color-surface-container-high));
+}
+.forge-host__dot {
+  flex: none; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--md-sys-color-on-surface);
+}
+.forge-host[data-state="off"] .forge-host__dot,
+.forge-host[data-state="absent"] .forge-host__dot {
+  background: transparent; box-shadow: inset 0 0 0 2px var(--md-sys-color-outline);
+}
+.forge-host[data-state="trouble"] .forge-host__dot { background: var(--wt-rose, var(--md-sys-color-error)); }
+.forge-host__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.forge-host__text b { font-weight: 600; overflow-wrap: anywhere; }
+.forge-host__text span { color: var(--md-sys-color-on-surface-variant); }
+.forge-host__text span b { color: var(--md-sys-color-on-surface); }
+.forge-host .button { flex: none; }
+.forge-host .reach__line { flex: 1 1 260px; margin: 0; }
+.forge-add { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
+.forge-add .gl-search { flex: 1 1 220px; }
+
 @media (prefers-reduced-motion: reduce) {
   .gl-go { transition: none; }
 }
@@ -632,6 +663,7 @@
 /* ---------------------------------------------------------------- narrow */
 
 @media (max-width: 560px) {
+  .forge-host { flex-wrap: wrap; }
   .gl-bar { flex-wrap: wrap; }
   .gl-search { order: 3; flex-basis: 100%; }
   .gl-row__title { white-space: normal; }

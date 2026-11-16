@@ -244,6 +244,27 @@ def new_session(cwd: str, prompt: str = "") -> tuple[bool, str]:
     return True, "Opening a new session there…"
 
 
+def run_in_terminal(command: list[str], cwd: str, said: str) -> tuple[bool, str]:
+    """Open a terminal running `command` from a shell prompt that stays behind.
+
+    For the commands that want a person at a keyboard — logging a CLI in, which
+    asks questions and opens a browser — and which the panel therefore cannot
+    run down a pipe. `said` is the message for when the window has opened.
+    """
+    argv = terminal_argv(interactive_argv(command), cwd)
+    if not argv:
+        return False, "No terminal found to run it in — set CLAUDE_WATCHTOWER_TERMINAL"
+    try:
+        subprocess.Popen(
+            argv, cwd=cwd, stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+            env=top_level_env(),
+        )
+    except OSError as exc:
+        return False, f"Could not start it: {exc}"
+    return True, said
+
+
 # The editor commands we try, in order: plain VS Code first, then the builds
 # somebody has instead of it. CLAUDE_WATCHTOWER_EDITOR overrides the search —
 # give it the command and any flags, and the folder is appended.

@@ -1,6 +1,6 @@
 /* ==========================================================================
-   The work items page — everything assigned to you, on every GitLab this
-   machine is logged in to, and one press to be working on any of it.
+   The work items page — everything assigned to you, on every GitHub and
+   GitLab this machine is logged in to, and one press to be working on any of it.
 
    This is a launcher, not a report. The moment it exists for is the one before
    there is a session: you have four projects and eighteen things assigned to
@@ -20,21 +20,21 @@ import { app, work } from "../state.js";
 import { detailPane, itemsButton, panes } from "../ui/dom.js";
 import { escapeHtml, shorten } from "../ui/format.js";
 import { ICON } from "../ui/icons.js";
-import { asLabels, labelChip, ordered, priorityOf, since, startOn } from "./gitlab.js";
+import { asLabels, forgeName, isPriority, labelChip, ordered, priorityOf, since, startOn } from "./gitlab.js";
 
 export async function fetchItems(force = false) {
   if (work.busy) return;
   work.busy = true;
   if (force) { work.items = null; refreshDetail(); }
   try {
-    const response = await fetch(`/api/gitlab/items${force ? "?force=1" : ""}`,
+    const response = await fetch(`/api/forge/items${force ? "?force=1" : ""}`,
                                  { cache: "no-store" });
     const data = await response.json().catch(() => ({}));
     work.items = Array.isArray(data.items) ? data.items : [];
     work.trouble = Array.isArray(data.trouble) ? data.trouble : [];
     work.canWrite = Boolean(data.canWrite);
     work.canPick = Boolean(data.canPick);
-    work.message = data.ok ? "" : (data.message || "GitLab did not answer");
+    work.message = data.ok ? "" : (data.message || "Nothing answered");
   } catch (error) {
     work.items = [];
     work.message = "Could not reach the server";
@@ -77,7 +77,7 @@ function itemRow(item, ready) {
   const starting = work.starting === key;
   const priority = priorityOf(item);
   const labels = asLabels(item).filter((l) =>
-    !l.name.toLowerCase().startsWith("priority::"));
+    !isPriority(l.name));
   return `
     <li class="gl-row gl-row--launch" data-key="${escapeHtml(key)}">
       <button class="gl-row__open md-state" type="button" data-start="${escapeHtml(key)}"
@@ -109,8 +109,8 @@ function itemRow(item, ready) {
         </span>
       </button>
       <a class="gl-row__out md-state" href="${escapeHtml(item.webUrl || "#")}"
-         target="_blank" rel="noopener" title="Open #${item.iid} in GitLab"
-         aria-label="Open #${item.iid} in GitLab">${ICON.focus}</a>
+         target="_blank" rel="noopener" title="Open #${item.iid} in ${forgeName(item.forge)}"
+         aria-label="Open #${item.iid} in ${forgeName(item.forge)}">${ICON.focus}</a>
     </li>`;
 }
 
@@ -142,11 +142,11 @@ export function itemsPage() {
       .toLowerCase().includes(work.query.toLowerCase()));
 
   const body = items === null
-    ? `<p class="git-empty md-body-medium">Asking every GitLab you are logged in to…</p>`
+    ? `<p class="git-empty md-body-medium">Asking every GitHub and GitLab you are logged in to…</p>`
     : work.message
       ? `<div class="git-empty md-body-medium"><p>${escapeHtml(work.message)}</p>
-         <p class="fact-note">The panel reads these through the GitLab CLI. Run
-         <span class="md-mono">glab auth login</span> in a terminal, then ask again.</p></div>`
+         <p class="fact-note">The panel reads these through <span class="md-mono">gh</span> and
+         <span class="md-mono">glab</span>. <b>Settings → Work items</b> logs them in.</p></div>`
       : !items.length
         ? `<p class="git-empty md-body-medium">Nothing is assigned to you right now.</p>`
         : !filtered.length
@@ -171,7 +171,7 @@ export function itemsPage() {
           <div class="detail-header__title"><h2 class="md-headline-small">Work items</h2></div>
           <div class="detail-header__meta"><span class="md-body-small">${lead
             ? `${escapeHtml(lead)} — pressing one opens a terminal in its folder, briefed`
-            : "Everything assigned to you, on every GitLab this machine can read"}</span></div>
+            : "Everything assigned to you, on every GitHub and GitLab this machine can read"}</span></div>
         </div>
         <div class="detail-header__actions">
           <button class="button button--outlined md-state" id="closeItems">Done</button>
@@ -184,7 +184,7 @@ export function itemsPage() {
                placeholder="Filter by title, project or label" value="${escapeHtml(work.query)}"
                aria-label="Filter work items">
         <button class="scm-icon md-state" type="button" id="itemsRefresh"
-          title="Ask every GitLab again" aria-label="Ask every GitLab again">${ICON.refresh}</button>
+          title="Ask them all again" aria-label="Ask them all again">${ICON.refresh}</button>
       </div>
       ${(work.trouble || []).map((t) => `<p class="wi-trouble md-body-small">${
         escapeHtml(t.message)}</p>`).join("")}

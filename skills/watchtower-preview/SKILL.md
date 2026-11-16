@@ -52,5 +52,5 @@ target: it moves to the top and the open preview reloads to the new version.
   button, serve the page over https or localhost
   (`python3 -m http.server`), not from `file://`.
 - If the `mcp__watchtower__*` tools are missing, say the user can turn on
-  **Watchtower tools** in the panel under Settings → Claude skills, and give
+  **Watchtower tools** in the panel under Settings → Skills, and give
   them the file path instead.

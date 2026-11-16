@@ -2,7 +2,8 @@
 
 import { Hct, TonalPalette, argbFromHex, hexFromArgb } from "/vendor/material-color-utilities.js";
 import { applyScheme, openSettings, persist } from "../main.js";
-import { app } from "../state.js";
+import { app, work } from "../state.js";
+import { forgeLogin } from "../views/gitlab.js";
 import { paintUpdateSetting, panelVersion } from "../views/update.js";
 import { copyText } from "./clipboard.js";
 import { detailPane } from "./dom.js";
@@ -260,13 +261,31 @@ function settingsPage() {
              below and hidden on a machine where it can. -->
         <div class="settings-notice" id="terminalHint" hidden></div>
       </section>
-      <!-- Which GitLabs the work items page can actually read. Filled by
-           paintGitlab below: the panel holds no token of its own, so everything
-           this can say is a fact about the glab CLI on this machine. -->
-      <section class="section" id="gitlabSection">
-        <h3 class="section__title md-title-small">GitLab</h3>
-        <p class="md-body-medium" id="gitlabSays">Asking the GitLab CLI…</p>
-        <div id="gitlabHosts"></div>
+    </div>
+    <div class="tab-panel" role="tabpanel" id="settingsPanel-forges" aria-labelledby="settingsTab-forges"
+      ${settingsTab === "forges" ? "" : "hidden"}>
+      <!-- Which GitHubs and GitLabs the panel can read, filled by paintForges
+           below. The panel holds no token of its own, so everything this says
+           is a fact about gh and glab on this machine, and every fix is one of
+           their logins — which the buttons open in a terminal. -->
+      <section class="section">
+        <h3 class="section__title md-title-small">Where work items come from</h3>
+        <p class="md-body-medium">The <b>Work items</b> page and each session's GitHub or GitLab tab
+          read through the two command-line tools, <code class="md-mono">gh</code> and
+          <code class="md-mono">glab</code>. The panel keeps no token of its own: log a tool in
+          here and both pages fill themselves; log it out and the panel is out too.</p>
+      </section>
+      <section class="section" id="forgeGithub"><p class="md-body-small">Asking gh…</p></section>
+      <section class="section" id="forgeGitlab"><p class="md-body-small">Asking glab…</p></section>
+      <section class="section" id="forgeAddSection">
+        <h3 class="section__title md-title-small">Another server</h3>
+        <p class="md-body-medium">A GitHub Enterprise or a self-hosted GitLab: name it, then log in.</p>
+        <form class="forge-add" id="forgeAdd">
+          <input class="gl-search md-body-medium" id="forgeHost" type="text" autocomplete="off"
+                 spellcheck="false" placeholder="git.example.com" aria-label="Server host name">
+          <button class="button button--tonal md-state" type="submit" data-forge="gitlab">GitLab</button>
+          <button class="button button--tonal md-state" type="submit" data-forge="github">GitHub Enterprise</button>
+        </form>
       </section>
     </div>
     <div class="tab-panel" role="tabpanel" id="settingsPanel-phone" aria-labelledby="settingsTab-phone"
@@ -344,8 +363,9 @@ const SETTINGS_TABS = [
   { key: "appearance", label: "Appearance", icon: "palette" },
   { key: "notify", label: "Notifications", icon: "bell" },
   { key: "sessions", label: "Sessions", icon: "terminal" },
+  { key: "forges", label: "Work items", icon: "ticket" },
   { key: "phone", label: "Phone", icon: "phone" },
-  { key: "skills", label: "Claude skills", icon: "sparkle" },
+  { key: "skills", label: "Skills", icon: "sparkle" },
   { key: "panel", label: "Panel", icon: "info" },
   { key: "about", label: "About", icon: "tower" },
 ];
@@ -411,7 +431,7 @@ export function paintSettings() {
   paintUpdateSetting();
   paintReach();
   paintTerminal();
-  paintGitlab();
+  paintForges();
   paintSkills();
   const editorToggle = detailPane.querySelector<HTMLInputElement>("#editorToggle");
   editorToggle.checked = app.settings.showEditor;
@@ -428,56 +448,125 @@ export function paintSettings() {
   });
 }
 
-/* What the work items page will and will not be able to read, said here rather
-   than on the page itself — a page that is empty because a token expired should
-   not have to be the place you find that out.
+/* ==========================================================================
+   Settings → Work items: which GitHubs and GitLabs the panel can read.
 
-   The panel keeps no GitLab credentials: `glab` holds them, and everything below
-   is read back out of `glab auth status`. So the fix is always a command, and
-   the command is offered the way the terminal install line is — the line itself,
-   with a copy on the end of it. */
-async function paintGitlab() {
-  const says = detailPane.querySelector<HTMLElement>("#gitlabSays");
-  const list = detailPane.querySelector<HTMLElement>("#gitlabHosts");
-  if (!says || !list) return;
+   Said here rather than on the work items page, because a page that is empty
+   because a token expired should not be where you find that out. The panel
+   keeps no credentials — gh and glab do — so each host is a row saying who you
+   are on it, and the fix for one that cannot be read is that CLI's own login:
+   the button opens it in a terminal, and this page keeps asking until the host
+   answers, so you come back to it already green.
+
+   A host nobody has logged in to is not an error. glab always lists gitlab.com
+   and the panel always asks github.com, and somebody who uses neither should
+   see a quiet row with a button, not a red box.
+   ========================================================================== */
+const FORGE_CLI = {
+  github: { name: "GitHub", cli: "gh", get: "https://cli.github.com" },
+  gitlab: { name: "GitLab", cli: "glab", get: "https://gitlab.com/gitlab-org/cli#installation" },
+};
+
+let forgeWatch: { forge: string; host: string; until: number } | null = null;
+let forgeTimer = 0;
+
+async function paintForges(force = false) {
+  const hub = detailPane.querySelector<HTMLElement>("#forgeGithub");
+  const lab = detailPane.querySelector<HTMLElement>("#forgeGitlab");
+  if (!hub || !lab) return;
   let data;
   try {
-    const response = await fetch("/api/gitlab/hosts", { cache: "no-store" });
+    const response = await fetch(`/api/forge/hosts${force ? "?force=1" : ""}`, { cache: "no-store" });
     data = await response.json();
   } catch (error) {
     return;                       // the poll will say the panel is unreachable
   }
-  if (!says.isConnected) return;
-  if (!data.ok || !(data.hosts || []).length) {
-    says.innerHTML = data.reason === "no-cli"
-      ? `The <b>Work items</b> page reads what is assigned to you through the GitLab CLI, and
-         <code class="md-mono">glab</code> is not on this machine. Install it and log in, and
-         the page fills itself — the panel stores no token of its own.`
-      : `<code class="md-mono">glab</code> is installed but knows of no GitLab yet.`;
-    list.innerHTML = loginLine("");
-    wireCopyButtons(list);
-    return;
+  if (!hub.isConnected) return;
+  paintForge(hub, "github", data.github || {}, Boolean(data.canLogin));
+  paintForge(lab, "gitlab", data.gitlab || {}, Boolean(data.canLogin));
+  wireForgeAdd(Boolean(data.canLogin));
+  // Waiting on a login in a terminal: ask again until that host answers, then
+  // say so once and stop. Three minutes is longer than a browser round trip
+  // through a device code takes, and short enough not to ask forever.
+  if (forgeWatch) {
+    const entry = (data[forgeWatch.forge]?.hosts || []).find((h) => h.host === forgeWatch.host);
+    if (entry?.ok) {
+      showSnackbar(`Logged in to ${entry.host} as ${entry.user}`);
+      forgeWatch = null;
+      work.items = null;          // the work items page asks again when next opened
+    } else if (Date.now() > forgeWatch.until) {
+      forgeWatch = null;
+    } else {
+      clearTimeout(forgeTimer);
+      forgeTimer = window.setTimeout(() => paintForges(true), 4000);
+    }
   }
-  const usable = (data.hosts || []).filter((h) => h.ok);
-  says.innerHTML = usable.length
-    ? `Reading work items from ${usable.map((h) =>
-        `<b>${escapeHtml(h.host)}</b>`).join(" and ")} as
-       <b>${escapeHtml(usable[0].user)}</b>. These are <code class="md-mono">glab</code>'s
-       credentials, not the panel's — log out of it and the panel is out too.`
-    : `<code class="md-mono">glab</code> knows of ${(data.hosts || []).length === 1 ? "a GitLab"
-        : "some GitLabs"}, but cannot talk to any of them yet.`;
-  list.innerHTML = (data.hosts || []).map((host) => `
-    <div class="settings-notice" data-state="${host.ok ? "fine" : "missing"}">
-      <p class="md-body-medium"><b>${escapeHtml(host.host)}</b> — ${host.ok
-        ? `logged in as ${escapeHtml(host.user)}`
-        : escapeHtml(host.why)}</p>
-      ${host.ok ? "" : loginLine(host.host)}
-    </div>`).join("");
-  wireCopyButtons(list);
 }
 
-function loginLine(host: string) {
-  const command = `glab auth login${host ? ` --hostname ${host}` : ""}`;
+function paintForge(box: HTMLElement, forge: string, data, canLogin: boolean) {
+  const about = FORGE_CLI[forge];
+  const head = `<h3 class="section__title md-title-small">${about.name}
+      <span class="forge-via md-label-small">through <code class="md-mono">${about.cli}</code></span></h3>`;
+  if (!data.installed) {
+    box.innerHTML = `${head}
+      <div class="forge-host" data-state="absent">
+        <span class="forge-host__dot" aria-hidden="true"></span>
+        <span class="forge-host__text"><b class="md-body-medium">${about.cli} is not installed</b>
+          <span class="md-body-small">Install it to read ${about.name} — nothing else is needed from the panel.</span></span>
+        <a class="button button--text md-state" href="${about.get}" target="_blank" rel="noopener">${ICON.focus}How to install</a>
+      </div>`;
+    return;
+  }
+  const hosts = data.hosts || [];
+  box.innerHTML = head + (hosts.length ? hosts.map((host) => {
+    const state = host.ok ? "ok" : host.code === "no-token" || host.code === "not-logged-in" ? "off" : "trouble";
+    const says = host.ok ? `Logged in as <b>${escapeHtml(host.user)}</b>`
+      : state === "off" ? "Not logged in" : escapeHtml(host.why || "Cannot be read");
+    const watching = forgeWatch?.forge === forge && forgeWatch.host === host.host;
+    const action = !canLogin ? (host.ok ? "" : loginLine(about.cli, host.host))
+      : `<button class="button ${host.ok ? "button--text" : "button--tonal"} md-state" type="button"
+          data-login-forge="${forge}" data-login-host="${escapeHtml(host.host)}" ${watching ? "disabled" : ""}>${
+          watching ? `${ICON.sync}Waiting…` : host.ok ? "Log in again" : `${ICON.terminal}Log in`}</button>`;
+    return `<div class="forge-host" data-state="${state}">
+        <span class="forge-host__dot" aria-hidden="true"></span>
+        <span class="forge-host__text"><b class="md-body-medium">${escapeHtml(host.host)}</b>
+          <span class="md-body-small">${says}</span></span>
+        ${action}
+      </div>`;
+  }).join("") : `<p class="md-body-small">${about.cli} knows of no ${about.name} yet.</p>`);
+  wireCopyButtons(box);
+  for (const button of box.querySelectorAll<HTMLElement>("[data-login-forge]")) {
+    button.addEventListener("click", () => startForgeLogin(button.dataset.loginForge, button.dataset.loginHost));
+  }
+}
+
+async function startForgeLogin(forge: string, host: string) {
+  if (!(await forgeLogin(forge, host))) return;
+  forgeWatch = { forge, host, until: Date.now() + 180000 };
+  paintForges(true);
+}
+
+function wireForgeAdd(canLogin: boolean) {
+  const form = detailPane.querySelector<HTMLFormElement>("#forgeAdd");
+  if (!form || form.dataset.wired) return;
+  form.dataset.wired = "1";
+  if (!canLogin) {
+    // Only this computer can open a terminal on this computer.
+    detailPane.querySelector<HTMLElement>("#forgeAddSection").hidden = true;
+    return;
+  }
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const which = ((event as SubmitEvent).submitter as HTMLElement)?.dataset.forge || "gitlab";
+    const host = detailPane.querySelector<HTMLInputElement>("#forgeHost").value.trim()
+      .replace(/^[a-z]+:\/\//i, "").split("/")[0].toLowerCase();
+    if (!host) { showSnackbar("Name the server first"); return; }
+    startForgeLogin(which, host);
+  });
+}
+
+function loginLine(cli: string, host: string) {
+  const command = `${cli} auth login${host ? ` --hostname ${host}` : ""}`;
   return `<div class="reach__line">
       <code class="md-mono reach__url">${escapeHtml(command)}</code>
       <button class="icon-button md-state reach__copy" type="button" data-copy="${escapeHtml(command)}"
@@ -495,7 +584,7 @@ function wireCopyButtons(box: HTMLElement) {
   }
 }
 
-/* Settings → Claude skills. Each switch installs or removes one add-on and
+/* Settings → Skills. Each switch installs or removes one add-on and
    repaints from what the server reads back, so a refusal leaves the switch
    where it really is. Only this computer may flip them; elsewhere they show
    but cannot be pressed. */

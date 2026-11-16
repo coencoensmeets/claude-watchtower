@@ -97,6 +97,8 @@ export interface Session {
   branch: string | null;
   /** Null means "not a repository", which a null `branch` cannot say on its own. */
   repoRoot: string | null;
+  /* "github" or "gitlab", read from the remote; null with none. */
+  forge?: "github" | "gitlab" | null;
   activity: Activity | null;
   spoken: boolean;
   permissionMode: PermissionMode | null;
