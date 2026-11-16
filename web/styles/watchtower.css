@@ -1,0 +1,385 @@
+  /* =============================== watchtower ============================== */
+  /* The Watchtower look, laid over the Material 3 structure the stylesheets
+     above build. Everything here is a restyle, not new layout, so it sits after
+     the component sheets and before responsive.css, which still narrows it.
+     The rules it follows are in docs/design/styleguide.html:
+
+       - colour means state: ember needs an answer, lilac is working, lime is
+         waiting on you, hatched stone is closed;
+       - ink (chalk in dark) is for what you can press, the row you are on and
+         your own messages;
+       - controls are pills and circles; containers round off more the bigger
+         they are, and a shape inside another keeps an even gap to it. */
+
+  /* ---------------------------------------------------------------- tokens */
+  :root {
+    /* Urbanist sits smaller than Roboto at the same size and reads light at 400
+       and 500, so the body steps up a pixel and the titles take a heavier cut. */
+    --md-sys-typescale-body-medium-size: 0.9375rem;
+    --md-sys-typescale-body-large-size: 1.0625rem;
+    --md-sys-typescale-headline-small-weight: 650;
+    --md-sys-typescale-headline-small-size: 1.75rem;
+    --md-sys-typescale-headline-small-tracking: -0.015em;
+    --md-sys-typescale-title-large-weight: 650;
+    --md-sys-typescale-title-medium-weight: 650;
+    --md-sys-typescale-title-small-weight: 650;
+    --md-sys-typescale-title-small-size: 0.9375rem;
+    --md-sys-typescale-label-large-weight: 600;
+    --md-sys-typescale-label-medium-weight: 600;
+    --md-sys-typescale-label-small-weight: 600;
+
+    /* The diagonal texture that means "nothing here". */
+    --wt-hatch: repeating-linear-gradient(-45deg,
+      color-mix(in srgb, var(--md-sys-color-on-surface) 9%, transparent) 0 2px, transparent 2px 9px);
+    --wt-float: 0 18px 40px -18px rgb(0 0 0 / 0.35);
+  }
+  html[data-theme="dark"] { --wt-float: 0 18px 40px -16px rgb(0 0 0 / 0.7); }
+  .md-mono, .md-mono * { font-variant-numeric: tabular-nums; }
+
+  /* ----------------------------------------------------------------- shell */
+  /* One page colour behind everything. The index sits on it directly; the
+     detail is a single large surface lifted off it by tone alone. */
+  body { background: var(--wt-page, var(--md-sys-color-surface)); }
+  .app-bar { background: transparent; height: 68px; }
+  .app-bar__title {
+    text-transform: none; letter-spacing: -0.015em;
+    font-size: 1.25rem; font-weight: 700;
+  }
+  .list-pane, .list-sticky { background: var(--wt-page, var(--md-sys-color-surface-container-low)); }
+  .list-pane { border-right: 0; }
+  .detail-pane {
+    background: var(--md-sys-color-surface);
+    border-radius: var(--md-sys-shape-corner-extra-large-increased);
+    margin: 0 var(--md-sys-spacing-4) var(--md-sys-spacing-4) var(--md-sys-spacing-2);
+  }
+  .icon-button { color: var(--md-sys-color-on-surface); }
+  .app-bar .icon-button { background: var(--md-sys-color-surface); width: 44px; height: 44px; }
+  .app-bar .icon-button svg { width: 20px; height: 20px; }
+  .app-bar .icon-button[aria-pressed="true"] { background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); }
+  .app-bar__nudge { background: var(--md-sys-color-surface); color: var(--md-sys-color-on-surface); }
+
+  /* ---------------------------------------------------------- filter chips */
+  .chip-set { gap: 6px; }
+  .chip {
+    height: 36px; padding: 0 14px; border: 0;
+    border-radius: var(--md-sys-shape-corner-full);
+    background: var(--md-sys-color-surface); color: var(--md-sys-color-on-surface);
+  }
+  .chip[aria-pressed="true"] { background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); }
+  .chip__dot { width: 10px; height: 10px; }
+  /* New is the one lime button: it adds, and lime is the colour of "ready". */
+  .new-button {
+    height: 36px; padding: 0 14px 0 10px;
+    border-radius: var(--md-sys-shape-corner-full);
+    background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);
+  }
+
+  /* ---------------------------------------------------------- session rows */
+  /* A stadium, with the avatar riding in its left end. The avatar's fill is the
+     state; the lamp on its shoulder repeats it. Motion is in motion.css. */
+  .session-list { gap: 6px; padding: 0 var(--md-sys-spacing-3); }
+  .session-item {
+    --row-bg: var(--md-sys-color-surface);
+    padding: 6px var(--md-sys-spacing-4) 6px 6px;
+    background: var(--row-bg); color: var(--md-sys-color-on-surface-variant);
+  }
+  /* list.css paints the selected and picked rows' background directly; this
+     hands every row's fill back to --row-bg so the states below decide it. */
+  .session-item[data-status] { background-color: var(--row-bg); }
+  .session-item[data-status="waiting"] { --row-bg: var(--md-extended-color-waiting-tint, var(--md-sys-color-surface)); }
+  .session-item[aria-current="true"] { --row-bg: var(--md-sys-color-primary); color: color-mix(in srgb, var(--md-sys-color-on-primary) 65%, transparent); }
+  .session-item[aria-current="true"] .session-item__headline,
+  .session-item[aria-current="true"] .session-item__subject { color: var(--md-sys-color-on-primary); }
+  .session-item[data-picked="true"] { --row-bg: var(--md-sys-color-primary-container); }
+  /* Closed: no fill, an outline, and the hatching that says nothing runs here. */
+  .session-item[data-status="offline"], .session-item[data-status="stopped"] {
+    --row-bg: transparent; background-image: var(--wt-hatch);
+    box-shadow: inset 0 0 0 1.5px var(--md-sys-color-outline-variant);
+  }
+  .session-item__avatar { width: 46px; height: 46px; }
+  .session-item__lamp {
+    top: -1px; bottom: auto; width: 13px; height: 13px;
+    box-shadow: 0 0 0 3px var(--row-bg);
+  }
+  .session-item[aria-current="true"] .session-item__lamp,
+  .session-item[data-picked="true"] .session-item__lamp { box-shadow: 0 0 0 3px var(--row-bg); }
+  .session-item[data-status="offline"] .session-item__lamp,
+  .session-item[data-status="stopped"] .session-item__lamp { box-shadow: 0 0 0 3px var(--wt-page, var(--md-sys-color-surface)); }
+  /* Redefined so the ring is the row's own colour, whatever the row is. */
+  @keyframes lamp-throb {
+    0% { box-shadow: 0 0 0 3px var(--row-bg), 0 0 0 3px color-mix(in srgb, var(--state-colour) 70%, transparent); }
+    80%, 100% { box-shadow: 0 0 0 3px var(--row-bg), 0 0 0 11px transparent; }
+  }
+  .session-item__headline { font-weight: 650; }
+  .session-item__trailing { font-weight: 600; }
+  .session-item__ask { font-weight: 600; }
+  .group__header { font-weight: 650; }
+  .group__lamp { width: 10px; height: 10px; }
+  .group__items { border-inline-start-width: 1.5px; }
+
+  /* ---------------------------------------------------------- detail header */
+  /* The selected session's state, as one colour block inside the detail
+     surface, with an even gap round it. */
+  .detail-header {
+    margin: var(--md-sys-spacing-3);
+    border-radius: calc(var(--md-sys-shape-corner-extra-large-increased) - var(--md-sys-spacing-3));
+    padding: var(--md-sys-spacing-5) var(--md-sys-spacing-6) var(--md-sys-spacing-4);
+  }
+  .detail-header .md-headline-small { margin: 0; }
+  .host { border-width: 1.5px; border-radius: var(--md-sys-shape-corner-full); height: 26px; padding: 0 10px 0 7px; }
+  .trace__bar { height: 12px; background: color-mix(in srgb, var(--md-sys-color-surface) 70%, transparent); }
+  .detail-header .button--outlined { border-width: 1.5px; }
+
+  /* The bite: the fold handle sits in a circle cut out of the header's corner.
+     The cut is a ring in the pane's own colour round the button, which reads
+     as a hole in the block without masking the button along with it. */
+  .detail-header:has(.fold-button) { padding-inline-end: 84px; }
+  .detail-header .fold-button {
+    position: absolute; top: 4px; inset-inline-end: 4px; margin: 0;
+    width: 56px; height: 56px;
+    background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);
+    box-shadow: 0 0 0 8px var(--md-sys-color-surface);
+  }
+  .detail-header .fold-button svg { width: 22px; height: 22px; }
+  .detail-header[data-folded="1"] { padding-block: var(--md-sys-spacing-5); }
+
+  /* ------------------------------------------------------------------ tabs */
+  /* A segmented pill. The chosen tab lifts to the surface; motion.css slides it. */
+  .tabs {
+    align-self: flex-start; max-width: calc(100% - 2 * var(--md-sys-spacing-6));
+    margin: var(--md-sys-spacing-1) var(--md-sys-spacing-6) var(--md-sys-spacing-2);
+    padding: 4px; gap: 4px;
+    border: 0; border-radius: var(--md-sys-shape-corner-full);
+    background: var(--md-sys-color-surface-container-high);
+  }
+  .tab {
+    height: 40px; padding: 0 var(--md-sys-spacing-4);
+    border-radius: var(--md-sys-shape-corner-full);
+    color: var(--md-sys-color-on-surface-variant);
+  }
+  .tab[aria-selected="true"] {
+    background: var(--md-sys-color-surface); color: var(--md-sys-color-on-surface);
+    box-shadow: 0 2px 8px -4px rgb(0 0 0 / 0.3);
+  }
+  .tab[aria-selected="true"]::after { display: none; }
+
+  /* -------------------------------------------------------------- buttons */
+  .button--outlined, .button--danger-outlined { border-width: 1.5px; }
+  .button--text { color: var(--md-sys-color-on-surface); }
+  .segmented__item { border-width: 1.5px; }
+  .segmented__item[aria-pressed="true"] { background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); }
+
+  /* ---------------------------------------------------------- conversation */
+  /* Yours are ink, Claude's are a step off the surface; no outlines. */
+  .msg { border-radius: var(--md-sys-shape-corner-large); padding: 14px 18px; }
+  .msg--user {
+    background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);
+    border-end-end-radius: var(--md-sys-shape-corner-small);
+  }
+  .msg--assistant {
+    background: var(--md-sys-color-surface-container); border: 0;
+    border-end-start-radius: var(--md-sys-shape-corner-small);
+  }
+  .msg--user a { color: inherit; }
+  .msg--user .msg__text ::selection, .msg--user .msg__text::selection {
+    background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);
+  }
+  .msg--user mark.commented { box-shadow: inset 0 -3px 0 0 var(--wt-butter); }
+
+  /* -------------------------------------------------------------- composer */
+  .composer { border-top: 0; background: transparent; padding-top: var(--md-sys-spacing-2); }
+  .composer__field {
+    border: 1.5px solid var(--md-sys-color-outline-variant);
+    border-radius: 26px; padding: 13px 20px;
+    background: var(--md-sys-color-surface-container-lowest);
+  }
+  .composer__field:focus-visible { outline: 2px solid var(--md-extended-color-busy-color, var(--md-sys-color-primary)); }
+  .composer__send { border-radius: var(--md-sys-shape-corner-full); }
+
+  /* ------------------------------------------------------ floating buttons */
+  .jump-bottom { width: 44px; height: 44px; box-shadow: var(--wt-float); }
+  .jump-last { height: 40px; box-shadow: var(--wt-float);
+    background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); }
+  .menu { box-shadow: var(--wt-float); }
+
+  /* ===================================================== styleguide kit */
+  /* The component recipes from the styleguide's Forms, Feedback, Navigation and
+     Tables sections, laid over the panel's own markup: filled pill fields with
+     a lilac focus ring, the ink-and-lime switch, ink toasts, alerts on a tint
+     with a round icon, menus and dialogs at the guide's radii, hatched tracks
+     under meters, and the hatched circle that means "nothing here yet". */
+  :root {
+    --wt-lilac: var(--md-extended-color-busy-color, #A59FE2);
+    --wt-lime: var(--md-extended-color-idle-color, #CBDA72);
+    --wt-ember: var(--md-extended-color-waiting-color, #F28C4E);
+    --wt-butter: #F5CD62;
+    --wt-rose: #E9839B;
+    --wt-on-state: #1E1F24;
+    --wt-field: var(--md-sys-color-surface-container);
+    --wt-line: var(--md-sys-color-outline-variant);
+    --wt-hatch-ink: color-mix(in srgb, var(--md-sys-color-on-surface) 9%, transparent);
+    --wt-hatch-fine: repeating-linear-gradient(-45deg, var(--wt-hatch-ink) 0 2px, transparent 2px 7px);
+  }
+
+  /* ---- fields: filled pills, a lilac ring on focus */
+  .dialog__field, .scm-commit__field, .ccard__field, .composer__field, .folder-dialog__path input {
+    border: 0; background: var(--wt-field); color: var(--md-sys-color-on-surface);
+    transition: box-shadow var(--md-sys-motion-duration-short4) var(--wt-ease, ease),
+                background-color var(--md-sys-motion-duration-short4) var(--wt-ease, ease);
+  }
+  .dialog__field { height: 52px; padding: 0 20px; border-radius: var(--md-sys-shape-corner-full); }
+  .scm-commit__field, .ccard__field { border-radius: var(--md-sys-shape-corner-large); padding: 14px 18px; }
+  .scm-commit__field { padding-right: 48px; }
+  .composer__field { border: 0; }
+  .dialog__field:hover, .scm-commit__field:hover:not(:disabled), .ccard__field:hover, .composer__field:hover {
+    background: color-mix(in srgb, var(--wt-field) 70%, var(--wt-line));
+  }
+  .dialog__field:focus-visible, .scm-commit__field:focus-visible, .ccard__field:focus-visible,
+  .composer__field:focus-visible, .composer__field:focus {
+    outline: none; background: var(--md-sys-color-surface-container-lowest);
+    box-shadow: 0 0 0 3px var(--wt-lilac);
+  }
+  .dialog__field::placeholder, .scm-commit__field::placeholder, .ccard__field::placeholder,
+  .composer__field::placeholder { color: var(--md-sys-color-outline); }
+
+  /* ---- switch: a hairline-ringed track; on, it is lime with an ink knob */
+  .switch__track {
+    border: 0; background: var(--wt-field); box-shadow: inset 0 0 0 1.5px var(--wt-line);
+  }
+  .switch__thumb {
+    top: 4px; left: 4px; transform: none; width: 24px; height: 24px;
+    background: var(--md-sys-color-outline);
+    transition: translate 250ms var(--wt-spring, cubic-bezier(.34, 1.56, .64, 1)),
+                background var(--md-sys-motion-duration-short4) var(--wt-ease, ease);
+  }
+  .switch__thumb svg { display: none; }
+  .switch input:checked + .switch__track { background: var(--wt-lime); box-shadow: none; }
+  .switch input:checked + .switch__track .switch__thumb {
+    left: 4px; width: 24px; height: 24px; translate: 20px 0; background: var(--wt-on-state);
+  }
+  .switch input:focus-visible + .switch__track { outline: 3px solid var(--wt-lilac); outline-offset: 3px; }
+
+  /* ---- toast: an ink pill floating over the page */
+  /* A fixed 28px radius is a full pill on one line (56px tall) and a rounded
+     card when the words wrap; corner-full turned long messages into a circle.
+     max-content stops it shrink-wrapping to the half screen right of left:50%. */
+  .snackbar {
+    min-height: 56px; padding: 14px 24px;
+    width: max-content; max-width: min(560px, calc(100vw - 32px)); box-sizing: border-box;
+    line-height: 1.4; text-wrap: pretty;
+    border-radius: 28px;
+    background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);
+    box-shadow: var(--wt-float); font-weight: 500;
+  }
+
+  /* ---- alerts: a tint, a round icon, the words; error is rose */
+  .notify-permission, .settings-notice {
+    position: relative; padding: 14px 18px 14px 64px; min-height: 64px; justify-content: center;
+    border-radius: var(--md-sys-shape-corner-large);
+    background: var(--md-extended-color-busy-tint, var(--md-sys-color-surface-container-high));
+    color: var(--md-sys-color-on-surface);
+  }
+  .notify-permission::before, .settings-notice::before {
+    content: "i"; position: absolute; left: 14px; top: 14px;
+    width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center;
+    background: var(--wt-lilac); color: var(--wt-on-state); font-weight: 800; font-size: 15px;
+  }
+  .notify-permission[data-state="denied"], .notify-permission[data-state="unsupported"],
+  .notify-permission[data-state="insecure"], .settings-notice[data-state="missing"] {
+    background: color-mix(in srgb, var(--wt-rose) 20%, var(--md-sys-color-surface));
+    color: var(--md-sys-color-on-surface);
+  }
+  .notify-permission[data-state="denied"]::before, .notify-permission[data-state="unsupported"]::before,
+  .notify-permission[data-state="insecure"]::before, .settings-notice[data-state="missing"]::before {
+    content: "!"; background: var(--wt-rose);
+  }
+
+  /* ---- menus: a rounded sheet, pill rows, the danger glyph in rose */
+  .menu {
+    padding: 6px; border-radius: var(--md-sys-shape-corner-large);
+    background: var(--md-sys-color-surface); box-shadow: var(--wt-float);
+  }
+  .menu__title { padding: 8px 14px 6px; }
+  .menu__item { min-height: 44px; padding: 0 14px; border-radius: 18px; }
+  .menu__item:hover:not([disabled]) { background: var(--wt-field); }
+  .menu__item:focus-visible { outline: 3px solid var(--wt-lilac); outline-offset: -3px; }
+  .menu__icon { color: var(--md-sys-color-on-surface-variant); }
+  .menu__item--danger { color: var(--md-sys-color-on-surface); }
+  .menu__item--danger .menu__icon { color: var(--wt-rose); }
+  .menu__divider { margin: 4px 10px; }
+
+  /* ---- dialogs: the biggest container on chalk; the page dims to ink */
+  .scrim { background: color-mix(in srgb, #1E1F24 40%, transparent); }
+  .dialog {
+    background: var(--md-sys-color-surface); border-radius: var(--md-sys-shape-corner-extra-large);
+    box-shadow: var(--wt-float);
+  }
+  .dialog__headline { font-weight: 650; letter-spacing: -0.01em; }
+
+  /* ---- key and value: no rules, the value carries the weight */
+  .facts { gap: 10px 24px; grid-template-columns: max-content 1fr; }
+  .facts dt, .facts dd { border-top: 0; padding: 0; }
+  .facts dt { font-weight: 500; }
+  .facts dd { font-weight: 600; color: var(--md-sys-color-on-surface); }
+
+  /* ---- meters: the empty part of a track is hatched */
+  .use-bar, .ctx__bar {
+    background-color: var(--wt-field); background-image: var(--wt-hatch-fine);
+  }
+  .ctx__bar { height: 8px; background-color: color-mix(in srgb, var(--md-sys-color-surface) 70%, transparent); }
+  .use-bar__fill[data-tight="2"], .ctx__fill[data-tight="2"] { background: var(--wt-rose); }
+
+  /* ---- headline numbers: the styleguide's KPI tile */
+  .use-tile { padding: var(--md-sys-spacing-5); border-radius: var(--md-sys-shape-corner-large);
+    background: var(--md-sys-color-surface-container-low); }
+  .use-tile__label { font-weight: 600; }
+  .use-tile__value { font-family: var(--md-ref-typeface-brand); font-size: 1.75rem; line-height: 1.05;
+    font-weight: 600; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+  .use-tile--lead .use-tile__value { font-size: 2.5rem; }
+
+  /* ---- badges and keys */
+  .tab__count, .pv-badge {
+    min-width: 22px; height: 22px; padding: 0 7px; display: inline-grid; place-items: center;
+    border-radius: var(--md-sys-shape-corner-full);
+    font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1;
+  }
+  .tab__count { background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); }
+  kbd {
+    font: 600 12px/1 var(--md-ref-typeface-mono); padding: 4px 7px; border-radius: 7px;
+    background: var(--wt-field); color: var(--md-sys-color-on-surface-variant);
+    box-shadow: inset 0 -1.5px 0 var(--wt-line);
+  }
+
+  /* ---- empty states: a hatched circle with the glyph, a heading, a line */
+  .pv-empty__art, .detail-empty__art {
+    width: 96px; height: 96px; margin: 0 auto var(--md-sys-spacing-4); border-radius: 50%;
+    display: grid; place-items: center;
+    background-color: var(--wt-field); background-image: var(--wt-hatch);
+    color: var(--md-sys-color-on-surface);
+  }
+  .pv-empty__art svg, .detail-empty__art svg { width: 36px; height: 36px; }
+  .pv-empty h3, .detail-empty h2 { font-size: 1.25rem; font-weight: 650; margin: 0 0 6px; color: var(--md-sys-color-on-surface); }
+  .list-empty, .git-empty {
+    margin: var(--md-sys-spacing-2) 0; border-radius: var(--md-sys-shape-corner-large);
+    box-shadow: inset 0 0 0 1.5px var(--wt-line); background-image: var(--wt-hatch);
+    padding: var(--md-sys-spacing-5) var(--md-sys-spacing-4); text-align: center;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .switch__thumb { transition: none; }
+  }
+
+  /* ---------------------------------------------------------- narrow panes */
+  @media (max-width: 899px) {
+    .detail-pane { margin: 0 var(--md-sys-spacing-2) var(--md-sys-spacing-2); border-radius: var(--md-sys-shape-corner-extra-large); }
+    .tabs { margin-inline: var(--md-sys-spacing-4); max-width: calc(100% - 2 * var(--md-sys-spacing-4)); }
+  }
+  @media (max-width: 599px) {
+    .detail-pane { margin: 0; border-radius: var(--md-sys-shape-corner-extra-large) var(--md-sys-shape-corner-extra-large) 0 0; }
+    .detail-header { margin: var(--md-sys-spacing-2); border-radius: var(--md-sys-shape-corner-large); }
+    .detail-header .fold-button { top: 4px; inset-inline-end: 4px; width: 44px; height: 44px; box-shadow: 0 0 0 6px var(--md-sys-color-surface); }
+    .detail-header .detail-header__title { padding-inline-end: 44px; }
+    .detail-header:has(.fold-button) { padding-inline-end: var(--md-sys-spacing-3); }
+    .tabs { margin-inline: var(--md-sys-spacing-2); max-width: calc(100% - 2 * var(--md-sys-spacing-2)); }
+    .session-list { padding: 0 var(--md-sys-spacing-2); }
+  }

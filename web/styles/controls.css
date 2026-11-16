@@ -115,6 +115,16 @@
   .reach__copy { flex: none; color: var(--md-sys-color-on-surface-variant); }
   .reach__copy svg { width: 20px; height: 20px; }
   .reach__note { color: var(--md-sys-color-on-surface-variant); max-width: 46ch; }
+  /* From anywhere: the Tailscale half of the phone section, first, and set off
+     from this network's address under it by a rule. */
+  .tailnet { display: flex; flex-direction: column; align-items: flex-start; gap: var(--md-sys-spacing-3);
+    margin-bottom: var(--md-sys-spacing-6); padding-bottom: var(--md-sys-spacing-6);
+    border-bottom: 1px solid var(--md-sys-color-outline-variant); }
+  .reach__subtitle { margin: 0 0 var(--md-sys-spacing-3); }
+  .reach__subtitle[hidden] { display: none; }
+  .tailnet[hidden] { display: none; }
+  .tailnet .reach, .tailnet .reach__line { align-self: stretch; }
+  .tailnet__title { margin: 0; }
   /* Not small print: it is the reason none of the switches above will do
      anything, so it is drawn as the obstacle it is and carries the one button
      that clears it. */
@@ -132,11 +142,43 @@
   }
   /* Blocked or unsupported is a dead end rather than a step, and says so. */
   .notify-permission[data-state="denied"], .notify-permission[data-state="unsupported"],
+  .notify-permission[data-state="insecure"],
   .settings-notice[data-state="missing"] {
     background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container);
   }
   .notify-permission p, .settings-notice p { margin: 0; }
+  /* Settings → Claude skills: one switch per add-on, and why one cannot be
+     switched under it when it cannot. */
+  .skills { display: flex; flex-direction: column; gap: var(--md-sys-spacing-4); margin-top: var(--md-sys-spacing-3); }
+  .skill__blocked { margin: var(--md-sys-spacing-1) 0 0 60px; color: var(--md-sys-color-error); }
   .notify-permission[hidden], .settings-notice[hidden] { display: none; }
+  /* Settings → About: the mark and the name, then the ways out to the project
+     as a stack of rows, then the disclaimer and the licence. */
+  .about { max-width: 40em; }
+  .about__hero { display: flex; align-items: center; gap: var(--md-sys-spacing-4); }
+  .about__mark {
+    flex: none; width: 72px; height: 72px; border-radius: 50%; display: grid; place-items: center;
+    background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);
+  }
+  .about__mark svg { width: 36px; height: 36px; }
+  .about__text h3 { margin: 0; color: var(--md-sys-color-on-surface); }
+  .about__text p { margin: 2px 0 0; color: var(--md-sys-color-on-surface-variant); }
+  .about__version {
+    display: inline-block; margin-top: var(--md-sys-spacing-2); padding: 2px 10px;
+    border-radius: var(--md-sys-shape-corner-full);
+    background: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);
+  }
+  .about__links { display: flex; flex-direction: column; gap: 2px; margin-top: var(--md-sys-spacing-6);
+    border-radius: var(--md-sys-shape-corner-large); overflow: hidden; }
+  .about__link {
+    display: flex; align-items: center; gap: var(--md-sys-spacing-3); min-height: 56px;
+    padding: 0 var(--md-sys-spacing-4); text-decoration: none;
+    background: var(--md-sys-color-surface-container); color: var(--md-sys-color-on-surface);
+  }
+  .about__link span { flex: 1 1 auto; }
+  .about__link svg { width: 20px; height: 20px; flex: none; }
+  .about__link svg:last-child { width: 16px; height: 16px; opacity: 0.55; }
+  .about__legal { margin: var(--md-sys-spacing-5) 0 0; color: var(--md-sys-color-on-surface-variant); }
   /* The copy line inside a notice sits on the notice's own surface, which the
      error tint has already darkened — the phone section's tint would vanish
      into it. */

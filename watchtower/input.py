@@ -99,8 +99,14 @@ def peer_token(pid: int) -> str | None:
     return None
 
 
-def say_to_session(data: dict, text: str) -> tuple[bool, str]:
+def say_to_session(data: dict, text: str, now: bool = False) -> tuple[bool, str]:
     """Inject a user turn into a live session over its messaging socket.
+
+    `now` is the terminal's Ctrl+Enter: the message goes with priority `now`,
+    which Claude Code takes as "reach the model now" — the running turn moves
+    what it is waiting on to the background and takes the message in, or stops
+    at its next request to the model. Without it the message waits for the turn
+    to end, as Enter at the terminal does.
 
     The pid's starttime is re-checked first, exactly as end_process does — the
     socket is named after the pid, so a stale panel must not be able to talk to
@@ -137,7 +143,8 @@ def say_to_session(data: dict, text: str) -> tuple[bool, str]:
     token = peer_token(pid)
     if token:
         lines.append({"type": "auth", "token": token})
-    lines.append({"type": "user", "message": {"role": "user", "content": text}})
+    lines.append({"type": "user", "message": {"role": "user", "content": text},
+                  **({"priority": "now"} if now else {})})
     payload = "".join(json.dumps(line) + "\n" for line in lines).encode()
 
     conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -177,7 +184,7 @@ def say_to_session(data: dict, text: str) -> tuple[bool, str]:
         if status == "expired":
             return False, "The message expired before it was let through"
         return True, "Sent — waiting to be allowed through at the terminal"
-    return True, "Sent"
+    return True, "Sent now" if now else "Sent"
 
 
 # A session is reachable over its messaging socket, over the pipe of a turn the

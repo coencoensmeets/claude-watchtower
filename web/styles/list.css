@@ -56,6 +56,8 @@
     /* A shift-click picks a run of rows; without this it also drags a selection
        across their text. */
     user-select: none;
+    /* And on iOS a hold would raise Safari's own callout over the row's menu. */
+    -webkit-touch-callout: none;
     display: flex; align-items: center; gap: var(--md-sys-spacing-3);
     padding: var(--md-sys-spacing-2) var(--md-sys-spacing-3);
     border-radius: var(--md-sys-shape-corner-full);

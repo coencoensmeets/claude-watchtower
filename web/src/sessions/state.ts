@@ -28,7 +28,7 @@ export type StateKey =
 
 export const STATE: Record<StateKey, StateLook> = {
   waiting: { label: "Needs an answer", short: "answer", prefix: "--md-extended-color-waiting" },
-  busy: { label: "Working", short: "working", prefix: "--md-sys-color-primary", sys: true },
+  busy: { label: "Working", short: "working", prefix: "--md-extended-color-busy" },
   idle: { label: "Waiting", short: "waiting", prefix: "--md-extended-color-idle" },
   offline: { label: "Closed", short: "closed", prefix: null },
   // A kept session whose process has gone. Not lost, just not running.
@@ -95,10 +95,23 @@ export function standingAsk(session: Session) {
     const header = asked.header || asked.question || "a question";
     return { kind: "question", label: `asks “${clip(header, 40)}”`, key: `said:${clip(header, 80)}` };
   }
-  // Blocked on something the panel cannot read. Which kind of prompt a terminal
-  // session is standing on is not knowable from outside — Claude Code writes a
-  // permission gate down nowhere — so the badge says only that there is one and
-  // that it has to be answered where it was asked.
+  // Claude Code does say which kind of prompt is up — `permission prompt` in its
+  // session file — and for a session that writes nothing the panel works it out
+  // from the open tool call, which also gives the tool's name. What it cannot
+  // read is the prompt itself, so it is answered where it was asked.
+  if (stateKeyOf(session.status) === "waiting" && session.waitingFor === "permission prompt") {
+    const tool = session.waitingTool;
+    return { kind: "permission",
+      label: tool ? `wants to run ${clip(tool, 32)}` : "waiting for permission at its prompt",
+      key: `perm:${tool || ""}` };
+  }
+  // A question Claude Code says is up but the transcript does not have yet:
+  // 2.1.325 writes the call down only once it has been answered.
+  if (stateKeyOf(session.status) === "waiting" && session.waitingFor === "input needed") {
+    return { kind: "question", label: "asks a question at its prompt", key: "said:?" };
+  }
+  // Blocked on something the panel cannot read, so the badge says only that
+  // there is a prompt and that it has to be answered where it was asked.
   if (stateKeyOf(session.status) === "waiting") {
     return { kind: "prompt", label: "waiting at its own prompt", key: "prompt" };
   }

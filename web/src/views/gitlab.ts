@@ -94,8 +94,8 @@ async function fetchItem(iid, force = false) {
 /* A pipeline is the one thing here with a colour worth carrying: it is the
    answer to "can I push on top of this", and a word alone makes you read it. */
 const PIPE_TONE = {
-  success: "good", failed: "bad", running: "busy", pending: "busy",
-  canceled: "muted", skipped: "muted", manual: "muted", created: "busy",
+  success: "good", failed: "bad", running: "busy", pending: "wait",
+  canceled: "muted", skipped: "muted", manual: "wait", created: "wait",
 };
 
 /* A label, drawn in the colour the project gave it.

@@ -1,0 +1,72 @@
+  /* ============================ + New → Describe it… ======================= */
+  /* A box to say what you want, then Claude's answer as a card: where it will
+     run, why, and a way to send it somewhere else before anything starts. */
+  .route-dialog { width: min(600px, 100%); }
+  .route-dialog .dialog__supporting { margin-bottom: var(--md-sys-spacing-4); }
+  .route-dialog__field {
+    width: 100%; box-sizing: border-box; min-height: 104px; resize: vertical;
+    padding: 16px 20px; border: 0; border-radius: var(--md-sys-shape-corner-large);
+    background: var(--md-sys-color-surface-container-lowest); color: var(--md-sys-color-on-surface);
+    font: inherit; line-height: 1.5; outline: none;
+    transition: box-shadow var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+  }
+  .route-dialog__field::placeholder { color: var(--md-sys-color-on-surface-variant); opacity: 0.7; }
+  .route-dialog__field:focus { box-shadow: 0 0 0 3px var(--md-extended-color-busy-color, #A59FE2); }
+
+  .route-plan { margin: var(--md-sys-spacing-4) 0 var(--md-sys-spacing-6); display: flex; flex-direction: column; gap: var(--md-sys-spacing-3); }
+  .route-plan__card {
+    display: flex; gap: var(--md-sys-spacing-4); align-items: flex-start;
+    padding: 14px 18px 16px 14px; border-radius: var(--md-sys-shape-corner-large);
+    background: var(--md-sys-color-surface-container-lowest);
+    animation: route-in var(--md-sys-motion-duration-medium4) var(--md-sys-motion-easing-emphasized-decelerate);
+  }
+  .route-plan__icon {
+    width: 44px; height: 44px; flex: none; border-radius: 50%; display: grid; place-items: center;
+    background: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);
+  }
+  .route-plan[data-action="create"] .route-plan__icon { background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); }
+  .route-plan__icon svg { width: 22px; height: 22px; }
+  .route-plan__text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .route-plan__kind { color: var(--md-sys-color-on-surface-variant); }
+  .route-plan__where { overflow-wrap: anywhere; }
+  .route-plan__why { color: var(--md-sys-color-on-surface-variant); margin-top: 4px; }
+  /* How a new project will be set up: a short line, not a pill — it can
+     wrap, and a wrapped pill reads as a lozenge. */
+  .route-plan__setup {
+    display: flex; align-items: flex-start; gap: 8px; margin-top: 8px; padding: 8px 12px;
+    border-radius: var(--md-sys-shape-corner-medium);
+    background: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);
+  }
+  .route-plan__setup svg { width: 16px; height: 16px; flex: none; margin-top: 1px; }
+  .route-plan__change { display: flex; }
+  .route-plan__select {
+    flex: 1 1 auto; min-width: 0; height: 44px; text-overflow: ellipsis; padding: 0 40px 0 16px; appearance: none; cursor: pointer;
+    border: 0; border-radius: var(--md-sys-shape-corner-full);
+    background: var(--md-sys-color-surface-container-lowest) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236C6B77' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 14px center / 16px;
+    color: var(--md-sys-color-on-surface); font: inherit;
+  }
+  .route-plan__thinking, .route-plan__error {
+    display: flex; align-items: center; gap: 12px; padding: 16px 18px; border-radius: var(--md-sys-shape-corner-large);
+    background: var(--md-sys-color-surface-container-lowest); color: var(--md-sys-color-on-surface-variant);
+  }
+  .route-plan__error { color: var(--md-sys-color-on-surface); box-shadow: inset 0 0 0 2px #E9839B; }
+  /* Three lilac dots, the working colour: Claude is thinking. */
+  .route-plan__dots { display: inline-flex; gap: 5px; }
+  .route-plan__dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--md-extended-color-busy-color, #A59FE2); animation: route-dot 1.2s var(--md-sys-motion-easing-standard) infinite; }
+  .route-plan__dots i:nth-child(2) { animation-delay: .15s; }
+  .route-plan__dots i:nth-child(3) { animation-delay: .3s; }
+  @keyframes route-dot { 0%, 60%, 100% { transform: translateY(0); opacity: .5; } 30% { transform: translateY(-5px); opacity: 1; } }
+  @keyframes route-in { from { opacity: 0; transform: translateY(6px); } }
+  /* A phone: the dialog is the whole width, so the card gives up its gutter. */
+  @media (max-width: 600px) {
+    .route-dialog { padding: var(--md-sys-spacing-5); }
+    .route-dialog__field { min-height: 88px; padding: 14px 16px; }
+    .route-plan { margin-bottom: var(--md-sys-spacing-5); }
+    .route-plan__card { gap: var(--md-sys-spacing-3); padding: 12px 14px 14px 12px; }
+    .route-plan__icon { width: 36px; height: 36px; }
+    .route-plan__icon svg { width: 18px; height: 18px; }
+    .route-plan__where { font-size: 15px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .route-plan__card, .route-plan__dots i { animation: none; }
+  }

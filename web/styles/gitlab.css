@@ -1,18 +1,21 @@
 /* The GitLab tab and the work items page.
 
-   The panel's own system does the colour and the type — this is Material 3 with
-   a palette generated from one seed, and a tab that invented its own would read
-   as a different application bolted on. What is designed here is the structure:
-   what a work item looks like when you are scanning forty of them, and what it
-   looks like when you are reading one.
+   The panel's own system does the colour and the type — the Watchtower rules in
+   docs/design/styleguide.html — and a tab that invented its own would read as a
+   different application bolted on. Two of those rules decide most of this file:
+   ember, lilac and lime belong to sessions, so nothing about a work item may be
+   drawn in them; and rose means something went wrong, so not even an urgent
+   item is red. Urgency is drawn in ink, and in how much of it there is. What is
+   designed here is the structure: what a work item looks like when you are
+   scanning forty of them, and what it looks like when you are reading one.
 
    Two ideas carry it.
 
    A work item's *priority* is not a label, whatever GitLab thinks. It is the
    order to do things in, so it is lifted out of the row of labels and given the
    only position on the row that cannot be missed — a rail down the leading edge,
-   the one place nothing else competes for. Everything else about the item is
-   drawn quietly beside it.
+   the one place nothing else competes for, heavier and darker the more it
+   matters. Everything else about the item is drawn quietly beside it.
 
    And a *scoped label* is a field and its value, not a word. `priority::high`
    is drawn as two halves, the way GitLab draws it and the way it actually
@@ -45,27 +48,33 @@
 
 .gl-head__acts { display: flex; align-items: center; gap: 6px; }
 
-/* The pipeline, as a word in the colour of what it means. Tones rather than
-   fixed colours: everything else here follows the seed, and this must too. */
+/* The pipeline, as a dot and a word: status takes the support colours — lime
+   passed, rose failed, lilac running, butter waiting — and never colour alone.
+   The pill itself stays neutral, so the one dot is all the colour there is. */
 .gl-pipe {
-  padding: 4px 12px;
-  border-radius: 999px;
+  --dot: var(--md-sys-color-outline);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 14px 0 12px;
+  border-radius: var(--md-sys-shape-corner-full);
   text-decoration: none;
-  background: var(--md-sys-color-surface-container-high);
-  color: var(--md-sys-color-on-surface-variant);
+  background: var(--wt-field);
+  color: var(--md-sys-color-on-surface);
 }
-.gl-pipe[data-tone="good"] {
-  background: color-mix(in srgb, var(--md-sys-color-primary) 16%, transparent);
-  color: var(--md-sys-color-primary);
+.gl-pipe::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--dot);
 }
-.gl-pipe[data-tone="bad"] {
-  background: color-mix(in srgb, var(--md-sys-color-error) 16%, transparent);
-  color: var(--md-sys-color-error);
-}
-.gl-pipe[data-tone="busy"] {
-  background: color-mix(in srgb, var(--md-sys-color-tertiary) 16%, transparent);
-  color: var(--md-sys-color-tertiary);
-}
+.gl-pipe:hover { background: color-mix(in srgb, var(--wt-field) 70%, var(--wt-line)); }
+.gl-pipe[data-tone="good"] { --dot: var(--wt-lime); }
+.gl-pipe[data-tone="bad"] { --dot: var(--wt-rose); }
+.gl-pipe[data-tone="busy"] { --dot: var(--wt-lilac); }
+.gl-pipe[data-tone="wait"] { --dot: var(--wt-butter); }
 
 /* --------------------------------------------------------------- the bar */
 
@@ -74,49 +83,70 @@
   align-items: center;
   gap: 8px;
   padding: 4px 4px 12px;
-  border-bottom: 1px solid var(--md-sys-color-outline-variant);
-  margin-bottom: 4px;
 }
 
 .gl-chips { display: flex; gap: 6px; flex: none; }
 
 /* Two chips carrying their own counts, so *Yours* and *All open* answer "how
-   many" before they are pressed — the count is most of the reason to press. */
+   many" before they are pressed — the count is most of the reason to press.
+   The count is the styleguide's rider: a circle riding inside the pill. The
+   chosen chip is ink, as the chosen filter in the session list is. */
 .gl-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: 999px;
-  border: 1px solid var(--md-sys-color-outline-variant);
-  background: transparent;
-  color: var(--md-sys-color-on-surface-variant);
+  gap: 8px;
+  height: 40px;
+  padding: 0 6px 0 16px;
+  border: 0;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--wt-field);
+  color: var(--md-sys-color-on-surface);
   cursor: pointer;
 }
 .gl-chip[aria-pressed="true"] {
-  background: var(--md-sys-color-secondary-container);
-  color: var(--md-sys-color-on-secondary-container);
-  border-color: transparent;
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
 }
 .gl-chip__count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+  font-size: 12px;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
-  opacity: 0.7;
+}
+.gl-chip[aria-pressed="true"] .gl-chip__count {
+  background: color-mix(in srgb, var(--md-sys-color-on-primary) 18%, transparent);
+  color: var(--md-sys-color-on-primary);
 }
 
+/* A filled pill with the lilac ring on focus — the styleguide's field. */
 .gl-search {
   flex: 1;
   min-width: 0;
-  padding: 8px 14px;
-  border-radius: 999px;
-  border: 1px solid var(--md-sys-color-outline-variant);
-  background: var(--md-sys-color-surface-container-low);
+  height: 40px;
+  padding: 0 18px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--wt-field);
   color: var(--md-sys-color-on-surface);
   font: inherit;
+  transition: box-shadow var(--md-sys-motion-duration-short4) var(--wt-ease, ease),
+              background-color var(--md-sys-motion-duration-short4) var(--wt-ease, ease);
 }
-.gl-search:focus-visible {
-  outline: 2px solid var(--md-sys-color-primary);
-  outline-offset: -2px;
-  border-color: transparent;
+.gl-search:hover { background: color-mix(in srgb, var(--wt-field) 70%, var(--wt-line)); }
+.gl-search::placeholder { color: var(--md-sys-color-outline); }
+.gl-search:focus-visible, .gl-search:focus {
+  outline: none;
+  background: var(--md-sys-color-surface-container-lowest);
+  box-shadow: 0 0 0 3px var(--wt-lilac);
 }
 
 /* ---------------------------------------------------------------- the list */
@@ -135,38 +165,43 @@
   width: 100%;
   padding: 10px 12px 10px 0;
   border: 0;
-  border-radius: var(--md-sys-shape-corner-medium, 12px);
+  border-radius: var(--md-sys-shape-corner-large);
   background: transparent;
   color: inherit;
   text-align: left;
   cursor: pointer;
   text-decoration: none;
 }
-.gl-row__open:hover { background: var(--md-sys-color-surface-container); }
+.gl-row__open:hover { background: var(--wt-field); }
 .gl-row__open:focus-visible {
-  outline: 2px solid var(--md-sys-color-primary);
-  outline-offset: -2px;
+  outline: 3px solid var(--wt-lilac);
+  outline-offset: -3px;
 }
 
-/* The priority rail: the one piece of this design that is allowed to shout.
-   Unset priorities keep the rail as a hairline, so the rows still align and an
-   untriaged item is quiet rather than absent. */
+/* The priority rail: the one piece of this design that is allowed to shout,
+   and it shouts in ink — the colours that would be louder all mean something
+   else here. High is the full ink and the widest; medium is ink at half; low is
+   a hairline you can still see. Unset priorities keep the rail as a hatched
+   ghost, so the rows still align and an untriaged item reads as "nothing set"
+   rather than as absent. */
 .gl-row__rail {
   flex: none;
   align-self: stretch;
-  width: 3px;
+  width: 4px;
   min-height: 34px;
+  margin-left: 6px;
   margin-right: 2px;
-  border-radius: 999px;
-  background: var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-corner-full);
+  background-color: var(--wt-field);
+  background-image: var(--wt-hatch-fine);
 }
 .gl-row__rail[data-priority="critical"],
 .gl-row__rail[data-priority="urgent"],
-.gl-row__rail[data-priority="high"] { background: var(--md-sys-color-error); width: 4px; }
-.gl-row__rail[data-priority="medium"] { background: var(--md-sys-color-primary); }
-.gl-row__rail[data-priority="low"] {
-  background: color-mix(in srgb, var(--md-sys-color-primary) 40%, transparent);
+.gl-row__rail[data-priority="high"] { background: var(--md-sys-color-on-surface); width: 5px; }
+.gl-row__rail[data-priority="medium"] {
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 50%, transparent);
 }
+.gl-row__rail[data-priority="low"] { background: var(--md-sys-color-outline-variant); }
 
 .gl-row__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 
@@ -180,6 +215,7 @@
 
 .gl-row__title {
   color: var(--md-sys-color-on-surface);
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -224,19 +260,25 @@
 .gl-label__value { padding: 1px 9px; background: var(--label); color: var(--on-label); }
 
 /* Priority is drawn as itself rather than as a label, since the rail already
-   says it in colour and this says it in words. */
+   says it in weight and this says it in words. Ink again, never a state colour:
+   high is the darker, heavier outline, and a draft is dashed, because it is
+   not finished rather than not important. */
 .gl-priority {
   padding: 1px 9px;
-  border-radius: 999px;
-  border: 1px solid currentColor;
+  border-radius: var(--md-sys-shape-corner-full);
+  border: 1.5px solid var(--md-sys-color-outline-variant);
   color: var(--md-sys-color-on-surface-variant);
   text-transform: lowercase;
 }
 .gl-priority[data-priority="critical"],
 .gl-priority[data-priority="urgent"],
-.gl-priority[data-priority="high"] { color: var(--md-sys-color-error); }
-.gl-priority[data-priority="medium"] { color: var(--md-sys-color-primary); }
-.gl-priority[data-priority="draft"] { color: var(--md-sys-color-tertiary); }
+.gl-priority[data-priority="high"] {
+  border-color: var(--md-sys-color-on-surface);
+  color: var(--md-sys-color-on-surface);
+  font-weight: 700;
+}
+.gl-priority[data-priority="medium"] { border-color: var(--md-sys-color-outline); color: var(--md-sys-color-on-surface); }
+.gl-priority[data-priority="draft"] { border-style: dashed; border-color: var(--md-sys-color-outline); }
 
 /* -------------------------------------------------------------- the people */
 
@@ -252,43 +294,56 @@
   width: 26px;
   height: 26px;
   border-radius: 999px;
-  background: var(--md-sys-color-secondary-container);
-  color: var(--md-sys-color-on-secondary-container);
+  background: var(--wt-field);
+  color: var(--md-sys-color-on-surface);
   border: 2px solid var(--md-sys-color-surface);
   font-size: 10px;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0.02em;
 }
 
 /* --------------------------------------------------------------- compose */
 
+/* A card: radius 24 for its size, lifted by tone alone — no border, no shadow.
+   The fields inside it are the styleguide's filled fields, a step darker than
+   the card, with the lilac ring on focus. */
 .gl-compose {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  margin: 4px 0 12px;
-  border-radius: var(--md-sys-shape-corner-large, 16px);
+  gap: 10px;
+  padding: 14px;
+  margin: 4px 0 14px;
+  border-radius: var(--md-sys-shape-corner-large);
   background: var(--md-sys-color-surface-container-low);
-  border: 1px solid var(--md-sys-color-outline-variant);
 }
 
 .gl-compose__title,
 .gl-compose__body {
   width: 100%;
-  padding: 8px 10px;
-  border-radius: var(--md-sys-shape-corner-small, 8px);
-  border: 1px solid var(--md-sys-color-outline-variant);
-  background: var(--md-sys-color-surface);
+  box-sizing: border-box;
+  padding: 12px 18px;
+  border: 0;
+  /* The card's radius less its padding, so the gap round each field is even. */
+  border-radius: calc(var(--md-sys-shape-corner-large) - 14px + 6px);
+  background: var(--wt-field);
   color: var(--md-sys-color-on-surface);
   font: inherit;
   resize: vertical;
+  transition: box-shadow var(--md-sys-motion-duration-short4) var(--wt-ease, ease),
+              background-color var(--md-sys-motion-duration-short4) var(--wt-ease, ease);
 }
-.gl-compose__title { font: var(--md-sys-typescale-title-small-font, inherit); }
+.gl-compose__title { border-radius: var(--md-sys-shape-corner-full); font-weight: 600; }
+.gl-compose__title::placeholder,
+.gl-compose__body::placeholder { color: var(--md-sys-color-outline); }
+.gl-compose__title:hover,
+.gl-compose__body:hover { background: color-mix(in srgb, var(--wt-field) 70%, var(--wt-line)); }
 .gl-compose__title:focus-visible,
-.gl-compose__body:focus-visible {
-  outline: 2px solid var(--md-sys-color-primary);
-  outline-offset: -2px;
+.gl-compose__body:focus-visible,
+.gl-compose__title:focus,
+.gl-compose__body:focus {
+  outline: none;
+  background: var(--md-sys-color-surface-container-lowest);
+  box-shadow: 0 0 0 3px var(--wt-lilac);
 }
 
 .gl-compose__labels { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -312,10 +367,10 @@
 .gl-label-pick[aria-pressed="true"] {
   opacity: 1;
   filter: none;
-  border-color: var(--md-sys-color-primary);
+  border-color: var(--md-sys-color-on-surface);
 }
 .gl-label-pick:focus-visible {
-  outline: 2px solid var(--md-sys-color-primary);
+  outline: 3px solid var(--wt-lilac);
   outline-offset: 1px;
 }
 
@@ -334,29 +389,38 @@
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  border-radius: 999px;
+  border-radius: var(--md-sys-shape-corner-full);
   text-decoration: none;
-  color: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-surface);
 }
-.gl-detail__out:hover { background: var(--md-sys-color-surface-container); }
+.gl-detail__out:hover { background: var(--wt-field); }
 .gl-detail__out svg { width: 16px; height: 16px; }
 
 /* The heading takes the same rail the row had, grown up: the item you were
    scanning and the item you are reading are recognisably the same object. */
 .gl-detail__head {
-  padding: 4px 0 12px 16px;
-  border-left: 4px solid var(--md-sys-color-outline-variant);
+  position: relative;
+  padding: 4px 0 12px 22px;
   margin-bottom: 4px;
 }
-.gl-detail__head[data-priority="critical"],
-.gl-detail__head[data-priority="urgent"],
-.gl-detail__head[data-priority="high"] { border-left-color: var(--md-sys-color-error); }
-.gl-detail__head[data-priority="medium"] { border-left-color: var(--md-sys-color-primary); }
-.gl-detail__head[data-priority="low"] {
-  border-left-color: color-mix(in srgb, var(--md-sys-color-primary) 40%, transparent);
+.gl-detail__head::before {
+  content: "";
+  position: absolute;
+  inset: 4px auto 12px 0;
+  width: 6px;
+  border-radius: var(--md-sys-shape-corner-full);
+  background-color: var(--wt-field);
+  background-image: var(--wt-hatch-fine);
 }
+.gl-detail__head[data-priority="critical"]::before,
+.gl-detail__head[data-priority="urgent"]::before,
+.gl-detail__head[data-priority="high"]::before { background: var(--md-sys-color-on-surface); }
+.gl-detail__head[data-priority="medium"]::before {
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 50%, transparent);
+}
+.gl-detail__head[data-priority="low"]::before { background: var(--md-sys-color-outline-variant); }
 
-.gl-detail__title { margin: 0 0 4px; color: var(--md-sys-color-on-surface); }
+.gl-detail__title { margin: 0 0 6px; color: var(--md-sys-color-on-surface); text-wrap: balance; }
 .gl-detail__who { margin: 0; color: var(--md-sys-color-on-surface-variant); }
 .gl-detail__labels { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 
@@ -376,6 +440,10 @@
 .gl-body > :last-child { margin-bottom: 0; }
 
 .gl-notes { margin-top: 20px; }
+
+/* The merge requests under the list are a second list, not more of the first:
+   the gap says so without a rule between them. */
+.gl-list + .section, .git-empty + .section { margin-top: var(--md-sys-spacing-6); }
 
 .gl-note {
   padding: 10px 0;
@@ -415,12 +483,22 @@
 
 .wi-group__title { color: var(--md-sys-color-on-surface); }
 
+.wi-group__title { font-weight: 650; }
+
 .wi-group__count {
-  color: var(--md-sys-color-on-surface-variant);
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  box-sizing: border-box;
+  align-self: center;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--wt-field);
+  color: var(--md-sys-color-on-surface);
+  font-size: 12px;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: var(--md-sys-color-surface-container-high);
 }
 
 /* The folder, with room to be read: it is the answer to "where will this run",
@@ -438,11 +516,19 @@
 }
 .wi-group__where svg { width: 14px; height: 14px; flex: none; }
 
+/* Butter is the styleguide's "careful": something to sort out before this
+   goes ahead, which is exactly what a missing checkout is. A dot in it beside
+   words, since colour alone says nothing. */
 .wi-group__missing {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  color: var(--md-sys-color-tertiary);
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px 0 8px;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: color-mix(in srgb, var(--wt-butter) 28%, var(--md-sys-color-surface));
+  color: var(--md-sys-color-on-surface);
+  font-weight: 600;
 }
 
 .wi-group__host { color: var(--md-sys-color-on-surface-variant); opacity: 0.75; }
@@ -467,8 +553,8 @@
 }
 .gl-row__out svg { width: 16px; height: 16px; }
 .gl-row__out:hover {
-  background: var(--md-sys-color-surface-container-high);
-  color: var(--md-sys-color-primary);
+  background: var(--wt-field);
+  color: var(--md-sys-color-on-surface);
 }
 
 /* The press, named. Quiet until the row is under the pointer or the keyboard,
@@ -480,10 +566,12 @@
   align-items: center;
   gap: 6px;
   flex: none;
-  padding: 6px 14px;
-  border-radius: 999px;
-  background: var(--md-sys-color-surface-container-high);
-  color: var(--md-sys-color-on-surface-variant);
+  height: 36px;
+  padding: 0 16px 0 12px;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--wt-field);
+  color: var(--md-sys-color-on-surface);
+  font-weight: 600;
   transition: background var(--md-sys-motion-duration-short4, 200ms)
               var(--md-sys-motion-easing-standard, ease),
               color var(--md-sys-motion-duration-short4, 200ms)
@@ -498,9 +586,10 @@
 }
 .gl-row__open:hover .gl-go[data-ready="false"],
 .gl-row__open:focus-visible .gl-go[data-ready="false"] {
-  background: var(--md-sys-color-tertiary-container);
-  color: var(--md-sys-color-on-tertiary-container);
+  background: var(--wt-butter);
+  color: var(--wt-on-state);
 }
+.gl-row__open:hover .gl-go { background: var(--md-sys-color-surface); }
 .gl-row__open[disabled] { cursor: default; }
 .gl-row__open[disabled] .gl-go { opacity: 0.7; }
 
@@ -511,11 +600,33 @@
 /* A host that could not be reached is said beside the list rather than instead
    of it: the other hosts answered, and their items are the point. */
 .wi-trouble {
-  margin: 0 0 8px;
-  padding: 8px 12px;
-  border-radius: var(--md-sys-shape-corner-medium, 12px);
-  background: color-mix(in srgb, var(--md-sys-color-error) 12%, transparent);
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  margin: 0 0 10px;
+  padding: 10px 16px 10px 52px;
+  box-sizing: border-box;
+  border-radius: var(--md-sys-shape-corner-large);
+  background: color-mix(in srgb, var(--wt-rose) 20%, var(--md-sys-color-surface));
   color: var(--md-sys-color-on-surface);
+}
+/* The styleguide's alert: a round icon on the tint, rose for "went wrong". */
+.wi-trouble::before {
+  content: "!";
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  translate: 0 -50%;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--wt-rose);
+  color: var(--wt-on-state);
+  font-weight: 800;
+  font-size: 13px;
 }
 
 /* ---------------------------------------------------------------- narrow */

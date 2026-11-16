@@ -123,6 +123,7 @@ function contextBar(session) {
 }
 
 function modeBar(session) {
+  if (!runsHere(session) && session.tmux && session.modeLive && app.feed.canSend) return tmuxModeBar(session);
   if (!runsHere(session) || !app.feed.canSend) return "";
   const owned = ownedFor(session);
   return `<div class="mode-bar" role="group" aria-label="Permission mode">
@@ -131,6 +132,39 @@ function modeBar(session) {
           aria-pressed="${String((owned.mode || "default") === key)}"
           data-mark="${key}">${escapeHtml(OWNED_MODE_LABEL[key])}</button>`).join("")}
     </div>`;
+}
+
+/* The same chips for a terminal session in tmux, where picking one presses
+   Shift+Tab in its pane until the footer shows that mode. The pressed chip is
+   what the footer showed on the last read, not what was asked for, because
+   that is the mode the session is actually in. */
+function tmuxModeBar(session) {
+  return `<div class="mode-bar" role="group" aria-label="Permission mode, read off its tmux pane">
+      ${Object.keys(OWNED_MODE_LABEL).map((key) => `
+        <button class="mode-chip md-state md-label-small" type="button" data-tmux-mode="${key}"
+          aria-pressed="${String(session.permissionMode === key)}"
+          data-mark="${key}">${escapeHtml(OWNED_MODE_LABEL[key])}</button>`).join("")}
+    </div>`;
+}
+
+export async function pickTmuxMode(session, chip) {
+  const mode = chip.dataset.tmuxMode;
+  if (session.permissionMode === mode) return;
+  const bar = chip.closest(".mode-bar");
+  for (const other of bar.querySelectorAll("button")) other.disabled = true;
+  try {
+    const response = await fetch("/api/tmux/mode", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: session.sessionId, mode }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!data.ok) showSnackbar(data.message || "That mode did not stick");
+  } catch (error) {
+    showSnackbar("Could not reach the server");
+  } finally {
+    for (const other of bar.querySelectorAll("button")) other.disabled = false;
+    reloadState();
+  }
 }
 
 export function detailHeader(session, state, host) {
@@ -151,6 +185,9 @@ export function detailHeader(session, state, host) {
   // one that came with the session behind it, so the subject is there on the
   // first paint rather than a moment after it.
   const title = (chat.transcriptFor === session.sessionId && chat.transcript?.title) || session.title || null;
+  // Not repeated under the name when it already is the name — a session with a
+  // default name goes by its subject, see shown_name.
+  const subtitle = title && title.toLowerCase() !== session.name.toLowerCase() ? title : null;
   const folded = ui.headerFolded;
   return `<header class="detail-header" data-folded="${folded ? 1 : 0}">
       <div class="detail-header__top">
@@ -164,7 +201,7 @@ export function detailHeader(session, state, host) {
               <span class="md-mono md-body-small" data-since="${displaySince(session)}">${duration(Date.now() / 1000 + app.skew - displaySince(session))}</span></span>
           </div>
           <div class="detail-header__fold" id="headerFold"><div class="detail-header__fold-inner">
-            ${title ? `<p class="detail-header__subtitle md-body-medium">${escapeHtml(title)}</p>` : ""}
+            ${subtitle ? `<p class="detail-header__subtitle md-body-medium">${escapeHtml(subtitle)}</p>` : ""}
             ${modeBar(session)}
             ${contextBar(session)}
             <div class="detail-header__meta">${meta.join(" ")}</div>
@@ -239,33 +276,7 @@ function terminalAction(session) {
     : !app.feed.canSend ? "opening a terminal needs the panel on loopback"
     : `Resume this session in a terminal — the panel lets go of it${alsoGoes}`;
   return `<button class="button button--outlined md-state detail-header__terminal" data-act="terminal"
-                  ${can ? "" : "disabled"} title="${escapeHtml(why)}">${ICON.terminal} Open in terminal</button>
-          ${remoteAction(can, why, alsoGoes)}`;
-}
-
-/* The same hand-back, with Remote Control switched on.
-
-   Its own button rather than a checkbox on the one above, because it is a
-   different thing to have decided: opening a terminal is local and reversible,
-   and Remote Control registers the session with your Anthropic account so that
-   it can be driven from somewhere else. That is not a setting to inherit by
-   accident from the last time you pressed the neighbouring button.
-
-   It is here at all because this is the only place it can be. Remote Control
-   needs an interactive session — Claude Code answers `/remote-control` with *not
-   available in this environment* down a `--print` pipe, which is what every
-   session the panel runs itself is — so the panel cannot switch it on for a
-   session it holds. What it can do is hand the session to a terminal with
-   `--remote-control`, which is this. See control.start_session.
-
-   Drawn under the same conditions and refused for the same reasons as its
-   neighbour: it goes through /api/start, so a turn in flight blocks it too. */
-function remoteAction(can, why, alsoGoes) {
-  const reason = can
-    ? `Resume this session in a terminal with Remote Control, so it can be driven from your phone — the panel lets go of it${alsoGoes}`
-    : why;
-  return `<button class="button button--outlined md-state detail-header__remote" data-act="remote"
-                  ${can ? "" : "disabled"} title="${escapeHtml(reason)}">${ICON.remoteControl} Remote Control</button>`;
+                  ${can ? "" : "disabled"} title="${escapeHtml(why)}">${ICON.terminal} Open in terminal</button>`;
 }
 
 /* Opening the session's folder in VS Code. Offered whatever state the session is
@@ -372,12 +383,14 @@ export function ownedAskCard(session, ask) {
       <div class="ask-sheet__body">
         ${rows}
         ${!ask.asks
-          ? `<p class="ask-q__text md-title-small">Let it use ${escapeHtml(ask.name)}?</p>
+          ? `<p class="ask-q__text md-title-small">${ask.via === "tmux"
+              ? "Let it go ahead?" : `Let it use ${escapeHtml(ask.name)}?`}</p>
              ${ask.what ? `<p class="ask-sheet__what md-body-small md-mono">${escapeHtml(ask.what)}</p>` : ""}`
           : ""}
       </div>
       <div class="ask-sheet__foot">
-        <span class="ask-sheet__note md-label-small">Nothing runs until you answer.</span>
+        <span class="ask-sheet__note md-label-small">${ask.via === "tmux"
+          ? "Answered by pressing its keys in tmux." : "Nothing runs until you answer."}</span>
         <button class="button button--text md-state" data-act="ask-deny">${ask.asks ? "Skip" : "Refuse"}</button>
         <button class="button button--filled md-state" data-act="ask-allow"${ready ? "" : " disabled"}>
           ${ask.asks ? "Answer" : "Allow"}</button>
@@ -435,10 +448,10 @@ export async function sendAskAnswer(session, ask, behavior, button) {
   button.disabled = true;
   const picks = askPicksFor(ask);
   try {
-    const response = await fetch("/api/owned/answer", {
+    const response = await fetch(ask.via === "tmux" ? "/api/tmux/answer" : "/api/owned/answer", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        sessionId: session.sessionId, requestId: ask.requestId, behavior,
+        sessionId: session.sessionId, requestId: ask.requestId, behavior, asks: !!ask.asks,
         ...(behavior === "allow" && ask.asks ? { answers: picks } : {}),
       }),
     });
@@ -503,6 +516,12 @@ function queuedStrip(session) {
           ? "1 message waiting for this turn to end"
           : `${waiting.length} messages waiting, in the order you typed them`}</p>
       <ul class="queued__list">${rows}</ul>
+      ${!held && owned.busy ? `<div class="queued__ask">
+        <button class="button button--tonal md-state queued__go" type="button" data-act="send-now"
+          title="Put ${waiting.length === 1 ? "it" : "them"} into the turn that is running — Ctrl+Enter in the box does the same">
+          ${ICON.play}Send now</button>
+        <span class="queued__note md-label-small">instead of waiting for this turn to end</span>
+      </div>` : ""}
       ${held ? `<div class="queued__ask">
         <button class="button button--filled md-state queued__go" type="button" data-act="resume">
           ${ICON.play}${waiting.length === 1 ? "Send it" : "Send them"}</button>
@@ -595,7 +614,27 @@ function attachedStrip(session) {
     </div>`;
 }
 
+/* The two ways in for a picture that is not on the clipboard: the platform's own
+   file chooser, and — on a phone — its own camera. Both are the browser's native
+   sheets rather than anything drawn here, so on iOS and Android you get the
+   photo library, the camera and the files app you already know. */
+function pictureButtons() {
+  return `<button class="button button--text md-state composer__pick" type="button"
+      data-act="pick-picture" title="Add a picture" aria-label="Add a picture">${ICON.image}</button>
+    <button class="button button--text md-state composer__pick composer__pick--camera" type="button"
+      data-act="take-picture" title="Take a picture" aria-label="Take a picture">${ICON.camera}</button>
+    <button class="button button--text md-state composer__pick composer__mic" type="button" hidden
+      data-act="voice" aria-pressed="false" title="Talk instead of typing"
+      aria-label="Talk instead of typing">${ICON.mic}</button>`;
+}
+
 export function composer(session) {
+  // A terminal session in tmux standing on a prompt the panel could read off
+  // its screen: the one case of a blocked terminal session that can be
+  // answered from here, so it gets the same card as a panel turn's prompt.
+  if (session.terminalAsk && !runsHere(session)) {
+    return `<div class="composer composer--asking">${agentDock(session)}${ownedAskCard(session, session.terminalAsk)}</div>`;
+  }
   const why = sendBlockedReason(session);
   if (why) {
     return `<div class="composer">
@@ -625,11 +664,11 @@ export function composer(session) {
   // typed at to be run from here rather than to be woken in a terminal.
   const away = !stopped && !session.canSay;
   const placeholder = stopped
-    ? (owned.running && owned.busy ? "Type ahead — this goes in when the turn ends…"
+    ? (owned.running && owned.busy ? "Type ahead — this goes in when the turn ends, or Ctrl+Enter to send it now…"
        : owned.running ? "Send it a message…"
        : "Type and it starts back up…")
     : away ? "Write here — it goes in as soon as it is listening…"
-    : queued ? "Queue a message for when it finishes…" : "Send a message — drop a file to name it, paste a picture to send it…";
+    : queued ? "Queue a message for when it finishes, or Ctrl+Enter to send it now…" : "Send a message — drop a file to name it, paste or add a picture to send it…";
   // The mode lives in the header, beside the session's name, so what is left in
   // this bar is only what belongs to sending: the way in, for a session that is
   // not ours yet, and the failure of the last turn if there was one.
@@ -659,6 +698,7 @@ export function composer(session) {
         tabindex="0" aria-label="Resize the message box"
         title="Drag to resize · double-click to fit the text"></div>
       ${modes}
+      ${pictureButtons()}
       <textarea class="composer__field md-body-large" id="sayField" rows="1"
         aria-label="Message this session"
         placeholder="${placeholder}"></textarea>

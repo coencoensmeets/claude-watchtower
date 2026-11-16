@@ -24,7 +24,7 @@ import { runsHere } from "./owned.js";
 const quoteChip = document.getElementById("quoteChip");
 quoteChip.innerHTML =
   `<button class="quote-chip__act" type="button" data-sel="copy">${ICON.copy}<span>Copy</span></button>`
-  + `<button class="quote-chip__act" type="button" data-sel="comment">${ICON.chat}<span>Comment</span></button>`;
+  + `<button class="quote-chip__act quote-chip__act--lit" type="button" data-sel="comment">${ICON.chat}<span>Comment</span></button>`;
 // Captured when the chip is shown, not read when it is clicked: clicking is a
 // pointer event on another element, and by then the selection may be gone.
 let pendingQuote = null;
@@ -383,21 +383,32 @@ export function renderRail() {
 
   const sendable = list.filter((c) => c.remark.trim()).length;
   inner.innerHTML = list.map((c) => `
-    <div class="ccard" data-id="${escapeHtml(c.id)}" data-active="${c.id === activeComment}">
-      <p class="ccard__label md-label-medium">${ICON.chat}<span>your comment</span></p>
+    <div class="ccard" data-id="${escapeHtml(c.id)}" data-active="${c.id === activeComment}"
+         data-editing="${!!c.editing}">
+      <div class="ccard__head">
+        <span class="ccard__badge" aria-hidden="true">${ICON.chat}</span>
+        <span class="ccard__label md-label-large">You</span>
+        <span class="ccard__tag md-label-small">Draft</span>
+        ${c.editing ? "" : `<span class="ccard__tools">
+          <button class="ccard__icon md-state" type="button" data-cc="edit" data-id="${escapeHtml(c.id)}"
+            title="Edit" aria-label="Edit this comment">${ICON.pencil}</button>
+          <button class="ccard__icon md-state" type="button" data-cc="drop" data-id="${escapeHtml(c.id)}"
+            title="Delete" aria-label="Delete this comment">${ICON.trash}</button>
+        </span>`}
+      </div>
       <p class="ccard__quote md-body-small">${escapeHtml(c.text.split("\n")[0].slice(0, 160))}</p>
       ${c.editing
         ? `<textarea class="ccard__field md-body-medium" aria-label="Your comment on this passage"
              placeholder="What about it?">${escapeHtml(c.remark)}</textarea>
            <div class="ccard__actions">
-             <button class="button button--text md-state md-label-large" data-cc="drop" data-id="${escapeHtml(c.id)}">Delete</button>
-             <button class="button button--text md-state md-label-large" data-cc="keep" data-id="${escapeHtml(c.id)}">Done</button>
+             <span class="ccard__hint md-label-small"><kbd>Enter</kbd> done · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line</span>
+             <button class="ccard__icon md-state" type="button" data-cc="drop" data-id="${escapeHtml(c.id)}"
+               title="Delete" aria-label="Delete this comment">${ICON.trash}</button>
+             <button class="ccard__done md-state md-label-large" type="button" data-cc="keep"
+               data-id="${escapeHtml(c.id)}"><span class="ccard__ride" aria-hidden="true">${ICON.check}</span>Done</button>
            </div>`
-        : `<p class="ccard__remark md-body-medium">${escapeHtml(c.remark) || "<em>no comment yet</em>"}</p>
-           <div class="ccard__actions">
-             <button class="button button--text md-state md-label-large" data-cc="drop" data-id="${escapeHtml(c.id)}">Delete</button>
-             <button class="button button--text md-state md-label-large" data-cc="edit" data-id="${escapeHtml(c.id)}">Edit</button>
-           </div>`}
+        : `<p class="ccard__remark md-body-medium">${escapeHtml(c.remark)
+             || `<span class="ccard__empty">No comment yet</span>`}</p>`}
     </div>`).join("");
 
   /* Move each card into the conversation, directly after the message it is
@@ -420,13 +431,10 @@ export function renderRail() {
   let send = rail.querySelector<HTMLButtonElement>(".rail__send");
   if (!send) {
     send = document.createElement("button");
-    send.className = "button button--filled md-state rail__send";
+    send.className = "md-state md-label-large rail__send";
     rail.appendChild(send);
   }
-  send.textContent = sendable
-    ? `Send ${sendable} comment${sendable === 1 ? "" : "s"}`
-    : "Write a comment to send";
-  send.disabled = !sendable;
+  paintSend(send, sendable);
 
   // Wherever the cards ended up, not where they were built: they have already
   // been moved into the transcript by this point, so inner no longer holds them.
@@ -458,7 +466,19 @@ function refreshSendLabel() {
   const send = detailPane.querySelector<HTMLButtonElement>(".rail__send");
   if (!send) return;
   const n = commentsFor(app.selectedId).filter((c) => c.remark.trim()).length;
-  send.textContent = n ? `Send ${n} comment${n === 1 ? "" : "s"}` : "Write a comment to send";
+  paintSend(send, n);
+}
+
+/* The Send pill: the number of drafts in a butter bubble, the words, and the
+   arrow riding at the end — the styleguide's "Comments on a passage". The
+   accessible name keeps the plain sentence the bubble and arrow stand for. */
+function paintSend(send, n) {
+  const words = n ? `Send ${n} comment${n === 1 ? "" : "s"}` : "Write a comment to send";
+  send.innerHTML = n
+    ? `<span class="rail__count" aria-hidden="true">${n}</span><span>Send comment${n === 1 ? "" : "s"}</span>`
+      + `<span class="rail__ride" aria-hidden="true">${ICON.up}</span>`
+    : `<span>${words}</span>`;
+  send.setAttribute("aria-label", words);
   send.disabled = !n;
 }
 
@@ -752,6 +772,8 @@ export function startRename(session, button) {
 async function commitRename(session, name) {
   // Show the new name at once; the next poll confirms it from the server.
   const local = app.feed.sessions.find((s) => s.sessionId === session.sessionId);
+  // A reset goes back to the session's subject when its own name is a default
+  // one — the server's reply says which, and the poll after it settles it.
   if (local) local.name = name || local.defaultName || local.name;
   refresh();
   try {
@@ -761,6 +783,7 @@ async function commitRename(session, name) {
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.ok) showSnackbar(data.message || "That rename did not stick");
+    else if (local && data.name && local.name !== data.name) { local.name = data.name; refresh(); }
   } catch (error) {
     showSnackbar("Could not reach the server");
   } finally {
@@ -989,6 +1012,8 @@ export function sendBlockedReason(session) {
 export function questionCard(session) {
   const asked = session.question;
   if (!asked || !asked.questions?.length) return "";
+  // Answerable from here instead, in the composer's place; see terminalAsk.
+  if (session.terminalAsk) return "";
   const rows = asked.questions.map((q) => {
     const options = (q.options || []).map((option, i) => `<li class="ask__option">
         <span class="ask__index md-label-medium md-mono">${i + 1}</span>

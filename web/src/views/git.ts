@@ -515,6 +515,7 @@ export function gitPanel(session) {
   return `
     ${gitHead(repo.git)}
     ${can ? commitBox(session, groups) : ""}
+    ${changeMix(repo.git.files)}
     ${group("merge", "Merge changes", groups.merge, false,
       act("stage-group", ICON.plus, "Stage all — marks these conflicts resolved"))}
     ${group("staged", "Staged changes", groups.staged, true,
@@ -522,6 +523,29 @@ export function gitPanel(session) {
     ${group("changes", "Changes", groups.changes, false,
       act("discard-group", ICON.discard, "Discard all changes", true) + act("stage-group", ICON.plus, "Stage all changes"))}
     ${repo.git.files.length ? "" : `<p class="git-empty md-body-medium">Nothing changed — the working tree is clean.</p>`}`;
+}
+
+/* What kind of change the working tree holds, as one bar cut into parts —
+   the same segmented bar the Usage tab uses, so "how much of what" reads the
+   same everywhere. A file is counted once, by its strongest change. */
+function changeMix(files) {
+  if (files.length < 2) return "";
+  const kinds = [
+    ["Conflicted", (f) => f.conflicted, "var(--viz-8)"],
+    ["Added", (f) => f.untracked || f.staged === "A" || f.unstaged === "A", "var(--viz-3)"],
+    ["Deleted", (f) => f.staged === "D" || f.unstaged === "D", "var(--viz-5)"],
+    ["Modified", () => true, "var(--viz-4)"],
+  ];
+  const counts = kinds.map(() => 0);
+  for (const file of files) counts[kinds.findIndex(([, test]) => test(file))] += 1;
+  const parts = kinds.map(([name, , colour], i) => [name, counts[i], colour]).filter(([, n]) => n);
+  const total = files.length;
+  return `<div class="git-mix">
+    <div class="git-mix__bar" role="img" aria-label="${escapeHtml(parts.map(([name, n]) => `${n} ${name.toLowerCase()}`).join(", "))}">${parts
+      .map(([name, n, colour]) => `<span style="flex: ${Math.max(n, total * 0.02)} 1 0; --c: ${colour}" title="${escapeHtml(`${n} ${name.toLowerCase()}`)}"></span>`).join("")}</div>
+    <ul class="git-mix__legend">${parts.map(([name, n, colour]) =>
+      `<li style="--c: ${colour}"><i></i><b>${n}</b> ${escapeHtml(name.toLowerCase())}</li>`).join("")}</ul>
+  </div>`;
 }
 
 /* Why the commit button cannot be pressed, or null when it can. One answer, in

@@ -48,24 +48,34 @@ def find_node() -> str | None:
     if chosen:
         return chosen if Path(chosen).is_file() else None
 
+    # nodejs-wheel-binaries ships the binary inside the installed package
+    # (site-packages/nodejs_wheel/bin/node, or nodejs_wheel/node.exe on
+    # Windows) rather than in the venv's bin/, so both places are looked in.
+    # Looking on disk rather than importing means it is found even when the
+    # panel was started with a Python outside the venv.
+    wheel_node = "node.exe" if os.name == "nt" else "bin/node"
     for venv in (ROOT / ".venv", ROOT / "venv"):
         candidate = venv / ("Scripts/node.exe" if os.name == "nt" else "bin/node")
         if candidate.is_file():
             return str(candidate)
+        patterns = (["Lib/site-packages/nodejs_wheel"] if os.name == "nt"
+                    else ["lib/python*/site-packages/nodejs_wheel",
+                          "lib64/python*/site-packages/nodejs_wheel"])
+        for pattern in patterns:
+            for package in sorted(venv.glob(pattern)):
+                candidate = package / wheel_node
+                if candidate.is_file():
+                    return str(candidate)
 
-    # nodejs-wheel-binaries ships the binary inside the installed package rather
-    # than on PATH, so it is asked where it put it.
+    # The wheel installed into whichever Python is running the panel.
     try:
-        from nodejs_wheel.executable import node_path  # type: ignore[import-not-found]
+        import nodejs_wheel  # type: ignore[import-not-found]
     except ImportError:
         pass
     else:
-        try:
-            found = node_path()
-            if found and Path(found).is_file():
-                return str(found)
-        except Exception:                     # a repackage's own business
-            pass
+        candidate = Path(nodejs_wheel.__file__).resolve().parent / wheel_node
+        if candidate.is_file():
+            return str(candidate)
 
     return shutil.which("node")
 

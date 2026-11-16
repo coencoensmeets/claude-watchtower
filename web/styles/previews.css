@@ -1,0 +1,308 @@
+  /* ================================ preview ================================ */
+  /* Pages a session made, shown in a frame you can size to a desktop, a tablet
+     or a phone. The frame sits on a dotted board like a page on a desk, with
+     a browser's top bar for a desktop and a bezel for a phone. */
+
+  .tab-panel--preview {
+    display: flex; flex-direction: column; overflow: hidden;
+    padding-top: var(--md-sys-spacing-2);
+  }
+  .pv { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: var(--md-sys-spacing-3); }
+
+  /* --------------------------------------------------------- picker */
+  .pv-picker {
+    display: flex; gap: var(--md-sys-spacing-2); overflow-x: auto; flex: none;
+    padding-bottom: 2px; scrollbar-width: none;
+  }
+  .pv-picker::-webkit-scrollbar { display: none; }
+  .pv-chip {
+    position: relative; flex: none; display: inline-flex; align-items: center; gap: 10px;
+    height: 52px; padding: 0 var(--md-sys-spacing-4) 0 6px;
+    border: 0; border-radius: var(--md-sys-shape-corner-full);
+    background: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);
+    font: inherit; cursor: pointer; text-align: left;
+    transition: background-color var(--md-sys-motion-duration-short4) var(--wt-ease, ease),
+                color var(--md-sys-motion-duration-short4) var(--wt-ease, ease);
+  }
+  .pv-chip__icon {
+    width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center;
+    background: var(--md-sys-color-surface); color: var(--md-sys-color-on-surface);
+  }
+  .pv-chip__icon svg { width: 20px; height: 20px; }
+  .pv-chip__text { display: flex; flex-direction: column; line-height: 1.2; }
+  .pv-chip__meta { opacity: 0.7; }
+  .pv-chip[aria-pressed="true"] { background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); }
+  .pv-chip[aria-pressed="true"] .pv-chip__icon {
+    background: color-mix(in srgb, var(--md-sys-color-on-primary) 16%, transparent); color: inherit;
+  }
+  .pv-chip .pv-lamp { position: absolute; top: 6px; left: 36px; }
+
+  /* A dot for "this just arrived" — ink, not a state colour: colour means state. */
+  .pv-lamp, .tab__lamp {
+    width: 10px; height: 10px; border-radius: 50%; flex: none;
+    background: var(--md-sys-color-primary);
+    box-shadow: 0 0 0 2px var(--md-sys-color-surface);
+    animation: pv-pulse 1.8s var(--wt-ease, ease) infinite;
+  }
+  .pv-chip[aria-pressed="true"] .pv-lamp { background: var(--md-sys-color-on-primary); box-shadow: 0 0 0 2px var(--md-sys-color-primary); }
+  @keyframes pv-pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(0.7); }
+  }
+
+  /* --------------------------------------------------------- bar */
+  .pv-bar { display: flex; align-items: center; gap: var(--md-sys-spacing-4); flex: none; flex-wrap: wrap; }
+  .pv-bar__text { flex: 1 1 14em; min-width: 0; }
+  .pv-bar__title { display: flex; align-items: center; gap: var(--md-sys-spacing-2); }
+  .pv-bar__meta {
+    color: var(--md-sys-color-on-surface-variant); margin-top: 2px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .pv-bar__kind {
+    display: inline-block; padding: 1px 8px; margin-right: 4px; border-radius: var(--md-sys-shape-corner-full);
+    background: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);
+  }
+  .pv-badge { background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); }
+  .pv-tools { display: flex; align-items: center; gap: var(--md-sys-spacing-1); flex: none; }
+  .pv-devices {
+    display: inline-flex; gap: 2px; padding: 4px; margin-right: var(--md-sys-spacing-2);
+    border-radius: var(--md-sys-shape-corner-full); background: var(--md-sys-color-surface-container-high);
+  }
+  .pv-device {
+    width: 36px; height: 32px; display: grid; place-items: center; padding: 0;
+    border: 0; border-radius: var(--md-sys-shape-corner-full); background: transparent;
+    color: var(--md-sys-color-on-surface-variant); cursor: pointer;
+  }
+  .pv-device svg { width: 18px; height: 18px; }
+  .pv-device[aria-pressed="true"] {
+    background: var(--md-sys-color-surface); color: var(--md-sys-color-on-surface);
+    box-shadow: 0 2px 8px -4px rgb(0 0 0 / 0.3);
+  }
+  .pv-tool svg { width: 20px; height: 20px; }
+  .pv-open {
+    display: inline-flex; align-items: center; gap: 8px; height: 40px; margin-left: var(--md-sys-spacing-2);
+    padding: 0 var(--md-sys-spacing-5) 0 var(--md-sys-spacing-4);
+    border-radius: var(--md-sys-shape-corner-full); text-decoration: none;
+    background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);
+  }
+  .pv-open svg { width: 18px; height: 18px; }
+  /* The published copy of an artifact, beside the panel's own Open: a quiet
+     pill, since the frame already shows the same page from disk. */
+  .pv-artifact {
+    display: inline-flex; align-items: center; gap: 6px; height: 40px;
+    padding: 0 var(--md-sys-spacing-4); margin-left: var(--md-sys-spacing-2);
+    border-radius: var(--md-sys-shape-corner-full); text-decoration: none;
+    background: var(--md-sys-color-surface); color: var(--md-sys-color-on-surface);
+    box-shadow: inset 0 0 0 1.5px var(--md-sys-color-outline-variant);
+  }
+  .pv-artifact svg { width: 18px; height: 18px; }
+
+  /* --------------------------------------------------------- stage */
+  .pv-stage {
+    flex: 1 1 auto; min-height: 0; position: relative;
+    display: flex; flex-direction: column; align-items: center;
+    padding: var(--md-sys-spacing-4);
+    border-radius: var(--md-sys-shape-corner-extra-large);
+    background-color: var(--md-sys-color-surface-container);
+    background-image: radial-gradient(color-mix(in srgb, var(--md-sys-color-on-surface) 14%, transparent) 1px, transparent 1.4px);
+    background-size: 16px 16px;
+    overflow: auto;
+  }
+  .pv-frame {
+    flex: 1 1 auto; min-height: 0; width: 100%; max-width: 100%;
+    display: flex; flex-direction: column;
+    border-radius: var(--md-sys-shape-corner-large);
+    background: var(--md-sys-color-surface-container-lowest, var(--md-sys-color-surface));
+    box-shadow: var(--wt-float, 0 18px 40px -18px rgb(0 0 0 / 0.35)), 0 0 0 1px color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent);
+    overflow: hidden;
+    transition: max-width var(--md-sys-motion-duration-long2) var(--wt-ease, ease),
+                border-radius var(--md-sys-motion-duration-medium4) var(--wt-ease, ease),
+                border-width var(--md-sys-motion-duration-medium4) var(--wt-ease, ease);
+  }
+  .pv-stage[data-device="tablet"] .pv-frame { max-width: 834px; }
+  .pv-stage[data-device="phone"] .pv-frame {
+    max-width: 390px; max-height: 844px;
+    border: 10px solid var(--md-sys-color-primary); border-radius: 44px;
+  }
+  .pv-chrome {
+    flex: none; height: 40px; display: flex; align-items: center; gap: var(--md-sys-spacing-3);
+    padding: 0 var(--md-sys-spacing-3);
+    background: var(--md-sys-color-surface-container-high);
+    border-bottom: 1px solid color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent);
+  }
+  .pv-chrome__dots { display: inline-flex; gap: 6px; }
+  .pv-chrome__dots i {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: color-mix(in srgb, var(--md-sys-color-on-surface) 18%, transparent);
+  }
+  .pv-chrome__address {
+    flex: 1 1 auto; min-width: 0; max-width: 520px; margin: 0 auto; height: 26px;
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 0 var(--md-sys-spacing-3); border-radius: var(--md-sys-shape-corner-full);
+    background: var(--md-sys-color-surface); color: var(--md-sys-color-on-surface-variant);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .pv-chrome__address svg { width: 13px; height: 13px; flex: none; }
+  /* A phone has no browser bar to speak of: a notch instead. */
+  .pv-stage[data-device="phone"] .pv-chrome {
+    height: 26px; justify-content: center; border: 0; background: var(--md-sys-color-primary);
+  }
+  .pv-stage[data-device="phone"] .pv-chrome__dots,
+  .pv-stage[data-device="phone"] .pv-chrome__address { display: none; }
+  .pv-stage[data-device="phone"] .pv-chrome::after {
+    content: ""; width: 88px; height: 20px; border-radius: 0 0 14px 14px; background: #000; opacity: 0.85;
+    margin-top: -6px;
+  }
+
+  .pv-screen { position: relative; flex: 1 1 auto; min-height: 0; background: #fff; }
+  .pv-view { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; }
+  /* An artifact with only its claude.ai address: said, not framed. */
+  .pv-remote {
+    position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: var(--md-sys-spacing-3); padding: var(--md-sys-spacing-6);
+    text-align: center; background: var(--md-sys-color-surface); color: var(--md-sys-color-on-surface-variant);
+  }
+  .pv-remote svg { width: 32px; height: 32px; }
+  .pv-remote a { color: var(--md-sys-color-primary); font-weight: 600; }
+  /* A shimmer until the page says it has loaded. */
+  .pv-loading {
+    position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(100deg, transparent 30%, color-mix(in srgb, var(--md-sys-color-on-surface) 6%, transparent) 50%, transparent 70%) var(--md-sys-color-surface-container-low);
+    background-size: 220% 100%;
+    animation: pv-shimmer 1.3s linear infinite;
+    transition: opacity var(--md-sys-motion-duration-medium4) var(--wt-ease, ease);
+  }
+  .pv-screen.is-loaded .pv-loading { opacity: 0; animation: none; }
+  @keyframes pv-shimmer { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+  .pv-hint {
+    margin: var(--md-sys-spacing-3) 0 0; max-width: 46em; text-align: center;
+    color: var(--md-sys-color-on-surface-variant);
+  }
+
+  /* --------------------------------------------------------- full screen */
+  /* The catch over the frame and the way back out: both only where they apply. */
+  .pv-catch, .pv-exit { display: none; }
+  .pv-catch {
+    position: absolute; inset: 0; z-index: 1; padding: 0 0 var(--md-sys-spacing-4);
+    border: 0; background: transparent; cursor: zoom-in;
+    align-items: flex-end; justify-content: center;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .pv-catch__hint {
+    display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 16px 0 12px;
+    border-radius: var(--md-sys-shape-corner-full);
+    background: color-mix(in srgb, var(--md-sys-color-inverse-surface, #1c1b1f) 82%, transparent);
+    color: var(--md-sys-color-inverse-on-surface, #f4eff4);
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+    box-shadow: 0 8px 24px -10px rgb(0 0 0 / 0.5);
+    animation: pv-hint-nudge 1.6s var(--wt-ease, ease) 0.6s 2;
+  }
+  .pv-catch__hint svg { width: 16px; height: 16px; }
+  @keyframes pv-hint-nudge { 40% { translate: 0 -5px; } }
+
+  .pv--immersive .pv-stage {
+    position: fixed; inset: 0; z-index: 2000; padding: 0; border-radius: 0;
+    background: #fff; overflow: hidden;
+  }
+  .pv--immersive .pv-frame { border: 0 !important; border-radius: 0 !important; max-width: none !important; max-height: none !important; box-shadow: none; }
+  .pv--immersive .pv-chrome, .pv--immersive .pv-hint, .pv--immersive .pv-catch { display: none !important; }
+  .pv--immersive .pv-exit {
+    display: grid; place-items: center; position: absolute; z-index: 2;
+    right: calc(var(--md-sys-spacing-4) + env(safe-area-inset-right));
+    bottom: calc(var(--md-sys-spacing-4) + env(safe-area-inset-bottom));
+    width: 52px; height: 52px; padding: 0; border: 0; border-radius: 50%; cursor: pointer;
+    background: color-mix(in srgb, var(--md-sys-color-inverse-surface, #1c1b1f) 80%, transparent);
+    color: var(--md-sys-color-inverse-on-surface, #f4eff4);
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    box-shadow: 0 10px 28px -10px rgb(0 0 0 / 0.55);
+    animation: pv-exit-in 360ms var(--wt-ease, ease) 200ms both;
+  }
+  .pv--leaving .pv-exit { opacity: 0; transition: opacity 120ms; }
+  .pv-exit svg { width: 22px; height: 22px; }
+  @keyframes pv-exit-in { from { opacity: 0; scale: 0.6; } }
+  /* An animated `translate` on an ancestor would make it the box the fixed
+     stage fills, instead of the screen. */
+  :root.pv-immersive .detail-pane { animation: none; }
+  :root.pv-immersive, :root.pv-immersive body { overflow: hidden; overscroll-behavior: none; }
+
+  /* --------------------------------------------------------- empty */
+  .pv-empty {
+    margin: auto; max-width: 30em; padding: var(--md-sys-spacing-6); text-align: center;
+    color: var(--md-sys-color-on-surface-variant);
+  }
+  /* The art and heading are the styleguide's empty state, in watchtower.css. */
+
+  /* --------------------------------------------------------- tab and row */
+  .tab--preview { position: relative; }
+  .tab .tab__lamp { margin-left: 6px; }
+  /* Drawn as the styleguide's badge in watchtower.css. */
+  .tab__count { margin-left: 6px; }
+  /* The headline is a row so only the name gives way to a long title: the pin
+     and the preview mark stay whole at its end. */
+  .session-item__headline:has(.session-item__preview) { display: flex; align-items: center; }
+  .session-item__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .session-item__pin { flex: none; }
+  /* A small outlined pill; filled ink when there is something not yet seen. */
+  .session-item__preview {
+    flex: none; display: inline-flex; align-items: center; gap: 3px;
+    margin-left: 6px; padding: 1px 7px; border-radius: var(--md-sys-shape-corner-full);
+    box-shadow: inset 0 0 0 1.5px currentColor; font-weight: 700; line-height: 16px;
+  }
+  .session-item__preview svg { width: 13px; height: 13px; }
+  .session-item__preview[data-new="true"] {
+    background: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface); box-shadow: none;
+  }
+  .session-item__preview[data-new="true"] svg { animation: pv-pulse 1.8s var(--wt-ease, ease) infinite; }
+  .session-item[aria-current="true"] .session-item__preview[data-new="true"] {
+    background: var(--md-sys-color-on-primary); color: var(--md-sys-color-primary);
+  }
+
+  /* --------------------------------------------------------- narrow */
+  @media (max-width: 640px) {
+    /* The screen you are holding is the device; the size buttons have nothing to show. */
+    .pv-devices, .pv-chrome__dots { display: none; }
+    .pv-stage { padding: 0; border-radius: var(--md-sys-shape-corner-large); background-image: none; }
+    .pv-stage .pv-frame { max-width: none !important; max-height: none !important; border: 0 !important; border-radius: var(--md-sys-shape-corner-large) !important; }
+    .pv-stage[data-device="phone"] .pv-chrome { display: none; }
+    .pv-bar { gap: var(--md-sys-spacing-2); }
+    .pv-tools { margin-left: auto; }
+    .pv-catch { display: flex; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pv-lamp, .tab__lamp, .session-item__preview[data-new="true"] svg, .pv-loading { animation: none; }
+    .pv-frame { transition: none; }
+    .pv-catch__hint, .pv--immersive .pv-exit { animation: none; }
+  }
+
+  /* ============================= starred sites ============================= */
+  /* Previews you starred, under the sessions: openable with no session attached.
+     The list pane becomes a column so a short list of sessions leaves them at
+     the bottom of the sidebar, and a long one simply pushes them down. */
+  .list-pane { display: flex; flex-direction: column; }
+  .list-pane > .session-list { flex: none; }
+  .starred {
+    margin-top: auto; padding: var(--md-sys-spacing-5) var(--md-sys-spacing-3) 0;
+  }
+  .starred__title {
+    margin: 0 0 var(--md-sys-spacing-2); padding: 0 var(--md-sys-spacing-3);
+    color: var(--md-sys-color-on-surface-variant);
+  }
+  .starred__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+  .starred-item {
+    display: flex; align-items: center; gap: var(--md-sys-spacing-3);
+    padding: 4px var(--md-sys-spacing-4) 4px 4px;
+    border-radius: var(--md-sys-shape-corner-full);
+    color: var(--md-sys-color-on-surface); text-decoration: none;
+    /* A hold is the menu, not the phone's own link sheet or a text selection. */
+    user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+  }
+  .starred-item__icon {
+    flex: none; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center;
+    background: var(--md-sys-color-surface); color: var(--md-sys-color-on-surface);
+  }
+  .starred-item__icon svg { width: 18px; height: 18px; }
+  .starred-item__text { min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+  .starred-item__title, .starred-item__meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .starred-item__meta { color: var(--md-sys-color-on-surface-variant); }
+  .pv-star[aria-pressed="true"] { color: var(--md-sys-color-primary); }

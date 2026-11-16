@@ -1,37 +1,6 @@
   /* ============================== detail: usage ============================ */
   /* The figures that answer "what has this cost", big enough to read at a
      glance and laid out so a narrow pane stacks them rather than shrinking. */
-  .use-tiles {
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
-    gap: var(--md-sys-spacing-3); margin-bottom: var(--md-sys-spacing-6);
-  }
-  .use-tile {
-    padding: var(--md-sys-spacing-4);
-    border-radius: var(--md-sys-shape-corner-large);
-    background: var(--md-sys-color-surface-container-low);
-  }
-  /* The money is the headline; the rest are supporting counts. */
-  .use-tile--lead { background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); }
-  .use-tile__label { color: var(--md-sys-color-on-surface-variant); }
-  .use-tile--lead .use-tile__label { color: inherit; opacity: 0.8; }
-  .use-tile__value { margin-top: var(--md-sys-spacing-1); overflow-wrap: anywhere; }
-  .use-tile__note { margin-top: 2px; opacity: 0.75; }
-
-  /* How full the context is. A bar rather than a number because the thing you
-     want to know is how close to the edge it is, not the figure itself. */
-  .use-bar {
-    height: 10px; border-radius: var(--md-sys-shape-corner-full); overflow: hidden;
-    background: var(--md-sys-color-surface-container-highest);
-    margin: var(--md-sys-spacing-3) 0 var(--md-sys-spacing-2);
-  }
-  .use-bar__fill { height: 100%; background: var(--md-sys-color-primary); border-radius: inherit; }
-  /* Past three quarters of the window, compaction is close enough to be worth
-     saying so in the same colour the panel uses for a session wanting attention. */
-  .use-bar__fill[data-tight="1"] { background: var(--md-extended-color-waiting-color, var(--md-sys-color-tertiary)); }
-  .use-bar__fill[data-tight="2"] { background: var(--md-sys-color-error); }
-  .use-legend { display: flex; justify-content: space-between; gap: var(--md-sys-spacing-3);
-    color: var(--md-sys-color-on-surface-variant); }
-
   /* One row per model, with the token columns that make the cost add up. */
   .use-table { width: 100%; border-collapse: collapse; }
   .use-table th, .use-table td {
@@ -43,3 +12,182 @@
   .use-table td:last-child { font-weight: 700; }
   .use-scroll { overflow-x: auto; }
 
+
+  /* ===================================================== usage, redesigned */
+  /* The styleguide's chart kit, brought into the panel: a hero tile for the
+     money, pill meters with a hatched remainder, a segmented bar for parts of
+     a whole and ranked bars for "who spent it". The data palette is its own —
+     deeper than the state colours, and only ever inside a plot. */
+  :root {
+    --viz-1: #6B5FD3; --viz-2: #E2702F; --viz-3: #1E9E8A; --viz-4: #D9A21B;
+    --viz-5: #D9577E; --viz-6: #7E9B23; --viz-7: #3B8BD9; --viz-8: #B5452F;
+    --viz-muted: #CFCDD6;
+  }
+  html[data-theme="dark"] {
+    --viz-1: #8A80E6; --viz-2: #DD6E30; --viz-3: #1F9F8A; --viz-4: #BA860F;
+    --viz-5: #D8607F; --viz-6: #7F9C22; --viz-7: #3F8DDB; --viz-8: #D35A42;
+    --viz-muted: #4A4A55;
+  }
+
+  .spend { display: flex; flex-direction: column; gap: var(--md-sys-spacing-4); container-type: inline-size; width: 100%; }
+  .spend small { font-size: 0.45em; font-weight: 600; letter-spacing: 0; margin-left: 2px;
+    color: var(--md-sys-color-on-surface-variant); }
+
+  /* ---- the hero: money on lime, the supporting counts beside it */
+  .spend-hero {
+    display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    gap: var(--md-sys-spacing-3);
+  }
+  .spend-hero__main {
+    position: relative; overflow: hidden;
+    display: flex; flex-direction: column; justify-content: space-between; gap: var(--md-sys-spacing-5);
+    padding: var(--md-sys-spacing-6);
+    border-radius: var(--md-sys-shape-corner-extra-large);
+    background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);
+    min-height: 200px;
+  }
+  /* A wash of hatching in the corner, so the tile reads as the guide's hero
+     rather than as a flat swatch. */
+  .spend-hero__main::after {
+    content: ""; position: absolute; right: -40px; bottom: -40px; width: 200px; height: 200px;
+    border-radius: 50%; background: repeating-linear-gradient(-45deg,
+      color-mix(in srgb, currentColor 10%, transparent) 0 2px, transparent 2px 9px);
+    pointer-events: none;
+  }
+  .spend-hero__l { display: flex; align-items: center; gap: 8px; font-weight: 650; font-size: 0.9375rem; }
+  .spend-hero__l svg { width: 20px; height: 20px; }
+  .spend-hero__n {
+    font-family: var(--md-ref-typeface-brand); font-size: clamp(2.75rem, 7vw, 4.25rem); line-height: 0.95;
+    font-weight: 600; letter-spacing: -0.045em; font-variant-numeric: tabular-nums;
+  }
+  .spend-hero__n small { color: inherit; opacity: 0.6; font-size: 0.5em; letter-spacing: -0.02em; margin-left: 0; }
+  .spend-hero__chips { display: flex; flex-wrap: wrap; gap: 6px; position: relative; z-index: 1; }
+  .spend-chip {
+    display: inline-flex; align-items: center; height: 28px; padding: 0 12px;
+    border-radius: var(--md-sys-shape-corner-full); font-size: 0.8125rem; font-weight: 600;
+    box-shadow: inset 0 0 0 1.5px color-mix(in srgb, currentColor 35%, transparent);
+  }
+  .spend-chip--ink { box-shadow: none; background: var(--md-sys-color-on-primary-container); color: var(--md-sys-color-primary-container); }
+
+  .spend-hero__stats { display: grid; grid-template-columns: 1fr 1fr; gap: var(--md-sys-spacing-3); }
+  .spend-stat {
+    display: flex; flex-direction: column; gap: 2px; min-width: 0;
+    padding: var(--md-sys-spacing-4) var(--md-sys-spacing-5);
+    border-radius: var(--md-sys-shape-corner-large);
+    background: var(--md-sys-color-surface-container-low);
+  }
+  .spend-stat__l { font-size: 0.8125rem; font-weight: 600; color: var(--md-sys-color-on-surface-variant); }
+  .spend-stat__n {
+    font-family: var(--md-ref-typeface-brand); font-size: 1.875rem; line-height: 1.05; margin-top: 6px;
+    font-weight: 600; letter-spacing: -0.035em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere;
+  }
+  .spend-stat__note { font-size: 0.75rem; font-weight: 500; color: var(--md-sys-color-on-surface-variant); }
+
+  /* ---- cards: one question each, a title and a line saying what it shows */
+  .spend-card {
+    padding: var(--md-sys-spacing-5) var(--md-sys-spacing-6) var(--md-sys-spacing-6);
+    border-radius: var(--md-sys-shape-corner-extra-large);
+    background: var(--md-sys-color-surface-container-low);
+  }
+  .spend-card__head { display: flex; justify-content: space-between; align-items: flex-end;
+    gap: var(--md-sys-spacing-4); margin-bottom: var(--md-sys-spacing-4); }
+  .spend-card__title { margin: 0; font-size: 1.0625rem; font-weight: 650; letter-spacing: -0.01em; }
+  .spend-card__sub { margin: 2px 0 0; font-size: 0.8125rem; color: var(--md-sys-color-on-surface-variant); }
+  .spend-card__figure { font-family: var(--md-ref-typeface-brand); font-size: 2.5rem; line-height: 1;
+    font-weight: 600; letter-spacing: -0.04em; }
+  .spend-card__foot { margin: var(--md-sys-spacing-3) 0 0; font-size: 0.8125rem; color: var(--md-sys-color-on-surface-variant); }
+
+  /* ---- the pill meter: solid fill in the state colour, hatched remainder */
+  .wt-meter {
+    --s: var(--wt-lime);
+    position: relative; display: flex; height: 40px; overflow: hidden;
+    border-radius: var(--md-sys-shape-corner-full);
+    background-color: var(--md-sys-color-surface); background-image: var(--wt-hatch-fine);
+  }
+  .wt-meter[data-band="1"] { --s: var(--wt-butter); }
+  .wt-meter[data-band="2"] { --s: var(--wt-rose); }
+  .wt-meter__fill {
+    display: flex; align-items: center; justify-content: flex-end; min-width: 0;
+    padding: 0 14px; box-sizing: border-box; white-space: nowrap;
+    border-radius: inherit; background: var(--s); color: var(--wt-on-state);
+    font-size: 0.8125rem; font-weight: 700; font-variant-numeric: tabular-nums;
+    transition: width 700ms var(--wt-decel, ease-out);
+  }
+  .wt-meter--thin { height: 10px; }
+  .wt-meter--thin .wt-meter__fill { padding: 0; }
+  /* Where an even pace through the window would have you by now. */
+  .wt-meter__pace {
+    position: absolute; top: 5px; bottom: 5px; width: 3px; margin-left: -1.5px;
+    border-radius: 2px; background: var(--md-sys-color-on-surface);
+    box-shadow: 0 0 0 2px var(--md-sys-color-surface);
+  }
+  .wt-meter--thin .wt-meter__pace { top: 0; bottom: 0; width: 2px; margin-left: -1px; box-shadow: none; }
+  .wt-meter__scale { display: flex; justify-content: space-between; margin-top: 8px; padding: 0 4px;
+    font-size: 0.6875rem; color: var(--md-sys-color-on-surface-variant); }
+
+  /* ---- the segmented bar: parts of one whole, 2px of surface between them */
+  .spend-seg {
+    display: flex; gap: 2px; height: 48px; overflow: hidden;
+    border-radius: var(--md-sys-shape-corner-large);
+  }
+  .spend-seg > span {
+    display: flex; align-items: center; padding: 0 12px; min-width: 0; overflow: hidden;
+    background: var(--c); color: #fff; font-size: 0.8125rem; font-weight: 700;
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
+  .spend-seg > span:first-child { border-radius: var(--md-sys-shape-corner-large) 4px 4px var(--md-sys-shape-corner-large); }
+  .spend-seg > span:last-child { border-radius: 4px var(--md-sys-shape-corner-large) var(--md-sys-shape-corner-large) 4px; }
+  .spend-seg > span:only-child { border-radius: var(--md-sys-shape-corner-large); }
+  .spend-legend {
+    list-style: none; margin: var(--md-sys-spacing-4) 0 0; padding: 0;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px 16px;
+  }
+  .spend-legend li { display: grid; grid-template-columns: 10px 1fr; column-gap: 8px; align-items: center; }
+  .spend-legend i { width: 10px; height: 10px; border-radius: 50%; background: var(--c); }
+  .spend-legend__name { font-size: 0.8125rem; font-weight: 600; color: var(--md-sys-color-on-surface-variant); }
+  .spend-legend b { grid-column: 2; font-family: var(--md-ref-typeface-brand); font-size: 1.25rem; font-weight: 650; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+  .spend-legend__pct { grid-column: 2; font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); }
+  .spend-legend b + .spend-legend__pct { margin-top: -2px; }
+
+  /* ---- ranked bars: label and value on a line, the bar under them */
+  .spend-rank { display: flex; flex-direction: column; gap: var(--md-sys-spacing-4); }
+  .spend-rank__row { display: grid; grid-template-columns: minmax(0, 1fr) max-content; gap: 6px 12px; align-items: baseline; }
+  .spend-rank__label { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; font-size: 0.875rem; font-weight: 600; min-width: 0; }
+  .spend-rank__label > .md-mono { overflow-wrap: anywhere; }
+  .spend-rank__meta { font-size: 0.75rem; font-weight: 500; color: var(--md-sys-color-on-surface-variant); }
+  .spend-rank__value { font-family: var(--md-ref-typeface-brand); font-variant-numeric: tabular-nums; font-size: 1.25rem; font-weight: 700; letter-spacing: -0.02em; }
+  .spend-rank__bar { grid-column: 1 / -1; height: 14px; }
+  .spend-rank__bar > span { display: block; height: 100%; background: var(--c); border-radius: 0 4px 4px 0; }
+  .spend-tag {
+    display: inline-flex; align-items: center; height: 20px; padding: 0 8px;
+    border-radius: var(--md-sys-shape-corner-full); font-size: 0.6875rem; font-weight: 700;
+    background: var(--wt-lilac); color: var(--wt-on-state);
+  }
+
+  /* ---- every figure, folded away until asked for */
+  .spend-more { margin-top: var(--md-sys-spacing-5); border-top: 1px solid var(--wt-line); padding-top: var(--md-sys-spacing-3); }
+  .spend-more > summary {
+    display: inline-flex; align-items: center; gap: 6px; cursor: pointer; list-style: none;
+    height: 36px; padding: 0 14px 0 10px; border-radius: var(--md-sys-shape-corner-full);
+    font-size: 0.875rem; font-weight: 600; background: var(--md-sys-color-surface);
+  }
+  .spend-more > summary::-webkit-details-marker { display: none; }
+  .spend-more > summary svg { width: 18px; height: 18px; transform: rotate(-90deg); transition: transform 200ms var(--wt-ease, ease); }
+  .spend-more[open] > summary svg { transform: none; }
+  .spend-more__title { margin: var(--md-sys-spacing-4) 0 var(--md-sys-spacing-1); font-size: 0.8125rem; font-weight: 650;
+    color: var(--md-sys-color-on-surface-variant); }
+  .spend-more .use-table th, .spend-more .use-table td { border-top-color: var(--wt-line); }
+
+  .spend-note { margin: 0; padding: 0 var(--md-sys-spacing-2); font-size: 0.75rem; line-height: 1.5;
+    color: var(--md-sys-color-on-surface-variant); }
+
+  /* A narrow pane stacks the hero rather than squeezing it. */
+  @container (max-width: 600px) {
+    .spend-hero { grid-template-columns: 1fr; }
+    .spend-hero__main { min-height: 0; }
+  }
+  @media (max-width: 720px) {
+    .spend-hero { grid-template-columns: 1fr; }
+    .spend-hero__main { min-height: 0; padding: var(--md-sys-spacing-5); }
+    .spend-card { padding: var(--md-sys-spacing-4) var(--md-sys-spacing-5) var(--md-sys-spacing-5); }
+  }

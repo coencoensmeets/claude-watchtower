@@ -103,6 +103,22 @@ export interface Session {
   title: string | null;
   context: Context | null;
   question: Question | null;
+  /** Only while waiting: what for, in Claude Code's words (`permission prompt`,
+      `input needed`) — or the panel's, when `waitingInferred` says so. */
+  waitingFor?: string;
+  /** Set when the session writes no status and the wait was worked out from its
+      transcript and process tree; see SessionStore._inferred_wait. */
+  waitingInferred?: boolean;
+  /** The tool an inferred permission prompt is about. */
+  waitingTool?: string;
+  /** The prompt a waiting terminal session in tmux is standing on, read off its
+      screen, in the shape of a panel turn's ask (`via: "tmux"`). */
+  terminalAsk?: any;
+  /** Set when the session runs in a tmux pane the panel can reach. */
+  tmux?: boolean;
+  /** Set when `permissionMode` was read off its tmux pane's footer rather than
+      the transcript, which writes the mode down only now and then. */
+  modeLive?: boolean;
   trace: Span[];
   alive: boolean;
   canSay: boolean;
@@ -126,6 +142,13 @@ export interface Session {
     /** The running ones by name, for the strip over the composer.
         Absent when none are running; never more than a handful. */
     live?: { agentId: string; agentType: string; description: string }[];
+  };
+  /** Commands this session left running in the background — started that way,
+      or moved there when they ran past their timeout. Absent when none are. */
+  shells?: {
+    running: number;
+    live: { taskId: string; description: string; command: string;
+            timedOut: boolean; startedAt: string | null }[];
   };
 }
 
@@ -209,6 +232,37 @@ export interface Feed {
       patches the entry it already has so the chips move under your finger
       before the next poll confirms it. See pickMode in views/owned.ts. */
   owned?: Record<string, Partial<Owned>>;
+  /** Session id -> what it has shown you, newest first. See views/previews.ts. */
+  previews?: Record<string, Preview[]>;
+  /** Previews you starred: listed under the sessions, with no session attached. */
+  starred?: Starred[];
+}
+
+/** A starred preview. A copy rather than a pointer, so it outlives the session
+    that showed it; `from` is that session, `cwd` where a chat about it starts. */
+export interface Starred extends Preview {
+  from?: string;
+  cwd?: string;
+}
+
+/** Something a session made for you to look at: a page on disk the panel
+    serves, or the address of a server it started. */
+export interface Preview {
+  id: string;
+  kind: "file" | "url";
+  title: string;
+  /** Seconds. Moves every time the session shows it again. */
+  at: number;
+  shown?: number;
+  token?: string;
+  entry?: string;
+  path?: string;
+  url?: string;
+  /** Set when the session published this page as an artifact: where it lives
+      on claude.ai. The frame still shows the local file the session wrote. */
+  artifactUrl?: string;
+  /** The one line the session gave the artifact when it published it. */
+  description?: string;
 }
 
 /* --------------------------------------------------------------- conversation */

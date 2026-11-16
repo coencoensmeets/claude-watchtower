@@ -235,6 +235,35 @@ def clean_name(text: object) -> str:
     return value[:MAX_NAME]
 
 
+# The names nobody chose: what Claude Code calls a session it was not told to
+# call anything (`claude-watchtower-1d` — the folder and a short hex tag), and
+# the panel's own stand-ins for a session with no name at all.
+_STAND_INS = ("kept session", "new session")
+
+
+def is_default_name(name: object, cwd: str) -> bool:
+    value = str(name or "").strip()
+    if not value or value in _STAND_INS or re.fullmatch(r"session \d+", value):
+        return True
+    folder = os.path.basename(cwd.rstrip("/\\")) if cwd else ""
+    return bool(folder) and (value == folder or bool(re.fullmatch(re.escape(folder) + r"-[0-9a-f]{1,8}", value)))
+
+
+def shown_name(given: str | None, reported: str, cwd: str, title: str | None) -> str:
+    """The name a row goes by.
+
+    One you typed wins. Otherwise a session still carrying the name it was
+    born with — the folder and a tag, which says where it is and nothing more —
+    goes by what Claude says it is about once it has said, and a session that
+    was named on purpose (`/rename`) keeps that name.
+    """
+    if given:
+        return given
+    if title and is_default_name(reported, cwd):
+        return clean_name(title)
+    return reported
+
+
 def window_exists(window_id: str) -> bool:
     return any(w["id"].lower() == window_id.lower() for w in WINDOWS.windows())
 

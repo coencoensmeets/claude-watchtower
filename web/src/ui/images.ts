@@ -134,6 +134,72 @@ export async function attachPicture(session, file) {
   if (imagesFor(sessionId).includes(shot)) refreshDetail();
 }
 
+/* Pictures from the platform's own chooser, and from its camera.
+
+   The inputs live on <body>, not in the composer: the pane is redrawn on every
+   poll, and a phone's camera stays open for as long as it takes to frame the
+   shot — an input drawn into the pane would be thrown away under it and its
+   change event would go nowhere. One input each, made once, told on the click
+   which session the picture is for. */
+const pictureInputs = {};
+
+function pictureInput(camera) {
+  const key = camera ? "camera" : "files";
+  if (pictureInputs[key]) return pictureInputs[key];
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+  if (camera) input.setAttribute("capture", "environment");
+  else input.multiple = true;
+  // Off screen rather than display:none, which some mobile browsers will not
+  // open a chooser for.
+  input.style.cssText = "position:fixed;left:-1000px;top:0;width:1px;height:1px;opacity:0";
+  input.tabIndex = -1;
+  input.setAttribute("aria-hidden", "true");
+  input.addEventListener("change", async () => {
+    const files = [...(input.files || [])];
+    const sessionId = input.dataset.session;
+    // Cleared, so choosing the same file twice in a row is still a change.
+    input.value = "";
+    if (!sessionId) return;
+    for (const file of files) attachPicture({ sessionId }, await fitPicture(file));
+  });
+  document.body.appendChild(input);
+  return (pictureInputs[key] = input);
+}
+
+export function choosePictures(session, camera) {
+  const input = pictureInput(camera);
+  input.dataset.session = session.sessionId;
+  input.click();
+}
+
+/* A phone's photo is not a screenshot: it can be HEIC, and a 48-megapixel
+   sensor makes files past the size the server takes. Either is redrawn as a
+   JPEG no longer than PICK_MAX_EDGE on its long side — as much as the session
+   can make use of anyway. A picture that is already fine is left untouched,
+   and one the browser cannot decode goes on as it is, to be refused by name. */
+const PICK_MAX_EDGE = 2560;
+
+async function fitPicture(file) {
+  if (PASTE_TYPES.has(file.type) && file.size <= PASTE_MAX_BYTES) return file;
+  try {
+    const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+    const scale = Math.min(1, PICK_MAX_EDGE / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close?.();
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.88));
+    if (!blob) return file;
+    return new File([blob], (file.name || "photo").replace(/\.[^.]*$/, "") + ".jpg",
+                    { type: "image/jpeg" });
+  } catch {
+    return file;
+  }
+}
+
 /* One dropped file, from the drag to a path — for a drop that carried no path of
    its own. Dragged out of Chrome's downloads, out of a mail client, out of
    anything holding bytes rather than a file: there is nothing to name, so the
@@ -206,7 +272,9 @@ function withImages(body, shots) {
   return body ? `${body}\n\n${lines}` : lines;
 }
 
-export async function sendMessage(session, button, own = false) {
+/* `now` is Ctrl+Enter, as at the terminal: into the turn that is running rather
+   than after it. On an idle session it is an ordinary send. */
+export async function sendMessage(session, button, own = false, now = false) {
   const field = detailPane.querySelector<HTMLTextAreaElement>("#sayField");
   if (!field || !button) return;
   const text = field.value.trim();
@@ -265,6 +333,7 @@ export async function sendMessage(session, button, own = false) {
     const response = await fetch(url, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sessionId: session.sessionId, text: sent,
+                             ...(now ? { now: true } : {}),
                              ...(own ? { mode: ownedFor(session).mode || "default" } : {}) }),
     });
     const data = await response.json().catch(() => ({}));

@@ -102,6 +102,10 @@
       </div>
       <ul class="session-list" id="sessionList"></ul>
       <p class="list-empty md-body-medium" id="listEmpty" hidden></p>
+      <section class="starred" id="starred" aria-label="Starred sites" hidden>
+        <h2 class="starred__title md-label-large">Starred sites</h2>
+        <ul class="starred__list" id="starredList"></ul>
+      </section>
     </nav>
     <section class="detail-pane" id="detailPane" aria-live="polite"></section>
   </div>
@@ -172,6 +176,40 @@
       <button class="button button--text md-state dialog__actions-start" id="adoptForce" hidden>Force it</button>
       <button class="button button--text md-state" id="adoptCancel">Cancel</button>
       <button class="button button--filled md-state" id="adoptConfirm">Make interactive</button>
+    </div>
+  </div>
+</div>
+
+<!-- Picking the folder a new session starts in, from this computer's folders, in
+     the panel itself — for a phone, which cannot see the desktop's chooser. -->
+<div class="scrim" id="folderScrim" data-open="false">
+  <div class="dialog folder-dialog" role="dialog" aria-modal="true" aria-labelledby="folderHeadline">
+    <h2 class="dialog__headline md-headline-small" id="folderHeadline">Start in a folder</h2>
+    <div class="folder-dialog__where">
+      <button class="icon-button md-state" id="folderUp" type="button" title="Up one folder" aria-label="Up one folder"></button>
+      <span class="folder-dialog__path md-body-medium md-mono" id="folderPath"></span>
+    </div>
+    <ul class="folder-dialog__list" id="folderList" role="list"></ul>
+    <label class="folder-dialog__hidden md-body-medium"><input type="checkbox" id="folderHidden"> Show hidden folders</label>
+    <div class="dialog__actions">
+      <button class="button button--text md-state" id="folderCancel" type="button">Cancel</button>
+      <button class="button button--filled md-state" id="folderConfirm" type="button">Start here</button>
+    </div>
+  </div>
+</div>
+
+<!-- + New → Describe it…: say what you want to do, Claude picks the folder
+     (or names a new project), you press Start. See web/src/ui/route.ts. -->
+<div class="scrim" id="routeScrim" data-open="false">
+  <div class="dialog route-dialog" role="dialog" aria-modal="true" aria-labelledby="routeHeadline">
+    <h2 class="dialog__headline md-headline-small" id="routeHeadline">What do you want to do?</h2>
+    <p class="dialog__supporting md-body-medium">Claude picks the project it belongs in, or sets up a new one.</p>
+    <textarea class="route-dialog__field md-body-large" id="routeField" rows="3"
+      placeholder="Fix the flaky login test in the robot app…&#10;Make a landing page for my coffee roastery…"></textarea>
+    <div class="route-plan" id="routePlan" hidden></div>
+    <div class="dialog__actions">
+      <button class="button button--text md-state" id="routeCancel" type="button">Cancel</button>
+      <button class="button button--filled md-state" id="routeGo" type="button">Find the place</button>
     </div>
   </div>
 </div>

@@ -1,43 +1,151 @@
-<br />
+<!-- The pictures here are made, not drawn by hand: tools/readme/ stands up a demo machine and captures it. -->
 <p align="center">
   <a href="https://github.com/coencoensmeets/claude-watchtower">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="docs/assets/claude-watchtower-transparent-dark.svg">
-      <img src="docs/assets/claude-watchtower-transparent.svg" alt="Logo" height="170">
+      <source media="(prefers-color-scheme: dark)" srcset="docs/readme/hero-dark.svg">
+      <img src="docs/readme/hero-light.svg" alt="Claude Watchtower: every Claude Code session at a glance" width="100%">
     </picture>
   </a>
-
-  <h3 align="center">Claude WatchTower</h3>
-
-  <p align="center">
-    A live web panel for every Claude Code session running on this machine
-    <br />
-    <a href="#what-it-shows"><strong>Explore the panel »</strong></a>
-    <br />
-    <br />
-    <a href="#quick-start">Quick start</a>
-    ·
-    <a href="https://github.com/coencoensmeets/claude-watchtower/issues">Report Bug</a>
-    ·
-    <a href="https://github.com/coencoensmeets/claude-watchtower/issues">Request Feature</a>
-  </p>
 </p>
-
-> **Disclaimer:** This project is an independent effort by a community member and is not an official Anthropic product. It reads Claude Code's own session files and per-session sockets, neither of which is a documented interface, so an update to Claude Code can change what the panel sees.
 
 <p align="center">
-  <a href="https://github.com/coencoensmeets/claude-watchtower"><img src="https://img.shields.io/badge/Leave%20a%20star-⭐️-yellow?style=for-the-badge" alt="Leave a star"></a>
-  <a href="https://www.paypal.com/donate/?hosted_button_id=JFMLJWDVTZRUY"><img src="https://img.shields.io/badge/Donate%20a%20coffee-☕️-blue?style=for-the-badge" alt="Donate a cup of coffee"></a>
-  <a href="#what-it-shows"><img src="https://img.shields.io/badge/Docs-Read%20the%20docs-green?style=for-the-badge" alt="Docs"></a>
+  <a href="#quick-start"><img src="https://img.shields.io/badge/quick%20start-30%20seconds-CBDA72?style=for-the-badge&labelColor=1E1F24" alt="Quick start"></a>
+  <img src="https://img.shields.io/badge/python-standard%20library%20only-A59FE2?style=for-the-badge&labelColor=1E1F24" alt="Python, standard library only">
+  <img src="https://img.shields.io/badge/npm%20install-nothing-F28C4E?style=for-the-badge&labelColor=1E1F24" alt="Nothing to npm install">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-F5CD62?style=for-the-badge&labelColor=1E1F24" alt="MIT licence"></a>
 </p>
 
-See at a glance which session is working, which finished, and which is waiting on you — then click **Focus window** to jump to the terminal or editor that owns it.
+<p align="center">
+  <b>A live web panel for every Claude Code session on your machine.</b><br>
+  See which one is working, which one has finished, and which one is waiting on you.<br>
+  Read what they said, answer what they ask, and check in from your phone.
+</p>
 
-Python standard library only, no packages to install, nothing leaves the machine.
+<p align="center">
+  <a href="#quick-start"><strong>Quick start</strong></a> ·
+  <a href="#a-tour">Tour</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#the-manual">The manual</a> ·
+  <a href="https://github.com/coencoensmeets/claude-watchtower/issues">Report a bug</a>
+</p>
 
-The panel's frontend is TypeScript, so it is built before it is served — but there is still nothing to install for it. Node strips TypeScript types itself, so the build needs a Node binary and no npm packages at all, and `python3 server.py` runs it for you when anything under `web/` has changed. If Node is not on the machine and cannot be put there, `python3 -m venv .venv && .venv/bin/pip install nodejs-wheel-binaries` puts one in the project instead.
+<br>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/tour-dark.gif">
+  <img src="docs/readme/tour-light.gif" alt="A tour of the panel: switching sessions, the Git, History and Usage tabs, a session turning ember when it needs an answer, and a preview resized to a phone" width="100%">
+</picture>
+
+<br>
+
+## Why
+
+You start a Claude Code session in one terminal, another in VS Code, a third in tmux. Ten minutes later one of them has asked you a question and is sitting there, blocked, behind three other windows.
+
+Watchtower is the one place that shows them all. It reads the files Claude Code already writes, works out what each session is doing, and puts the one that needs you at the top in ember. There is nothing to install in your sessions and nothing to configure. Start it, and every session on the machine is already there.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/states-dark.svg">
+  <img src="docs/readme/states-light.svg" alt="The four states: needs an answer (ember), working (lilac), waiting on you (lime), closed (hatched)" width="100%">
+</picture>
+
+Colour means state and nothing else. The list updates every second and only animates what really changed:
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/readme/states-dark.gif">
+    <img src="docs/readme/states-light.gif" alt="The session list as sessions start and finish work: avatars pop and change colour" width="380">
+  </picture>
+</p>
+
+> [!NOTE]
+> This is an independent community project, not an official Anthropic product. It reads Claude Code's session files and per-session sockets, which are not a documented interface, so a Claude Code update can change what the panel sees.
+
+## A tour
+
+### Read every conversation, edits included
+
+Each session's conversation as it happens: what you asked, what Claude said, every tool it ran, and each file it changed as a real diff. Long answers keep their tables and code. Select a passage to quote it back with a comment.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/conversation-dark.png">
+  <img src="docs/readme/conversation-light.png" alt="A working session's conversation, with an edit shown as a diff" width="100%">
+</picture>
+
+### See what it is stuck on
+
+A blocked session goes ember, moves up, and shows the question it is asking, with every option. Sessions the panel runs can be answered right here, and sent messages, stopped, or switched to another mode.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/overview-dark.png">
+  <img src="docs/readme/overview-light.png" alt="A session that needs an answer, showing its multiple-choice question" width="100%">
+</picture>
+
+### Git and History, without leaving the panel
+
+Stage, commit and push in the editor's own Source Control layout. The sparkle writes the commit message for you. History draws the commit graph from the real ancestry, branches and merges included.
+
+<table>
+  <tr>
+    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/git-dark.png"><img src="docs/readme/git-light.png" alt="The Git tab with two changed files"></picture></td>
+    <td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/history-dark.png"><img src="docs/readme/history-light.png" alt="The History tab with a merged feature branch"></picture></td>
+  </tr>
+</table>
+
+### What it costs, and how full it is
+
+Tokens in and out, cache hits, cost at list price and per hour, and how much of the context window the conversation fills. The app bar shows how much of your plan's session and weekly limits has gone.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/usage-dark.png">
+  <img src="docs/readme/usage-light.png" alt="The Usage tab: cost so far, requests, cache hits, tokens and the context bar" width="100%">
+</picture>
+
+### Open what a session made
+
+When a session builds something you can look at, such as a page, a report, a styleguide or a dev server, it hands it to the panel. It opens in a Preview tab that you can size to a desktop, a tablet or a phone. Star it to keep it in the sidebar after the session has gone.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/preview-dark.png">
+  <img src="docs/readme/preview-light.png" alt="The Preview tab showing a page the session built, with device sizes and a star" width="100%">
+</picture>
+
+### In your pocket
+
+The same panel on your phone. Scan the code in Settings on the same wifi, or reach it from anywhere over Tailscale with https. Notifications tell you when a session needs you.
+
+<table>
+  <tr>
+    <td width="34%" align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/phone-dark.gif"><img src="docs/readme/phone-light.gif" alt="The panel on a phone: opening a session, its question and its usage"></picture></td>
+    <td width="33%" align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/phone-question-dark.png"><img src="docs/readme/phone-question-light.png" alt="A question on the phone"></picture></td>
+    <td width="33%" align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/phone-conversation-dark.png"><img src="docs/readme/phone-conversation-light.png" alt="A conversation on the phone"></picture></td>
+  </tr>
+</table>
+
+### Let Claude drive it
+
+Watchtower is also an MCP server. Switch on **Watchtower tools** and any session can list the others, read what they said, message them, start new ones or stop a turn. That makes one Claude a coordinator for the rest. **Settings → Claude skills** also installs a house style, a preview skill and a research method for every session on the machine.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/skills-dark.png">
+  <img src="docs/readme/skills-light.png" alt="Settings, Claude skills: switches for the MCP tools and the skills" width="100%">
+</picture>
+
+### Yours to tune
+
+Light, dark or follow the system. Four text sizes, a compact density, and motion you can turn down or off.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/settings-dark.png">
+  <img src="docs/readme/settings-light.png" alt="Settings, Appearance: theme, text size, density and motion" width="100%">
+</picture>
 
 ## Quick start
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/terminal-dark.svg">
+  <img src="docs/readme/terminal-light.svg" alt="git clone the repository, cd into it, and run python3 server.py; it prints the addresses to open" width="100%">
+</picture>
 
 1. Clone the repository:
 
@@ -58,7 +166,25 @@ python3 server.py
 
 5. Optional: `sudo apt install xdotool` to enable **Focus window** under X11, and see [Keeping it running](#keeping-it-running) for the bundled systemd user unit.
 
-## Documentation
+**What it needs.** Linux, or Windows through WSL. Python 3, standard library only: no packages, and nothing leaves the machine. The frontend is TypeScript, built before it is served, but there is still nothing to install for it. Node 22.6 or later strips the types itself, so the build needs a Node binary and no npm packages, and `python3 server.py` runs it for you when anything under `web/` has changed. If Node is not on the machine and cannot be put there, `python3 -m venv .venv && .venv/bin/pip install nodejs-wheel-binaries` puts one in the project instead.
+
+## How it works
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/architecture-dark.svg">
+  <img src="docs/readme/architecture-light.svg" alt="Sessions write status and transcripts under ~/.claude; the panel reads them every second and serves your browser, your phone and Claude itself; it talks back to sessions to send, answer, stop and start them" width="100%">
+</picture>
+
+Claude Code keeps a small file per running session and a transcript per conversation. The panel reads both every second. A session's status alone is not enough: Claude Code never writes "waiting for you", so the panel also checks whether the process is burning CPU and whether its transcript is still growing. [What it shows](#what-it-shows) explains how. Messages, answers and stops go back to the sessions through the panel. Nothing goes to a server anywhere else.
+
+<p align="center">
+  <a href="https://github.com/coencoensmeets/claude-watchtower"><img src="https://img.shields.io/badge/Leave%20a%20star-⭐️-CBDA72?style=for-the-badge&labelColor=1E1F24" alt="Leave a star"></a>
+  <a href="https://www.paypal.com/donate/?hosted_button_id=JFMLJWDVTZRUY"><img src="https://img.shields.io/badge/Donate%20a%20coffee-☕️-A59FE2?style=for-the-badge&labelColor=1E1F24" alt="Donate a cup of coffee"></a>
+</p>
+
+## The manual
+
+Everything below is the full reference: how each part works, and why it works that way.
 
 | Section | What's inside |
 |---|---|
@@ -82,7 +208,8 @@ python3 server.py
 | [Focusing a window](#focusing-a-window) | Matching by pid, identifying over the pty, pairing by hand |
 | [Ending a session](#ending-a-session) | SIGTERM, force quit, and the stale-pid check |
 | [Keeping a session](#keeping-a-session-after-it-closes) | Rows that outlive their process, and resuming them |
-| [Design](#design) | Dynamic colour, MD3 tokens, typography, components |
+| [Letting Claude drive the panel](#letting-claude-drive-the-panel) | The MCP server, Settings → Claude skills that installs it, its tools, and what it will not do |
+| [Design](#design) | The Watchtower look: state colours, Urbanist, shapes and motion |
 | [Options](#options) | Flags, URL overrides, fixture sessions |
 | [Keeping it running](#keeping-it-running) | The bundled systemd user unit |
 | [Tests](#tests) | What `tests/ui-check.mjs` asserts over CDP |
@@ -111,7 +238,7 @@ So "Waiting" is inferred, not reported. Age alone cannot infer it — a `busy` w
 
 The age threshold is deliberately short, because it is not what protects a working session from being mislabelled — the liveness signals are. `waiting` never expires either way: blocked on you is not the same as stale.
 
-**A session inside the VS Code extension writes no status at all.** Its session file lands once at startup — pid, cwd, name, `entrypoint: claude-vscode` — and never gains a `status` field, so there is nothing to overrule and nothing to expire. Read at face value that is an absent status, which the panel used to take as `idle`: such a session sat at "Waiting" for its entire life, working turns included. The same two liveness signals settle it instead, since they are the whole reading here rather than a second opinion: CPU or a growing transcript means Working, neither means Waiting. What cannot be reached this way is `waiting` — a permission prompt in a VS Code session reads as finished rather than as blocked on you, because nothing on disk distinguishes the two.
+**A session inside the VS Code extension writes no status at all.** Its session file lands once at startup — pid, cwd, name, `entrypoint: claude-vscode` — and never gains a `status` field, so there is nothing to overrule and nothing to expire. Read at face value that is an absent status, which the panel used to take as `idle`: such a session sat at "Waiting" for its entire life, working turns included. The same two liveness signals settle it instead, since they are the whole reading here rather than a second opinion: CPU or a growing transcript means Working, neither means Waiting. Those two signals cannot tell a finished turn from one stopped at a permission prompt, though, because both are quiet. The transcript can: a finished turn has a result for every tool call, and a prompt is a call with no result yet. A running tool is also an open call, but it has nearly always started a process since it was called, and a call waiting for permission has started nothing. So an open call with no new process below the session reads as **Needs an answer**, with the tool's name on the row's badge, and one with a new process reads as **Working**. Processes older than the call, such as MCP servers, do not count. A call is given four seconds before it counts as a prompt, and tools that work inside the session's own process for as long as they take, like `WebFetch`, `WebSearch` and MCP tools, are given 45. An open `AskUserQuestion` is a question, and an open `Agent` call is a subagent at work. Terminal sessions are not read this way, because they say for themselves when they are waiting.
 
 The obvious worry — a long, silent build being called ready while it runs — does not materialise: Claude Code keeps redrawing its own spinner throughout, which measured 0.17 of a core during a deliberately quiet twelve-second command, an order of magnitude above the threshold. The reading only expires for a session that is both quiet on disk and doing nothing measurable.
 
@@ -209,11 +336,18 @@ Below 900px the two panes become one at a time, with a back arrow in the app bar
 
 Below the transcript is a **composer**: type and the message goes into that session, no keystroke faking and no window stealing involved. Claude Code listens on a per-session unix socket — the path is in the session file, the socket is `0600`, and the panel writes two lines of JSON to it. Enter sends, Shift-Enter starts a newline.
 
+**Ctrl+Enter sends now**, as it does at the terminal (Cmd+Enter on a Mac). Enter on a working session waits for its turn to end. Ctrl+Enter puts the message into the turn that is running: Claude Code moves what that turn is waiting on to the background and takes the message in, or ends the turn and runs the message next. Nothing queued is thrown away.
+
+- **Terminal sessions:** the message goes down the socket with priority `now`.
+- **Sessions the panel runs:** the panel holds typed-ahead messages itself. It hands them to the session in the order they were typed, this one last, and then sends Claude Code's own Send-now request (`interrupt` with `send_now`). The strip of typed-ahead messages has a **Send now** button that does the same without typing anything more. If Claude Code ends the turn to make way, the row stays **Working** through the turn that follows. A Send now pressed before the session has started on the previous message is queued as usual, because Claude Code drops one that arrives that early.
+
+On an idle session Ctrl+Enter is an ordinary send.
+
 Three honest limits, each stated on the composer itself rather than left to be discovered:
 
 | Limit | Why |
 |---|---|
-| **A session blocked on a prompt cannot be answered this way** | A permission dialog or a question is modal in the terminal; a queued message waits behind it. Since "needs an answer" is exactly what this panel sorts to the top, the composer switches itself off there and points at the prompt that has to be answered — naming the question on the card above when there is one. It is the one case you might most want and cannot have. |
+| **A session blocked on a prompt cannot be answered this way** | A permission dialog or a question is modal in the terminal; a queued message waits behind it. Since "needs an answer" is exactly what this panel sorts to the top, the composer switches itself off there and points at the prompt that has to be answered — naming the question on the card above when there is one. The exception is a session running in **tmux**: the panel reads the prompt off the pane and presses the keys for you. See [Answering a terminal in tmux](#answering-a-terminal-in-tmux). |
 | **A message arrives labelled as coming from another session**, not as something you typed | Measured, not assumed: a session that received one reported it appeared "clearly marked as coming from another session rather than from Coen". So the receiving Claude may treat it with a peer's authority rather than yours, and will not take it as approval for anything. |
 | **The protocol is internal** | The session file records `peerProtocol`, and the panel refuses to send unless it reads the version it knows, going quietly read-only after an upgrade rather than writing malformed lines at a socket. |
 
@@ -235,15 +369,23 @@ what is wrong with this dialog?
 [Pasted image: /home/you/project/.claude/watchtower-images/paste-20260822-141233-a1b2c3.png]
 ```
 
-The file lands in the session's **own folder**, under `.claude/watchtower-images/`. Not `/tmp`, which is swept out from under a conversation you come back to tomorrow, and not the panel's config directory, which a session may have no permission to read: it goes somewhere the session already reads from. Pictures older than a fortnight are swept by the next paste, so the folder does not grow for the life of the machine.
+The file lands in the session's **own folder**, under `.claude/watchtower-images/`. Not `/tmp`, which is swept out from under a conversation you come back to tomorrow, and not the panel's config directory, which a session may have no permission to read — measured, not assumed: a headless session asked to read a file under `~/.cache` answers that it was denied, and a session the panel runs has nobody to approve the prompt. So it goes somewhere the session already reads from.
 
-That folder is inside your repository, so **it is worth ignoring**: a screenshot pasted to ask a question about it is scratch for one message and has no business in a commit. This repository ignores `.claude/watchtower-images/` and `.claude/watchtower-files/` — the same two lines are worth adding to any repository you use the panel in. The panel does not add them for you: writing to a `.gitignore` it was never asked to touch is not something a panel should do behind your back.
+**Kept five days, then swept.** A picture off a phone camera is several megabytes, so nothing is kept longer than coming back to a session after a weekend needs. The sweep runs on every paste, and also at startup and every six hours across every folder the panel has ever written into — remembered in `~/.config/claude-watchtower/scratch.json` — so a project you pasted into once is cleaned too. A folder the sweep empties is removed and forgotten.
+
+That folder is inside your repository, and **git never sees it**: a screenshot pasted to ask a question about it is scratch for one message and has no business in a commit. Each folder the panel makes — `.claude/watchtower-images/` and `.claude/watchtower-files/` — carries a `.gitignore` of its own containing `*`, which ignores everything in the folder, itself included. Nothing to add to your repository, and your own `.gitignore` is never touched: writing to a file the panel was never asked to edit is not something it should do behind your back. A folder made before this has no such file until the next paste into it.
 
 The upload starts on the paste rather than on Send, so the round trip happens while you are still writing the sentence about it. What is drawn above the box is the file as it stands — a thumbnail, and either the name it was saved as, `Saving…`, or why not — with **Remove** on each to leave one out. Sending waits for anything still saving rather than sending a path to a file that is not there yet, and a picture with nothing typed beside it is a message in its own right.
 
 Only what a browser puts on the clipboard as a picture is taken over: PNG, JPEG, GIF, WebP and BMP, up to 12 MB. A pasted picture the panel does not recognise is refused before it is uploaded, and the extension is decided by its type rather than by any name in the request. Pasting text is left entirely to the browser.
 
 > **Same gate as sending**, and for the same reason turned up a notch: this writes a file into a checkout. Loopback only, and off entirely under `--no-send`.
+
+### Talking instead of typing
+
+A **microphone** button sits beside the picture buttons. Press it and talk: the browser's own speech recognition types into the box as you go, exactly as if you had typed it, and **Send** is still yours to press — so a misheard word can be fixed first. Pressing it again stops it, so does sending, and a phone stops by itself after a silence. While it listens it is drawn in the error colours with a slow pulse, because a microphone that is on is not a state to miss.
+
+Nothing is installed for it: it is the Web Speech API, which Chrome, Edge, Safari and Chrome on Android have and Firefox does not. Chrome sends the audio to Google to transcribe. A browser only lends a page the microphone on a secure page — https, or localhost — so the button is only drawn where it can work: straight away on the laptop, and on the phone once the panel is opened over https through [Tailscale](#from-anywhere-with-tailscale). On plain http the keyboard's own dictation key still works.
 
 ### Dropping a file
 
@@ -271,7 +413,20 @@ Nothing in the session file says a question is up. What the transcript has is th
 
 A question a subagent asked is left out: it is not one you can answer.
 
+Claude Code 2.1.325 writes the call into the transcript only once the question has been answered, so on that version a terminal session's card does not appear while the question is up. Its row still says it is asking a question, because the session file says `input needed`. A session in tmux is read off its screen instead and can be answered from here; see [Answering a terminal in tmux](#answering-a-terminal-in-tmux).
+
 > **The card is a card and not a form**, and that is the same limit the composer states. The only channel into a live session is its messaging socket, and that socket takes exactly one kind of message: a user turn, which lands in the prompt queue. The queue is *behind* the question — Claude Code is waiting on a keypress at its own prompt — so an answer sent from here would go unread until somebody answered at the terminal anyway, and then arrive afterwards as a stray message. Rather than offer a button that quietly does that, the card offers **Answer there**, which raises the window. Reading it is what saves the trip; the keypress still happens at the prompt.
+
+### Answering a terminal in tmux
+
+A session running inside tmux can be answered from the panel, permission prompts and questions both, with the same card a panel turn's prompt gets. The socket still cannot do it; the keyboard can. Pressing keys at a terminal *window* is not safe, because a window holds tabs and the key lands in whichever one has focus. A tmux pane is one terminal with an id of its own, though: `tmux send-keys -t %3` reaches that pane and nothing else, and `capture-pane` reads back what is on it.
+
+- **Finding the pane.** The session's own environment names it: `TMUX` gives the server's socket and `TMUX_PANE` the pane. The pane's process has to be the session or one of its parents before anything is sent, so a process that inherited a stale `TMUX` gets nothing.
+- **Reading the prompt.** The prompt is read off the screen, not the transcript. That holds for questions too, because Claude Code 2.1.325 writes an `AskUserQuestion` call into the transcript only after it has been answered. With several questions the prompt shows one at a time, and so does the card.
+- **Answering.** Before any key is pressed the screen is read again, and the answer goes through only if the same prompt is still up. A permission prompt gets its *Yes* or *No* number. A single-choice question gets its option's number. A multi-select question has its boxes ticked, checked, and submitted. When the prompt ends on its review screen, that is confirmed once it lists what you just picked. **Skip** presses Escape, and only while that same question is still up, because Escape in a running turn interrupts it.
+- **What it does not do.** It offers only the options shown: free-text *Type something* and *Chat about this* stay at the terminal. Any other terminal still has to be answered where it is, as before.
+
+The MCP tools `answer_question` and `answer_permission` take the same route, with the same rule that allowing needs `CLAUDE_WATCHTOWER_MCP_APPROVALS=1`.
 
 ## Opening a session
 
@@ -282,6 +437,10 @@ A question a subagent asked is left out: it is not one you can answer.
 *In a terminal instead* is still there, at the foot of the menu, and says what it costs: a session a terminal runs cannot have its mode picked here and cannot have its prompts answered here. It is the exception now rather than the only door.
 
 Under those, **Another folder…** reaches anywhere on the disk, and still without being told a path: it opens your desktop's own folder chooser — `zenity`, `kdialog`, or the one Python's `tkinter` draws, whichever is installed — and starts the session where you picked. The browser asks for the dialog; what comes back out of it never passed through the browser at all, so `/api/new` keeps its rule that a folder comes off a session on screen and never off a request. Cancelling is an ordinary outcome and says so.
+
+**Describe it…** is at the top of the menu when **Watchtower tools** is on. Say what you want to do, and a quick headless Claude (Haiku, no tools) looks at the projects on this computer and answers either *open in ~/robot-app* or *new project ~/coffee-roastery-landing*, with a reason. Nothing happens until you press **Start**, and you can point it at another folder first. Start makes the new folder if there is one, starts a session there, names it, and sends your words as its first turn. For a new project it first asks the session to set the project up. The answer is checked: only folders inside your home, and a new folder only under one that exists.
+
+A session started from **+ New** is pinned from the start, so it survives a panel restart. Unpin it from the row. *In a terminal instead* is not pinned, because the terminal starts it.
 
 Both need the loopback gate that sending needs, for the same reason: they run a command on this machine. A desktop with none of the three choosers, or a panel with no display to draw on, says so on the menu item rather than offering a button that cannot work.
 
@@ -359,7 +518,7 @@ Beside the passage, in a margin to the right of the transcript, each one level w
 
 ### Keeping your place
 
-Having commented on a passage, it stays **marked in the transcript** — underlined rather than filled, so it never competes with the selection highlight, and so several of them can sit on screen at once by the time you have worked through a long answer. The mark is redrawn after every rebuild of the pane, since the transcript is built from the transcript data and anything drawn over it goes with the rebuild. Sent comments leave the rail but keep their marks: the rail is what is still outstanding, the marks are where you have been.
+Having commented on a passage, it stays **marked in the transcript** with a butter highlighter stroke across the lower half of the line. Butter is the styleguide's colour for drafts, and a comment is a draft until it is sent, so the stroke matches its note. Covering only half the line means it never competes with the selection highlight, and several marks can sit on screen at once. The passage whose note is open is filled across the whole line, and on your own messages the mark is a butter underline. The look is specified under *Comments on a passage* in `docs/design/styleguide.html`. The mark is redrawn after every rebuild of the pane, since the transcript is built from the transcript data and anything drawn over it goes with the rebuild. Sent comments leave the rail but keep their marks: the rail is what is still outstanding, the marks are where you have been.
 
 Two honest limits. It is drawn as a real element wrapped around a real text node rather than spliced into the HTML — that is what keeps the guarantee that nothing from a message ever reaches the page as markup — and the price is that **a passage crossing a bold run, a link or a code span is quoted correctly but goes unmarked**. And the marks are kept in memory only, not on the server and not in `localStorage`: they are a note about this sitting rather than a property of the session, and a mark outliving the conversation it referred to would be worse than no mark at all.
 
@@ -386,7 +545,9 @@ Among the facts in the detail header is a pill for how much rope the session has
 
 **It says when it was true, because it cannot always be current.** A session writes its mode into the transcript only when the metadata block is re-appended — on a resume, at exit, once the transcript has grown past a threshold — and never at the moment the mode changes. A session that is working therefore reports within seconds; one sitting at its prompt keeps reporting whatever it last said, for as long as it sits there. A few older sessions have never written one at all, and those show nothing rather than a guess.
 
-> **There is deliberately no way to change it from here**, and the reason is worth recording. Nothing in a session's socket sets the mode — it takes a message and a rename, and that is all; `set_permission_mode` exists in Claude Code but only on the transports an SDK or the browser bridge speaks. That leaves pressing Shift+Tab, and the panel cannot aim a keypress at a *session*: X11 pairs windows, while a terminal window holds tabs and a VS Code window holds terminals. A press sent at a window lands in whichever tab has focus, which may be a different Claude — so the panel's own matcher regularly has two sessions behind one window id. Quietly loosening the wrong session's permissions is not a thing to get wrong occasionally, and a keypress the panel cannot verify (see the paragraph above) would do exactly that. It was built, tried, and taken out again.
+**In tmux it is read off the screen, and it can be changed.** A session running in a tmux pane shows its mode in the footer under its prompt (`⏸ manual mode on`, `⏵⏵ accept edits on`), and the panel reads that instead, so the pill is current whether the session is working or idle. A dialog covering the footer leaves the last reading standing. **Session info** says *read off its screen* rather than *last written*. The same chips a panel-run session has then appear in the header. Picking one presses Shift+Tab in the pane one press at a time, reading the footer after each, and stops when the footer shows the mode asked for. A mode the cycle never reaches, such as bypass in a session not started in it, brings it back round to where it started and says so. This is safe for the reason the paragraph below says a window is not: a tmux pane is one terminal with an id of its own, and the pane's process is checked to be the session's before anything is sent. See [Answering a terminal in tmux](#answering-a-terminal-in-tmux). The MCP `set_mode` tool takes this route for a live terminal session in tmux.
+
+> **Outside tmux there is deliberately no way to change it from here**, and the reason is worth recording. Nothing in a session's socket sets the mode — it takes a message and a rename, and that is all; `set_permission_mode` exists in Claude Code but only on the transports an SDK or the browser bridge speaks. That leaves pressing Shift+Tab, and the panel cannot aim a keypress at a *session*: X11 pairs windows, while a terminal window holds tabs and a VS Code window holds terminals. A press sent at a window lands in whichever tab has focus, which may be a different Claude — so the panel's own matcher regularly has two sessions behind one window id. Quietly loosening the wrong session's permissions is not a thing to get wrong occasionally, and a keypress the panel cannot verify (see the paragraph above) would do exactly that. It was built, tried, and taken out again.
 >
 > **What did become possible is narrower and sits elsewhere.** A session no process is holding can have its next turn *launched* by the panel, in a mode you pick — see [Turns run from the panel](#turns-run-from-the-panel). That is not changing a running session's mode; it is choosing the mode a turn starts in, which is the only form of the question that has an honest answer.
 
@@ -478,13 +639,13 @@ A project with no checkout here says so rather than offering a button that canno
 
 The list is the project's open work items: **Yours** and **All open** as two chips carrying their own counts, a filter, the merge requests from the branch this session is on, and whether that branch's last pipeline passed. Both chips are the same reading looked at two ways — the project is fetched once — so switching between them costs nothing and the counts are always honest.
 
-Two things about a work item are drawn as what they are rather than as labels. **Priority** is an order to work in, so it is lifted out of the labels into a rail down the leading edge of the row and becomes the sort: highest first, untriaged last, most recently touched within each band. And a **scoped label** — `priority::high`, `type::feature` — is a field and its value, so it is drawn as two halves in the colour the project gave it, the way GitLab draws it. Six labels on a row stay scannable by key instead of becoming a hedge of identical pills. Assignees appear as initials, never avatars: an avatar is an image on somebody else's server, and a list of forty would have your browser fetch forty pictures from a GitLab.
+Two things about a work item are drawn as what they are rather than as labels. **Priority** is an order to work in, so it is lifted out of the labels into a rail down the leading edge of the row and becomes the sort: highest first, untriaged last, most recently touched within each band. The rail is drawn in ink — the heavier and darker, the more it matters — rather than in a colour, because here colour means a session's state and rose means something failed. And a **scoped label** — `priority::high`, `type::feature` — is a field and its value, so it is drawn as two halves in the colour the project gave it, the way GitLab draws it. Six labels on a row stay scannable by key instead of becoming a hedge of identical pills. Assignees appear as initials, never avatars: an avatar is an image on somebody else's server, and a list of forty would have your browser fetch forty pictures from a GitLab.
 
 **Opening an item stands it in front of the list**, the way a subagent's conversation stands in front of a session's, because the point of reading it here is that the session working on it is one tab away. The description and the comments are rendered as markdown — tables, code blocks and all — and three actions sit under the title: **Start a session on this**, which is the same briefed terminal the work items page opens; **Branch for it**, which proposes the branch GitLab itself would name (`6-clean-up-the-repo`) in a box you can edit before it runs; and a copy of its reference. Escape comes back to the list.
 
 **New work item** opens a compose card above the list rather than a dialog, so what you are writing sits over the list it is about. It offers the project's own labels, drawn exactly as they will appear on the item once it is filed.
 
-**The panel holds no GitLab credentials.** Everything here shells out to [`glab`](https://gitlab.com/gitlab-org/cli), the GitLab CLI, which already holds your tokens, already knows which hosts you have, and already refreshes them. So there is nothing to configure in the panel, nothing to store, and nothing that outlives the access you meant to give: log out of `glab` and the panel is out too. **Settings → GitLab** says which hosts it can read and, for one it cannot, the `glab auth login --hostname …` line that fixes it. Whether a host can be read is settled by asking that host — one call to `/user` — rather than by reading `glab auth status`, which is wrong in both directions: it prints `! Invalid token provided` for any token it cannot fetch the metadata of, including tokens that are scoped for the API and work perfectly, and it has nothing to say about one revoked a minute ago. The only line taken at its word is *No token provided*, because then there is nothing to try.
+**The panel holds no GitLab credentials.** Everything here shells out to [`glab`](https://gitlab.com/gitlab-org/cli), the GitLab CLI, which already holds your tokens, already knows which hosts you have, and already refreshes them. So there is nothing to configure in the panel, nothing to store, and nothing that outlives the access you meant to give: log out of `glab` and the panel is out too. **Settings → Sessions → GitLab** says which hosts it can read and, for one it cannot, the `glab auth login --hostname …` line that fixes it. Whether a host can be read is settled by asking that host — one call to `/user` — rather than by reading `glab auth status`, which is wrong in both directions: it prints `! Invalid token provided` for any token it cannot fetch the metadata of, including tokens that are scoped for the API and work perfectly, and it has nothing to say about one revoked a minute ago. The only line taken at its word is *No token provided*, because then there is nothing to try.
 
 Reading is all it does unless the panel is bound to loopback. Filing a work item and starting a session both change something, so both sit behind the same gate as [sending a message](#sending-a-message); served to the network or started with `--no-send`, they are not offered and the endpoints answer 403. No endpoint here takes a URL, a host or a project from the browser: a request names a session, and the project is read out of that checkout's own remote.
 
@@ -558,6 +719,8 @@ A session arrives with the name Claude Code gives it, which says nothing about w
 
 The name you type shows in the list as well and is kept in `~/.config/claude-watchtower/names.json`, keyed by session id, so it survives a restart of both the panel and the session. Window matching still goes by the session's own name — a name you typed here means nothing to a window title.
 
+A session still on its default name — the folder and a tag, like `claude-watchtower-1d` — goes by the title Claude gives the conversation once it has one, in the list and the header, and follows it as it changes. A name you typed, or one set with `/rename`, still wins. Clear a typed name and the title comes back.
+
 ## Focusing a window
 
 Claude Code sessions do not know which window they live in, so the panel works it out: it walks the session's parent-process chain and looks for a window whose `_NET_WM_PID` sits on that chain, corroborating with the window title — the session's folder, its full path as a terminal writes it (`~/work/thing`), or the name Claude Code gave it. The detail pane labels the result **matched**, **best guess**, **confirmed**, **paired by you**, or **can't tell yet**.
@@ -616,7 +779,7 @@ The terminal is whichever of Ghostty, WezTerm, kitty, Alacritty, Konsole, GNOME 
 CLAUDE_WATCHTOWER_TERMINAL="kitty --"
 ```
 
-A machine with none of them installed cannot use the button at all, and the button can only say so in a tooltip on a row you have already opened. So **Settings → Session actions** answers it once, without a session: it names nothing when the panel can open a terminal, and when it cannot it says which of the two things is missing — a terminal, or `claude` on the PATH the panel would run it with — and, where there is no terminal, offers the one line that installs one, guessed from the package manager on the machine and sitting there to be copied. A missing `claude` is usually a panel started by systemd or a desktop launcher rather than an uninstalled CLI: those do not read your shell's profile, so `~/.local/bin` is not on the PATH the panel inherited even though it is on yours.
+A machine with none of them installed cannot use the button at all, and the button can only say so in a tooltip on a row you have already opened. So **Settings → Sessions** answers it once, without a session: it names nothing when the panel can open a terminal, and when it cannot it says which of the two things is missing — a terminal, or `claude` on the PATH the panel would run it with — and, where there is no terminal, offers the one line that installs one, guessed from the package manager on the machine and sitting there to be copied. A missing `claude` is usually a panel started by systemd or a desktop launcher rather than an uninstalled CLI: those do not read your shell's profile, so `~/.local/bin` is not on the PATH the panel inherited even though it is on yours.
 
 A session the panel starts is a session in its own right, never a child of whatever started the panel. The panel is often run from inside a session itself, and Claude Code stamps its environment on everything it launches — inherit that stamp and the new session comes up nested, with no session file, no transcript and no chat of its own — what [What it shows](#what-it-shows) describes about nested sessions. So the terminal is opened with those session-scoped variables stripped — `CLAUDECODE`, `CLAUDE_PID`, `CLAUDE_CODE_SESSION_ID` and the rest. Settings you put in your own profile, `CLAUDE_CONFIG_DIR` and the other `CLAUDE_CODE_*` options among them, are passed through untouched.
 
@@ -802,21 +965,71 @@ Two things it will not do:
 
 The turn is launched and let go of: the panel does not sit holding it. What comes back appears in the conversation above like any other turn, because it is read from the transcript like any other turn, and the composer says a turn is running while one is. If it fails, the reason is kept and shown under **Runs in** until the next one.
 
+## Letting Claude drive the panel
+
+The panel is also an MCP server, so a Claude session can do what you do here: see every session on the machine, read what one has been saying, send it a message, start a new one, stop a turn, answer a question, and so on. Turn on **Watchtower tools** in **Settings → Claude skills** and the panel registers it with Claude Code for you, user-wide; turning it off removes it. By hand it is:
+
+```bash
+claude mcp add --scope user watchtower -- python3 /path/to/claude-watchtower/mcp_server.py
+```
+
+### Settings → Claude skills
+
+Recommended add-ons for Claude Code itself, each behind a switch. Nothing is installed until you turn it on.
+
+| Switch | What turning it on does |
+|---|---|
+| **Watchtower tools** | `claude mcp add --scope user watchtower …`, pointing at this checkout's `mcp_server.py` |
+| **Let Claude approve other sessions' tools** | Registers the same server again with `CLAUDE_WATCHTOWER_MCP_APPROVALS=1`; see below for why it is separate |
+| **Watchtower skill** | Links `skills/watchtower` from this checkout into `~/.claude/skills/`, a skill telling Claude when the tools are worth using. A link rather than a copy, so it follows the panel when it updates |
+| **Preview skill** | Links `skills/watchtower-preview` the same way: whenever Claude builds something you can look at — a page, a styleguide, a report, a site, a dev server — it hands it to the panel with `show_preview` |
+| **Watchtower house style** | Links `skills/watchtower-style`: the look in `docs/design/styleguide.html` becomes the default for every page, site, report or UI Claude makes, unless you ask for another style. The skill carries `watchtower.css`, `watchtower-viz.js` (house-style charts) and `watchtower-nav.js` (turn-by-turn along a route, for pages with live location), all cut from the guide by `tools/style_kit.py` — run it after changing the guide; a test fails while they are stale — and a link to the full guide |
+| **Research skill** | Links `skills/watchtower-research`: when you ask Claude to research or look something up online, it frames the question, searches from several angles, reads primary sources rather than snippets, cross-checks claims, and reports with a citation per claim and how sure it is |
+
+The switches show what is really installed, read from `~/.claude.json` and `~/.claude/skills/` each time the tab opens, so a server removed with `claude mcp remove` shows as off. Writes to `~/.claude.json` go through the `claude` CLI, because Claude Code rewrites that file itself and a second writer would race it. A `watchtower` server or skill that is not this panel's is reported and left alone. Only this computer can flip the switches, since they change Claude Code for every session on it. Sessions already open need a restart to pick up a change.
+
+### The tools
+
+`mcp_server.py` starts nothing and keeps nothing. It speaks MCP over stdio, standard library only, and turns each tool into a request or two to the panel that is already running on this machine. It reaches it on loopback, where no key is asked, at the port in `~/.config/claude-watchtower/listen.json` (or `CLAUDE_WATCHTOWER_PORT`). So the tools can do exactly what the panel can and no more, and when the panel is not running they say so rather than starting a second one.
+
+| Tool | What it does |
+|---|---|
+| `list_sessions` | Every session: name, id, state, folder, branch, subject, mode, what it is waiting on. `isYou` marks the session asking |
+| `read_conversation` | A session's latest messages, oldest first, with tool calls if asked, and the question or permission it is standing at |
+| `send_message` | A message to another session, as a new turn, the way the composer sends it: down its socket, or as a turn the panel runs |
+| `start_session` | A new session the panel runs, in a folder inside your home, optionally with a first message |
+| `stop_turn` | Stop a panel-run turn |
+| `answer_question` | Answer the multiple-choice question a panel-run session is asking |
+| `answer_permission` | Allow or deny the tool a panel-run session is asking to use. Allowing is off by default; see below |
+| `set_mode` | Manual, Auto, Plan or Accept edits, for a panel-run session's next turns |
+| `rename_session`, `focus_window`, `end_session` | What the header's own buttons do |
+| `show_preview` | Show you something the session made: an HTML page, a folder with an `index.html`, or a dev server's address. It appears in that session's **Preview** tab |
+
+### Previews
+
+A session that builds something viewable — a styleguide, a report, a static site — calls `show_preview`, and the page turns up in a **Preview** tab on that session, with a lamp on the tab and an icon on the session's row until you have looked. The tab shows it in a frame you can size to a desktop, a tablet or a phone, reload, copy the link of, or **Open** on its own; on a phone the frame simply fills the screen. Showing the same page again moves it to the top and reloads it, and the frame is kept through the pane's own repaints, so a working session does not reload the page under you.
+
+**Artifacts land there too.** When a session publishes a page with Claude Code's `Artifact` tool, which puts it on claude.ai as a private page, the panel files it under the session's **Preview** tab by itself; the session does not also have to call `show_preview`. The frame shows the local file the session published, because a claude.ai page will not open inside another site's frame. A **claude.ai** button beside **Open** goes to the published copy, the one anyone you share it with sees. Publishing the same page again moves it to the top. A page outside the folders the panel may serve shows as its claude.ai address only. Each publish is filed once, and `~/.config/claude-watchtower/artifacts-seen.json` remembers which, so a restart does not bring back a preview you removed. Publishes older than two days are not filed.
+
+A page on disk is served by the panel from the folder it is in, at `/preview/<token>/…`, so its own stylesheets and pictures load beside it (link them relatively — a path starting with `/` points outside the folder). The token is the access check, 128 random bits reaching only that folder, because the page is served with `Content-Security-Policy: sandbox`: scripts run, but the page gets an origin of its own and cannot read the panel's cookie or call its API as the panel — and a browser does not send the key's cookie with the requests such a page makes for its own files. The same sandbox means `localStorage` throws inside a preview. A page must sit in a folder of its own, not straight in your home or the temporary folder, since the whole folder is what its address can read. A dev server is kept as its address; opened from a phone, `localhost` is swapped for the panel's host name, so a server listening on every interface (`--host`) is reached.
+
+**Starred sites.** The star on the Preview tab keeps a preview in **Starred sites** at the bottom of the sidebar. A tap opens it in a tab of its own. Right-click or hold it for **Open**, **Copy link**, **Open a chat with it** (a new session in its folder, with the site named in the box), **Show the session it came from**, **Rename…** and **Unstar**. A starred site is a copy, kept in `~/.config/claude-watchtower/starred.json`, so it outlives the session and its previews.
+
+**A message says who sent it.** It goes in the cross-session envelope the panel already reads, so in the conversation it is labelled with the sending session's name rather than shown as yours. The server knows which session it belongs to from `CLAUDE_CODE_SESSION_ID`, which Claude Code hands to what it starts, and failing that from its parent process. That is also how it refuses to send to, answer for, or end the session that is using it.
+
+**Approving another session's tools is off by default.** A session that can say yes to another's permission prompts can run anything through it, and a passage it has just read out of some other conversation is enough to steer it into doing so. So `answer_permission` can always deny, but only allows when the server was registered with `CLAUDE_WATCHTOWER_MCP_APPROVALS=1` in its environment: the **Let Claude approve other sessions' tools** switch, or `claude mcp add --scope user watchtower -e CLAUDE_WATCHTOWER_MCP_APPROVALS=1 -- …` by hand (the name before `-e`, which otherwise takes it as another variable). Questions are not gated: an answer to one only picks between the options the session offered. Each tool call still goes through the calling session's own permission prompt like any other MCP tool, so you see what it is about to do unless you have allowed that tool.
+
 ## Design
 
-The interface follows Material Design 3. Nothing about it is hand-picked colour:
+The panel has a look of its own, Watchtower, written down in full in [`docs/design/styleguide.html`](docs/design/styleguide.html). It is laid over Material Design 3 structure — the `--md-sys-*` tokens, the components, the state layers — but the colours are fixed rather than generated.
 
-**Dynamic colour.** The whole palette is generated in the browser from a single seed by `@material/material-color-utilities` — the same library Material uses — and written to the document as `--md-sys-color-*` custom properties. Open **Settings** (the gear in the app bar, which opens a page in the detail pane) for light or dark, contrast, and the base colour from a preset or any colour at all; every surface, container, outline, and state colour is derived from it and the choice is remembered. The scheme uses the `SchemeVibrant` variant, which keeps the seed's hue with strong accents while leaving containers at the pastel tones that guarantee contrast against their `on-` roles.
+**Colour means state.** Ember for a session that needs an answer, lilac for one that is working, lime for one waiting on you, and hatching for one that is closed. They are mid-tones with ink on them, the same in light and dark. Everything else is neutral, and whatever you can press is ink in light mode and chalk in dark. There is no base colour to pick: a generated palette could make two states look alike, and these colours are the states.
 
-Settings also exposes MD3's three **contrast levels** (standard, medium, high), which widen the tonal distance between paired roles for legibility.
+**Typography** is Urbanist, self-hosted in `web/assets/fonts`, with Roboto behind it for any letter it lacks. **Shapes** are pills and circles for controls, and containers round off more the bigger they are; a shape inside another keeps an even gap to it.
 
-**State colours.** Each session state gets a legal MD3 role pair — the container tone fills the avatar and the detail header, the matching `on-` tone draws every glyph on it, so contrast is guaranteed by construction. `working` uses the scheme's own primary, so it always matches your base colour. `waiting`, `running`, and `ready` are extended custom colours with semantic base hues (warm, teal, indigo) that are nudged to the nearest hue keeping at least 35° from the primary and from each other. That is why no two states ever look alike, whichever base colour you pick.
+**Motion** comes in three kinds, all in `web/styles/motion.css`. Response: presses give and spring back, rows lean toward the pointer, the tab pill slides. Arrival: a new message rises in, a row that changes state pops its avatar, the header's new colour grows over the old. Ambient: an arc circles a working avatar and a sheen crosses its header, and a session that needs an answer nudges its icon. The list and pane are rebuilt on every poll, so `web/src/ui/motion.ts` marks only what is really new; a poll that changed nothing moves nothing. `prefers-reduced-motion` stills all of it.
 
-**Typography** is Roboto, MD3's typeface, self-hosted in `web/assets/fonts` with the baseline type scale as `--md-sys-typescale-*` tokens. Shapes come from the shape scale (chips small/8dp, chat bubbles large/16dp, list rows and buttons full, dialog extra-large/28dp) and elevation is expressed as container tone rather than shadow, with shadows reserved for the scrolled app bar, the dialog, and the snackbar.
-
-**Motion** comes from the same token set — `--md-sys-motion-duration-*` and `--md-sys-motion-easing-*` — and one rule governs everything that floats over the panel: it arrives and it leaves, rather than arriving and then blinking out. The jump buttons over the transcript, the context menu, and the quote bar all rise into place and shrink away on the standard 200ms; the panel below the tab strip fades in when it changes tab or session, and pointedly *not* when a poll rebuilds it, so a working session never has what you are reading pulsing at you. Anyone whose system asks for less of it gets none of it, smooth scrolling included: `prefers-reduced-motion` is honoured globally.
-
-Components used: top app bar, navigation-drawer style list items, filter chips, primary tabs, filled/tonal/text/outlined buttons, icon button, switch, segmented button, dialog, divider, snackbar, state layers and ripples. Everything is one static HTML file — no build step, no network at runtime.
+**Settings → Appearance** has four choices, each remembered per browser. **Theme**: Light, Dark or System, which follows the device as it changes. **Text size**: Small, Default, Large or Larger. **Density**: Comfortable or Compact. **Motion**: System, Reduced (nothing loops or flies in) or Off. The colours stay fixed, because they are the states.
 
 ## Options
 
@@ -855,7 +1068,7 @@ on this network  → http://192.168.1.24:8867/?k=r4pm7dwq
                   or scan the code in Settings — it is the same address
 ```
 
-**Or don't type it at all.** **Settings → On your phone** shows that address as a QR code. Point a camera at it and the phone opens the panel already holding the key. The code is drawn by the panel itself — `watchtower/qr.py`, a hundred lines of the standard's own arithmetic, because a panel that installs nothing does not grow a dependency for one picture — and it is checked against an independent encoder, module for module, in `tests/qr-check.py`.
+**Or don't type it at all.** **Settings → Phone** shows that address as a QR code. Point a camera at it and the phone opens the panel already holding the key. The code is drawn by the panel itself — `watchtower/qr.py`, a hundred lines of the standard's own arithmetic, because a panel that installs nothing does not grow a dependency for one picture — and it is checked against an independent encoder, module for module, in `tests/qr-check.py`.
 
 The address in that section is read at the moment you open it rather than at startup, so it is right after the laptop has moved between networks.
 
@@ -869,8 +1082,22 @@ Two things a phone cannot have over plain http, because browsers reserve them fo
 
 - **Notifications** are unavailable, so a session finishing will not raise one. The panel checks and simply does not offer them.
 - **The clipboard API** is absent, so *Copy* falls back to the older `execCommand` path. It works; it is just not the modern one.
+- **The microphone** is refused, so the composer's mic button is not drawn. The keyboard's own dictation key still types into the box.
+
+Over Tailscale all three come back: the panel serves https on the tailnet name — see [From anywhere, with Tailscale](#from-anywhere-with-tailscale).
 
 > **Only do this on a network you trust.** The key stops a stranger on the same wifi reading your conversations, and it is eight characters over plain http on a local network — not a password protecting a public service. The panel is not built to be on the internet, and putting it there is not a thing a flag here will do for you.
+
+### From anywhere, with Tailscale
+
+Off the wifi there is no address for a phone to open, and the panel will not put itself on the internet. [Tailscale](https://tailscale.com) is the way round that it arranges instead: a private WireGuard network between your own devices, which the laptop joins by dialling out — nothing is opened on any router, and under WSL nothing has to get through Windows' firewall either.
+
+**Settings → Phone → From anywhere** does the rest. With no Tailscale it shows the one line that installs it. Installed, it is a **Reach from anywhere** switch: on runs `tailscale up` and, the first time, opens Tailscale's sign-in page; once the machine is on the tailnet the section shows its tailnet address with the key on the end, as text and as a code, and the startup output prints it as `from anywhere →`. Put the Tailscale app on the phone, signed in to the same account, and scan it. Off runs `tailscale down`, which takes this computer off the tailnet for every device, not just the phone.
+
+- **The key still holds.** A phone on the tailnet arrives from its own `100.x` address, so it is asked for the key exactly as a phone on the wifi is. That is why the panel uses the tailnet address directly rather than `tailscale serve` or `funnel`: both are a proxy on this machine, every request through them would come from loopback, and loopback is let in without a key. Do not put either in front of the panel.
+- **Only this computer can press the switch.** From the phone, switching off would cut the phone off, and a sign-in link handed to anyone holding the key is a way to put the laptop on *their* tailnet. `POST /api/reach/tailnet` is refused to anything but loopback, key or no key.
+- **And over https, once Tailscale will issue a certificate.** The panel asks `tailscale cert` for one on this machine's tailnet name (`laptop.tail1234.ts.net`), keeps it in `~/.config/claude-watchtower/tls/`, renews it twice a day, and serves it itself on the **same port**: a TLS connection opens with the byte `0x16` and an http request never does, so the first byte is peeked and only a handshake is wrapped. The wifi address keeps working over plain http, and the code in Settings switches to the `https://` name. That is what gives the phone the microphone, notifications and the modern clipboard — browsers keep all three for secure pages. It needs **MagicDNS** and **HTTPS Certificates** switched on once in the [admin console](https://login.tailscale.com/admin/dns); until then Settings says so and links there. The name goes into the public certificate-transparency logs, which is how every Let's Encrypt certificate works — the machine is still only reachable from your tailnet.
+- **Two things need sudo, once.** Installing Tailscale, and — unless you want to type `sudo` every time — letting your user switch it: `sudo tailscale set --operator=$USER`. The section shows that command when Tailscale refuses.
 
 The URL can pin appearance for one load, which is handy for a second monitor or a wall display:
 
@@ -908,9 +1135,14 @@ The unit names no port and no host, so the service is on this install's remember
 | Path | What's inside |
 |---|---|
 | `server.py` | The way in: arguments, the frontend build, the polling thread, serve |
-| `watchtower/` | The panel itself — `config`, `proc`, `sessions`, `rows`, `store`, `transcript`, `usage`, `catalog`, `windows`, `control`, `input`, `owned`, `paste`, `plan`, `update`, `git/`, `http` |
+| `mcp_server.py` | The panel as an MCP server for Claude Code; the work is in `watchtower/mcp.py` |
+| `skills/` | Claude Code skills the panel can install from **Settings → Claude skills** (`watchtower/skills.py`) |
+| `watchtower/` | The panel itself — `config`, `proc`, `sessions`, `rows`, `store`, `transcript`, `usage`, `catalog`, `windows`, `control`, `input`, `owned`, `paste`, `plan`, `update`, `mcp`, `previews`, `route`, `skills`, `git/`, `http` |
 | `watchtower/build.py` | Finds Node and runs the frontend build when `web/` has changed |
 | `tools/build.mjs` | The build: strips types, concatenates stylesheets, copies assets |
+| `tools/readme/` | Makes the README's pictures: `stage.sh` stands up a demo machine (made-up sessions under `/home/sam`, in a private namespace, on port 8790), `capture.mjs` takes the screenshots and GIFs, and `art.py` draws the animated SVGs |
+| `docs/readme/` | The README's pictures, each in a light and a dark version |
+| `tools/style_kit.py` | Cuts the house-style skill's `watchtower.css`, `watchtower-viz.js` and `watchtower-nav.js` out of the styleguide; `--check` says whether they are stale |
 | `web/index.html` | The page shell — markup only |
 | `web/styles/` | The stylesheet, Material 3 |
 | `web/src/` | The panel's TypeScript: `main.ts` orchestrates, `views/` are the tabs, `ui/` the pieces they share |
@@ -1029,14 +1261,27 @@ PANEL_URL=http://127.0.0.1:8787 node tests/ui-check.mjs
 | `GET /api/transcript` | `?sessionId=…&limit=…` — the recent conversation |
 | `GET /api/change?sessionId=…&id=…` | The whole of one file change, by the tool-use id its preview in the chat carries: the patch as unified text, what it added and removed, and whether it was long enough to be clipped |
 | `GET /api/subagent?sessionId=…&agentId=…&limit=…` | One subagent's own conversation, by the id the `Task` row in the chat carries, in the same shape as `/api/transcript` |
+| `GET /api/shell-output?sessionId=…&taskId=…` | The tail of what a command the session left running in the background has written, for a chip in the strip over the composer; only a task id this session's transcript says it backgrounded |
 | `GET /api/usage` | `?sessionId=…` — that session's token totals per model, the cost they come to, and the size of its last context |
 | `GET /api/commands` | `?sessionId=…` — the skills and slash commands that session could be asked for, read from the project's folders, yours, and any enabled plugin's. A session that has gone is answered with what is true of every session rather than a 404 |
 | `GET /api/plan` | The subscription's limits, read by running `claude --print /usage`; `?force=1` skips the five-minute cache; loopback only |
 | `GET /api/update` | Whether a newer release is tagged on this checkout's own remote: the release HEAD is on, the newest one, the notes in between, and whether it can be applied; `?force=1` skips the six-hour cache; loopback only |
 | `GET /api/changelog` | The changelog as it is written down in this checkout, as text for the browser to render. Read from disk on every ask, since it changes exactly when the panel updates itself. 404 for a copy that has none |
 | `GET /api/file` | `?sessionId=…&path=…` — a picture a message names, so the message can show it. The path must already exist and be inside your home folder or the session's own, and it must be a picture: png, jpeg, gif, webp, avif, bmp or svg, up to 32MB. Sent with `Content-Security-Policy: sandbox`. Not loopback-only, since it reads rather than acts — a phone showing a conversation needs the pictures in it |
-| `GET /api/reach` | The address a phone should point at — looked up now rather than at startup, because a laptop moves between networks — with the key on it. Empty when the panel is on loopback only |
-| `GET /api/qr` | The same address as an SVG code to point a camera at. 404 when there is nothing to point at |
+| `GET /api/reach` | The address a phone should point at — looked up now rather than at startup, because a laptop moves between networks — with the key on it, and under `tailnet` whether Tailscale is installed and up, and the address on it. Empty when the panel is on loopback only |
+| `GET /api/qr` | The same address as an SVG code to point a camera at; `?via=tailnet` draws the tailnet address instead. 404 when there is nothing to point at |
+| `POST /api/reach/tls` | Ask `tailscale cert` for the tailnet name's certificate again now and serve it — after switching HTTPS on in the admin console. Loopback only |
+| `POST /api/reach/tailnet` | `{"on": true\|false}` — `tailscale up` or `tailscale down`, answering with the new state and, when signing in is needed, the link. Loopback only, whatever the key |
+| `POST /api/reach/firewall` | Ask Windows to let the network in to the panel's port, for a panel running in WSL: raises a UAC prompt on the desktop, and answers with the firewall's new state. Behind the same gate as the update button, and only when the panel listens beyond loopback |
+| `GET /api/skills` | The recommended Claude Code add-ons in **Settings → Claude skills**, each with whether it is installed — read from `~/.claude.json` and `~/.claude/skills/`, not remembered — and why it cannot be switched when it cannot |
+| `POST /api/skills` | `{"id": "mcp"\|"mcp-approvals"\|"skill"\|"preview-skill"\|"style-skill"\|"research-skill", "on": true\|false}` — install or remove one, answering with the list as it now is. Changes Claude Code's configuration for every session, so this computer only, whatever the key |
+| `POST /api/previews` | `{"sessionId", "target", "title"?}` — a session showing you something it made, from the `show_preview` MCP tool: a path to an HTML page or a folder with an `index.html` (inside your home, the session's folder or the temporary folder, and not one of those folders itself), or an http(s) address. It lands in that session's **Preview** tab; showing the same thing again moves it to the top and keeps its address |
+| `POST /api/previews/remove` | `{"sessionId", "id"}` — take one off the Preview tab. The page itself is left alone |
+| `POST /api/previews/star` | `{"sessionId", "id"}` — star one of that session's previews: a copy goes into **Starred sites** under the sessions, kept in `~/.config/claude-watchtower/starred.json`, and outlives the session |
+| `POST /api/starred/remove` | `{"id"}` — unstar a site. The page itself is left alone |
+| `POST /api/starred/rename` | `{"id", "title"}` — rename a starred site |
+| `POST /api/route` | `{"text"}` — **+ New → Describe it…**: a headless Claude (`haiku`, no tools) is shown what you want and the projects on this computer, and answers where it should run — an existing folder, or a new project folder to make — with a reason. Decides only |
+| `POST /api/route/start` | `{"text", "action", "folder", "setup"?, "title"?}` — act on that decision: make the new project's folder (inside home, new), start a session the panel runs there, send it your words as its first turn (for a new project, prefixed with "set it up first"), and name it |
 | `GET /api/terminal` | Whether *Open in terminal* can work on this machine: the terminal the panel would open, whether `claude` is on the PATH it would open it with, and the line that installs a terminal when there is none |
 | `POST /api/update` | `{"tag": "v1.4.0"}` — check that release out, rebuild the frontend and restart the panel on it. The tag is checked against what the server reads for itself rather than trusted; loopback only |
 | `POST /api/update/channel` | `{"channel": "release"|"development"}` — which line this install follows: the release tags, or the tip of the development branch. Remembered outside the checkout, since an update replaces the checkout. Loopback only, like the update it decides the target of |
@@ -1058,20 +1303,23 @@ PANEL_URL=http://127.0.0.1:8787 node tests/ui-check.mjs
 | `POST /api/start` | `{"sessionId": "...", "text": "..."}` — resume a kept session in a terminal, delivering `text` once it listens; loopback only. Nothing in the panel calls it any more: the composer's *In a terminal* was its only caller and is gone. Kept because the endpoint is the documented way to ask for a terminal, and because `deliver_later` still starts a session this way when a message is waiting for one that has closed |
 | `POST /api/editor` | `{"sessionId": "...", "path": "...", "line": 12}` — open something. Without a path it is the session's own folder in VS Code, read off the session. With one — how a path clicked out of a conversation is opened — a file goes to VS Code at `line`, a folder to the desktop's own opener (`xdg-open`); the path must already exist and be inside your home folder or the session's own, or it is refused. Loopback only |
 | `POST /api/new` | `{"sessionId": "..."}` — a fresh session in a terminal, in that session's folder; the folder is read off the session, never taken from the request; loopback only |
+| `GET /api/folders` | `?path=…&hidden=1` — the folders inside one folder, for the folder browser a new session is started from on a phone: the folder, its parent, and the names in it, capped with a count of the rest. Held to your home folder; with no path it opens beside where your sessions are. Behind the same gate as starting a session |
 | `POST /api/new-folder` | A fresh session in a folder chosen at a chooser on this machine. Takes no path — the body is ignored — and answers `cancelled` when nobody picked one; loopback only |
 | `POST /api/rename` | `{"sessionId": "...", "name": "..."}` — name a session yourself; an empty name puts its own name back |
 | `POST /api/end` | `{"sessionId": "...", "force": false}` — SIGTERM that session, or SIGKILL when `force`. Its row goes too unless pinned; the answer's `removed` says whether it did |
 | `POST /api/owned/mode` | `{"sessionId": "...", "mode": "default\|plan\|acceptEdits"}` — remember the mode the next panel-run turn uses; starts nothing; loopback only |
 | `POST /api/owned/adopt` | `{"sessionId": "...", "force": false}` — keep the row, end the terminal session holding it, and leave its next turn to the panel. A session that has never spoken is started here under its own id rather than resumed. Refuses rather than reporting success if the process does not actually stop; loopback only |
 | `POST /api/owned/new` | `{"sessionId": "..."}` for a folder off that session, or `{"pick": true}` for one from a chooser — a new session the panel runs, named by the panel and answering with that name. Takes no first message: the session exists before anything is said to it; loopback only |
+| `POST /api/tmux/mode` | `{"sessionId": "...", "mode": "default\|auto\|plan\|acceptEdits"}`: switch a terminal session in tmux to this mode by pressing Shift+Tab in its pane, reading the footer after each press. Refused when no footer is showing, and when the mode is not in the session's cycle. Loopback only |
+| `POST /api/tmux/answer` | `{"sessionId": "...", "requestId": "tmux:...", "behavior": "allow\|deny", "asks": true\|false, "answers": {"<the question>": ["Label"]}}`: answer the prompt a terminal session in tmux is standing on, by pressing its keys. The `requestId` is the row's `terminalAsk.requestId`, which fingerprints what was on screen, so an answer meant for a prompt that has since changed is refused. Loopback only |
 | `POST /api/owned/answer` | `{"sessionId": "...", "requestId": "...", "behavior": "allow\|deny", "answers": {"<the question>": ["Label"]}}` — settle the prompt a panel turn is standing on. The `requestId` must be the one now standing, so an answer meant for a prompt that has gone is refused; loopback only |
-| `POST /api/owned/say` | `{"sessionId": "...", "text": "...", "mode": "..."}` — run one turn on that session's transcript with `claude --print --resume`, answering as soon as it is launched. A turn already running does not refuse it: the message is held and goes in when that turn ends. Refuses if a live process holds the session, or if ten messages are already waiting; loopback only |
+| `POST /api/owned/say` | `{"sessionId": "...", "text": "...", "mode": "...", "now": true}` — `now` (optional) is Ctrl+Enter or **Send now**: what is typed ahead, and this text, go into the running turn rather than after it. Otherwise: run one turn on that session's transcript with `claude --print --resume`, answering as soon as it is launched. A turn already running does not refuse it: the message is held and goes in when that turn ends. Refuses if a live process holds the session, or if ten messages are already waiting; loopback only |
 | `POST /api/owned/interrupt` | `{"sessionId": "..."}` — stop the turn a session the panel holds is in the middle of. Anything typed ahead of it is kept and held rather than sent or dropped. Refuses for a session the panel is not holding, or one that is not working; loopback only |
 | `POST /api/owned/compact` | `{"sessionId": "..."}` — summarise the conversation so far and carry on from the summary, by sending `/compact` down the held pipe. Refuses mid-turn, with anything queued, while a compaction is already running, or for a session something else is running; loopback only |
 | `POST /api/owned/clear` | `{"sessionId": "..."}` — start that session's conversation again, empty, in the same folder: `/clear` down the held pipe, which is the one transport that expands it. Refused mid-turn, with something typed ahead waiting, or for a session in a terminal. Answers with the id the session has *become*, since clearing starts a new conversation rather than emptying the old |
 | `POST /api/owned/unqueue` | `{"sessionId": "...", "index": 0}` — take back something typed ahead, before the session reaches it. Omit `index` to drop everything still waiting. Answers with what is left; loopback only |
 | `POST /api/owned/resume` | `{"sessionId": "..."}` — let go of a queue a stop held back: it drains one at a time and in order, as an unstopped queue does. Refuses if nothing is waiting, if nothing is holding it, or if the panel is not running that session. Answers with what is left waiting |
-| `POST /api/say` | `{"sessionId": "...", "text": "..."}` — send a message into that session; loopback only |
+| `POST /api/say` | `{"sessionId": "...", "text": "...", "now": true}` — send a message into that session; `now` (optional) is Ctrl+Enter, into the running turn rather than after it; loopback only |
 | `POST /api/paste-image` | `{"sessionId": "...", "mime": "image/png", "data": "<base64>"}` — write a pasted picture into that session's folder under `.claude/watchtower-images/` and answer with its `path`, for the message to name. The folder is the session's own and never comes from the request; the extension comes from `mime`, which must be one of PNG, JPEG, GIF, WebP or BMP, and the picture from 12 MB down; loopback only |
 | `POST /api/drop-file` | `{"sessionId": "...", "name": "report.pdf", "data": "<base64>"}` — write a dropped file that came with no path of its own into that session's folder under `.claude/watchtower-files/` and answer with its `path`. The folder is the session's own and never comes from the request; the name is reduced to a name and can only land inside that folder; 32 MB down; loopback only |
 

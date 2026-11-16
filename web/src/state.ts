@@ -68,6 +68,12 @@ export const app = {
   settings: {
     seed: DEFAULT_SEED,
     dark: matchMedia("(prefers-color-scheme: dark)").matches,
+    // Appearance. `dark` above is what is showing; `themeMode` is what was
+    // asked for, and "system" follows the device as it changes.
+    themeMode: "system" as "system" | "light" | "dark",
+    textSize: "default" as "small" | "default" | "large" | "larger",
+    density: "comfortable" as "comfortable" | "compact",
+    motion: "system" as "system" | "reduced" | "off",
     contrast: "standard",
     notify: allNotifying(),
     // Whether a session's header offers to open its folder in an editor. On by
@@ -87,7 +93,9 @@ export const app = {
   // looks, on screen, exactly like a session that has gone quiet.
   readFailed: false,
   filter: "all",
-  selectedId: localStorage.getItem("cbu-selected") || null,
+  // A notification tapped with no panel open opens one at /?session=<id>.
+  selectedId: new URLSearchParams(location.search).get("session")
+    || localStorage.getItem("cbu-selected") || null,
   tab: localStorage.getItem("cbu-tab") || "chat",
   inFlight: null,
   showingSettings: false,

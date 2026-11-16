@@ -1,0 +1,165 @@
+  /* ================================= motion ================================ */
+  /* The Watchtower in motion. Three kinds, kept apart on purpose:
+
+       - response: what moves because you did something — presses give, rows
+         lean toward the pointer, the tab pill slides to the tab you chose;
+       - arrival: what moves because something new turned up — a message
+         rises in, a row that changed state pops its avatar, the header's new
+         colour grows over the old one. Only the genuinely new is marked, by
+         ui/motion.ts; a poll that changed nothing moves nothing;
+       - ambient: what moves while a session works or waits — the lamps, the
+         orbit round a working avatar, the sheen across a working header, the
+         nudge of a session that needs an answer. Colour still carries the
+         state on its own; with reduced motion all of this holds still.
+
+     Press and hover use the individual scale/translate/rotate properties, so
+     they compose with every transform the component sheets already animate. */
+
+  :root {
+    --wt-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+    --wt-ease: var(--md-sys-motion-easing-emphasized);
+    --wt-decel: var(--md-sys-motion-easing-emphasized-decelerate);
+  }
+
+  /* -------------------------------------------------------------- response */
+  .chip, .new-button, .app-bar .icon-button, .button, .tab, .segmented__item,
+  .composer__send, .session-item, .group__header {
+    transition: background-color var(--md-sys-motion-duration-short4) var(--wt-ease),
+                color var(--md-sys-motion-duration-short4) var(--wt-ease),
+                border-color var(--md-sys-motion-duration-short4) var(--wt-ease),
+                box-shadow var(--md-sys-motion-duration-short4) var(--wt-ease),
+                scale 280ms var(--wt-spring), translate 280ms var(--wt-spring);
+  }
+  .chip:active, .new-button:active:not(:disabled), .app-bar .icon-button:active,
+  .button:active:not(:disabled), .tab:active, .segmented__item:active,
+  .composer__send:active:not(:disabled), .jump-last:active, .jump-bottom:active,
+  .detail-header .fold-button:active { scale: 0.94; transition-duration: 90ms; }
+  .session-item:active { scale: 0.985; transition-duration: 90ms; }
+
+  .session-item__avatar { transition: scale 320ms var(--wt-spring); }
+  .new-button svg, .app-bar .icon-button svg, .jump-bottom svg { transition: rotate 380ms var(--wt-spring), translate 280ms var(--wt-spring); }
+  .detail-header .fold-button { transition: transform var(--md-sys-motion-duration-medium2) var(--wt-ease), scale 280ms var(--wt-spring); }
+
+  @media (hover: hover) {
+    .session-item:hover { translate: 3px 0; }
+    .session-item:hover .session-item__avatar { scale: 1.07; }
+    .new-button:hover svg { rotate: 90deg; }
+    .app-bar .icon-button:hover svg { rotate: -12deg; }
+    .jump-bottom:hover svg { translate: 0 2px; }
+    .detail-header .fold-button:hover { scale: 1.06; }
+    .chip:hover:not([aria-pressed="true"]) { scale: 1.03; }
+  }
+
+  /* The send button wakes up when there is something to send. */
+  .composer__send:disabled { scale: 0.9; }
+  .composer__field {
+    transition: border-color var(--md-sys-motion-duration-short4) var(--wt-ease),
+                box-shadow 320ms var(--wt-ease);
+  }
+  .composer__field:focus, .composer__field:focus-visible {
+    border-color: transparent;
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--md-extended-color-busy-color, var(--md-sys-color-primary)) 16%, transparent);
+  }
+
+  /* The tab pill: ui/motion.ts lays a ghost pill over the strip that slides
+     from the old tab to the new one, and the new tab's own fill takes over
+     when it lands. */
+  .tabs > .tab { z-index: 1; }
+  .tabs__ink {
+    position: absolute; z-index: 0; pointer-events: none;
+    border-radius: var(--md-sys-shape-corner-full);
+    background: var(--md-sys-color-surface);
+    box-shadow: 0 2px 8px -4px rgb(0 0 0 / 0.3);
+  }
+  .tab.tab--landing[aria-selected="true"] { background: transparent; box-shadow: none; }
+
+  /* --------------------------------------------------------------- arrival */
+  /* The panes settle in once, when the page opens. */
+  .list-pane { animation: wt-rise 520ms var(--wt-decel) both; }
+  .detail-pane { animation: wt-rise 620ms var(--wt-decel) 90ms both; }
+  @keyframes wt-rise { from { opacity: 0; translate: 0 18px; } }
+
+  .detail-empty > div { animation: wt-float 6s ease-in-out infinite; }
+  @keyframes wt-float { 50% { translate: 0 -6px; } }
+
+  /* A row arriving: the first paint cascades down the list; a session that
+     starts later slides in on its own. */
+  .session-item.is-arriving {
+    animation: row-in 520ms var(--wt-decel) both;
+    animation-delay: calc(min(var(--stagger, 0), 14) * 40ms);
+  }
+  @keyframes row-in { from { opacity: 0; translate: -16px 0; scale: 0.97; } }
+
+  /* A row whose state moved: its avatar pops, a ring of the new colour bursts
+     off it, and the row's outline flashes once. */
+  .session-item.is-shifting { animation: row-flash 900ms var(--wt-ease); }
+  @keyframes row-flash { from { box-shadow: inset 0 0 0 2px var(--state-colour); } }
+  .session-item.is-shifting .session-item__avatar { animation: avatar-pop 620ms var(--wt-spring); }
+  @keyframes avatar-pop { 0% { scale: 0.78; } 100% { scale: 1; } }
+  .session-item.is-shifting .session-item__avatar::after {
+    content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+    animation: avatar-burst 760ms ease-out both;
+  }
+  @keyframes avatar-burst {
+    from { box-shadow: 0 0 0 0 color-mix(in srgb, var(--state-colour) 70%, transparent); }
+    to { box-shadow: 0 0 0 16px transparent; }
+  }
+
+  /* A message landing rises out of the side it was said from. */
+  .msg.is-arriving {
+    animation: msg-in 460ms var(--wt-decel) both;
+    animation-delay: calc(min(var(--stagger, 0), 6) * 70ms);
+    transform-origin: bottom left;
+  }
+  .msg--user.is-arriving { transform-origin: bottom right; }
+  @keyframes msg-in { from { opacity: 0; translate: 0 14px; scale: 0.95; } }
+  .activity-row.is-arriving {
+    animation: activity-in 360ms var(--wt-decel) both;
+    animation-delay: calc(min(var(--stagger, 0), 6) * 70ms);
+  }
+  @keyframes activity-in { from { opacity: 0; translate: -8px 0; } }
+
+  /* The header changing state: the new colour grows out of the top corner
+     over the old one. ::before sits under the header's content but over its
+     own background, which holds the old colour while it plays. */
+  .detail-header { isolation: isolate; }
+  .detail-header.is-shifting { background: var(--wipe-from); }
+  .detail-header.is-shifting::before {
+    content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit;
+    background: var(--state-container);
+    animation: header-wipe 760ms var(--wt-decel) both;
+  }
+  @keyframes header-wipe { from { clip-path: circle(0 at 0 0); } to { clip-path: circle(150% at 0 0); } }
+
+  /* --------------------------------------------------------------- ambient */
+  /* Working: an arc orbits the avatar, and a slow sheen crosses the header. */
+  .session-item[data-status="busy"] .session-item__avatar::before {
+    content: ""; position: absolute; inset: -4px; border-radius: 50%; pointer-events: none;
+    background: conic-gradient(from 0deg, transparent 0 55%, var(--state-colour) 100%);
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px));
+    mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px));
+    animation: wt-orbit 1.6s linear infinite;
+  }
+  @keyframes wt-orbit { to { rotate: 1turn; } }
+
+  .detail-header[data-status="busy"]::after {
+    content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none;
+    background: linear-gradient(105deg, transparent 35%,
+      color-mix(in srgb, var(--state-on-container) 9%, transparent) 50%, transparent 65%);
+    background-size: 300% 100%;
+    animation: wt-sheen 3.4s var(--md-sys-motion-easing-standard) infinite;
+  }
+  @keyframes wt-sheen { from { background-position: 100% 0; } to { background-position: 0 0; } }
+
+  /* Needs an answer: the avatar's glyph gives a small nudge every few seconds,
+     the way someone taps a shoulder. */
+  .session-item[data-status="waiting"] .session-item__avatar svg { animation: wt-nudge 4.2s ease-in-out infinite; }
+  @keyframes wt-nudge {
+    0%, 86%, 100% { rotate: 0deg; }
+    89% { rotate: -14deg; } 92% { rotate: 12deg; } 95% { rotate: -6deg; } 98% { rotate: 3deg; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; }
+    .session-item:hover, .chip:hover { translate: none; scale: none; }
+  }
