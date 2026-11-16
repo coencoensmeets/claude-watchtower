@@ -319,7 +319,7 @@
      thing you can still type into is the thing in the panel's first colour. */
   .agent-panel {
     display: flex; flex-direction: column; min-height: 100%;
-    margin: calc(var(--md-sys-spacing-4) * -1) calc(var(--tab-pad-inline, var(--md-sys-spacing-6)) * -1)
+    margin: calc(var(--tab-pad-top, var(--md-sys-spacing-4)) * -1) calc(var(--tab-pad-inline, var(--md-sys-spacing-6)) * -1)
             calc(var(--md-sys-spacing-6) * -1);
     /* Deeper than the conversation it stands in front of, not merely a
        different hue. A scheme built from one seed makes the secondary ramp a
@@ -331,7 +331,10 @@
                           var(--md-sys-color-surface-container-high));
   }
   .agent-panel__head {
-    position: sticky; top: 0; z-index: 3;
+    /* A sticky box stops at the scroller's padding edge, not its border:
+       top 0 would leave the panel's top padding open above the bar, with
+       the conversation scrolling through it. */
+    position: sticky; top: calc(var(--tab-pad-top, var(--md-sys-spacing-4)) * -1); z-index: 3;
     display: flex; flex-direction: column; gap: 2px;
     padding: var(--md-sys-spacing-2) var(--md-sys-spacing-4) var(--md-sys-spacing-3);
     margin-bottom: var(--md-sys-spacing-3);
