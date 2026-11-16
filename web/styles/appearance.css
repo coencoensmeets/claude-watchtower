@@ -33,7 +33,7 @@
   html[data-density="compact"] .msg { padding: 9px 14px; }
   html[data-density="compact"] .detail-header { padding-block: var(--md-sys-spacing-4) var(--md-sys-spacing-3); }
   html[data-density="compact"] .tab { height: 34px; }
-  html[data-density="compact"] .tab-panel { padding-top: var(--md-sys-spacing-3); }
+  html[data-density="compact"] .tab-panel { --tab-pad-top: var(--md-sys-spacing-3); }
   html[data-density="compact"] .menu__item { min-height: 38px; }
 
   /* ---- Motion. Reduced: nothing loops or arrives, colours still ease. Off: nothing moves. */
