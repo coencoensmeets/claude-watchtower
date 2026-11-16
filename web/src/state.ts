@@ -99,6 +99,10 @@ export const app = {
   tab: localStorage.getItem("cbu-tab") || "chat",
   inFlight: null,
   showingSettings: false,
+  // Whether the detail pane is on the work items page rather than a session or
+  // the settings page. The same kind of thing as showingSettings, and mutually
+  // exclusive with it: the pane is one pane.
+  showingItems: false,
 };
 
 /* The open conversation, and the change standing in front of it.
@@ -133,6 +137,47 @@ export const repo = {
   gitActing: false,   // one git action at a time, whatever the pane offers
   suggesting: false,
   commitCaret: null,
+};
+
+/* The GitLab behind the selected session's repository: its project, the work
+   items assigned to you in it, and what its branch is doing. Read on its own
+   clock like the repository is, only slower — see views/gitlab.ts. */
+export const forge = {
+  data: null,
+  for: null,
+  busy: false,
+  // Which of the two lists the tab is showing — "mine" or "all" — kept across
+  // sessions because it is a habit rather than a property of a repository.
+  scope: localStorage.getItem("cbu-forge-scope") || "mine",
+  query: "",
+  // The work item standing in front of the list, by number, and what was read
+  // of it. Same idea as a subagent standing in front of the conversation: one
+  // pane, two depths.
+  shown: null,
+  detail: null,
+  detailFor: null,
+  detailBusy: false,
+  // The compose card is open, and what has been typed into it. Held here rather
+  // than in the DOM because the pane is rebuilt on every poll.
+  composing: false,
+  draft: { title: "", body: "", labels: "" },
+  filing: false,
+  acting: false,
+};
+
+/* The work items page: everything assigned to you, on every GitLab, and where
+   each one is checked out on this machine. Not per session — it is the whole
+   point of the page that it is not about the session you happen to be on — so
+   it is held once here rather than beside the reading above. */
+export const work = {
+  items: null,        // null until the first answer; [] is a real empty list
+  trouble: [],
+  canWrite: false,
+  canPick: false,
+  message: "",
+  busy: false,
+  starting: null,     // "host/project#iid" while its button is waiting
+  query: "",
 };
 
 /* What this session has asked of the models. */

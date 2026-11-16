@@ -260,6 +260,14 @@ function settingsPage() {
              below and hidden on a machine where it can. -->
         <div class="settings-notice" id="terminalHint" hidden></div>
       </section>
+      <!-- Which GitLabs the work items page can actually read. Filled by
+           paintGitlab below: the panel holds no token of its own, so everything
+           this can say is a fact about the glab CLI on this machine. -->
+      <section class="section" id="gitlabSection">
+        <h3 class="section__title md-title-small">GitLab</h3>
+        <p class="md-body-medium" id="gitlabSays">Asking the GitLab CLI…</p>
+        <div id="gitlabHosts"></div>
+      </section>
     </div>
     <div class="tab-panel" role="tabpanel" id="settingsPanel-phone" aria-labelledby="settingsTab-phone"
       ${settingsTab === "phone" ? "" : "hidden"}>
@@ -403,6 +411,7 @@ export function paintSettings() {
   paintUpdateSetting();
   paintReach();
   paintTerminal();
+  paintGitlab();
   paintSkills();
   const editorToggle = detailPane.querySelector<HTMLInputElement>("#editorToggle");
   editorToggle.checked = app.settings.showEditor;
@@ -419,21 +428,73 @@ export function paintSettings() {
   });
 }
 
-/* ==========================================================================
-   Open in terminal — whether this machine can, and what to type if it cannot.
+/* What the work items page will and will not be able to read, said here rather
+   than on the page itself — a page that is empty because a token expired should
+   not have to be the place you find that out.
 
-   The button on a session already says why it is disabled, but only in a
-   tooltip and only once a row is open, and neither of the things it needs is
-   about the row: a terminal to open, and `claude` on the PATH the panel would
-   open it with. So the answer is drawn here, once, beside the other setting
-   that decides what a session's header offers.
+   The panel keeps no GitLab credentials: `glab` holds them, and everything below
+   is read back out of `glab auth status`. So the fix is always a command, and
+   the command is offered the way the terminal install line is — the line itself,
+   with a copy on the end of it. */
+async function paintGitlab() {
+  const says = detailPane.querySelector<HTMLElement>("#gitlabSays");
+  const list = detailPane.querySelector<HTMLElement>("#gitlabHosts");
+  if (!says || !list) return;
+  let data;
+  try {
+    const response = await fetch("/api/gitlab/hosts", { cache: "no-store" });
+    data = await response.json();
+  } catch (error) {
+    return;                       // the poll will say the panel is unreachable
+  }
+  if (!says.isConnected) return;
+  if (!data.ok || !(data.hosts || []).length) {
+    says.innerHTML = data.reason === "no-cli"
+      ? `The <b>Work items</b> page reads what is assigned to you through the GitLab CLI, and
+         <code class="md-mono">glab</code> is not on this machine. Install it and log in, and
+         the page fills itself — the panel stores no token of its own.`
+      : `<code class="md-mono">glab</code> is installed but knows of no GitLab yet.`;
+    list.innerHTML = loginLine("");
+    wireCopyButtons(list);
+    return;
+  }
+  const usable = (data.hosts || []).filter((h) => h.ok);
+  says.innerHTML = usable.length
+    ? `Reading work items from ${usable.map((h) =>
+        `<b>${escapeHtml(h.host)}</b>`).join(" and ")} as
+       <b>${escapeHtml(usable[0].user)}</b>. These are <code class="md-mono">glab</code>'s
+       credentials, not the panel's — log out of it and the panel is out too.`
+    : `<code class="md-mono">glab</code> knows of ${(data.hosts || []).length === 1 ? "a GitLab"
+        : "some GitLabs"}, but cannot talk to any of them yet.`;
+  list.innerHTML = (data.hosts || []).map((host) => `
+    <div class="settings-notice" data-state="${host.ok ? "fine" : "missing"}">
+      <p class="md-body-medium"><b>${escapeHtml(host.host)}</b> — ${host.ok
+        ? `logged in as ${escapeHtml(host.user)}`
+        : escapeHtml(host.why)}</p>
+      ${host.ok ? "" : loginLine(host.host)}
+    </div>`).join("");
+  wireCopyButtons(list);
+}
 
-   The line to copy is a package manager's, guessed by the server from the
-   manager it can find — see control.install_line. It is offered the way the
-   phone address is: the command itself in the box with the copy on the end of
-   it, because a button saying *Copy the install command* hides the one thing
-   worth reading.
-   ========================================================================== */
+function loginLine(host: string) {
+  const command = `glab auth login${host ? ` --hostname ${host}` : ""}`;
+  return `<div class="reach__line">
+      <code class="md-mono reach__url">${escapeHtml(command)}</code>
+      <button class="icon-button md-state reach__copy" type="button" data-copy="${escapeHtml(command)}"
+        title="Copy the command" aria-label="Copy the command">${ICON.copy}</button>
+    </div>`;
+}
+
+function wireCopyButtons(box: HTMLElement) {
+  for (const button of box.querySelectorAll<HTMLElement>("[data-copy]")) {
+    button.addEventListener("click", () => {
+      if (!copyText(button.dataset.copy, "Command copied")) return;
+      button.innerHTML = ICON.check;
+      setTimeout(() => { button.innerHTML = ICON.copy; }, 1600);
+    });
+  }
+}
+
 /* Settings → Claude skills. Each switch installs or removes one add-on and
    repaints from what the server reads back, so a refusal leaves the switch
    where it really is. Only this computer may flip them; elsewhere they show
@@ -492,6 +553,21 @@ async function paintSkills() {
   drawSkills(box, data.items, local);
 }
 
+/* ==========================================================================
+   Open in terminal — whether this machine can, and what to type if it cannot.
+
+   The button on a session already says why it is disabled, but only in a
+   tooltip and only once a row is open, and neither of the things it needs is
+   about the row: a terminal to open, and `claude` on the PATH the panel would
+   open it with. So the answer is drawn here, once, beside the other setting
+   that decides what a session's header offers.
+
+   The line to copy is a package manager's, guessed by the server from the
+   manager it can find — see control.install_line. It is offered the way the
+   phone address is: the command itself in the box with the copy on the end of
+   it, because a button saying *Copy the install command* hides the one thing
+   worth reading.
+   ========================================================================== */
 async function paintTerminal() {
   const box = detailPane.querySelector<HTMLElement>("#terminalHint");
   if (!box) return;

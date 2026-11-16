@@ -653,7 +653,7 @@ if (!gitSession) {
     check("git file rows clear 4.5:1", fileWorst >= 4.5,
       `worst ${fileWorst}:1 over ${fileContrast.length} spots`);
 
-    // Every tab has to stay reachable once there are five of them.
+    // Every tab has to stay reachable once there are six of them.
     const reach = JSON.parse(await evaluate(`JSON.stringify((() => {
       const strip = document.querySelector('.tabs');
       const tabs = [...document.querySelectorAll('.tab')];
@@ -663,8 +663,8 @@ if (!gitSession) {
         tall: tabs.every((t) => t.getBoundingClientRect().height >= 44),
       };
     })())`));
-    check("all five tabs stay reachable and 48dp tall",
-      reach.count === 5 && reach.scrollable && reach.tall, `${reach.count} tabs`);
+    check("all six tabs stay reachable and 48dp tall",
+      reach.count === 6 && reach.scrollable && reach.tall, `${reach.count} tabs`);
   }
   await evaluate(`document.querySelector('[data-tab="chat"]')?.click()`);
   await sleep(800);

@@ -74,6 +74,22 @@ MAX_STICKY = 100
 MAX_KEPT = 100
 
 
+# Checkouts the panel has seen, so a work item assigned to you can be matched to
+# the folder it belongs in without waiting for a session to be running there.
+# Learned from the sessions in the list and remembered across restarts — see
+# watchtower.gitlab.match.
+REPO_FILE = HOME / ".config" / "claude-watchtower" / "repos.json"
+
+
+MAX_REPOS = 300
+
+
+# Folders to look in for a checkout the panel has never seen a session in, colon
+# separated, each scanned one level down. Empty by default: a walk of somebody's
+# home directory is not something to do because a page was opened.
+PROJECT_DIRS = os.environ.get("CLAUDE_WATCHTOWER_PROJECT_DIRS") or ""
+
+
 # Sessions the panel is holding open itself, over a pipe of its own. Written
 # down so a restarted panel can pick them back up — see watchtower.owned.
 OWNED_FILE = HOME / ".config" / "claude-watchtower" / "owned.json"

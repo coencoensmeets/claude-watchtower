@@ -34,11 +34,16 @@ from watchtower.agents import list_subagents, read_subagent
 from watchtower.shells import background_tasks, read_output
 from watchtower.catalog import read_catalog
 from watchtower.config import HOME, ROOT, STATIC_DIR
-from watchtower.control import (new_session, open_editor, pick_folder, show_folder,
-                                start_session, terminal_report)
+from watchtower.control import (can_pick_folder, new_session, open_editor, pick_folder,
+                                show_folder, start_session, terminal_report)
 from watchtower.git.actions import git_action
 from watchtower.git.message import suggest_message
 from watchtower.git.read import read_diff, read_git
+from watchtower.gitlab.actions import create_issue
+from watchtower.gitlab.match import folder_for, index as repo_index, remember as remember_repos
+from watchtower.gitlab.read import (assigned_items, hosts as gitlab_hosts, item_detail,
+                                    project_for, project_items)
+from watchtower.gitlab.start import start_on
 from watchtower.input import (
     deliver_later, end_process, is_loopback, say_to_session, session_listening,
 )
@@ -945,6 +950,138 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": False, "message": "No file asked for"}, 400)
             return
         self._json(read_diff(root, file_path, (query.get("staged") or [""])[0] == "1"))
+
+    # ------------------------------------------------------------- GitLab
+    #
+    # Every one of these is a request to somebody else's server, made on your
+    # `glab` credentials rather than on a token the panel keeps. Two of them act:
+    # filing a work item and opening a session on one, both behind the same
+    # loopback gate as everything else that acts.
+
+    @route("GET", "/api/gitlab")
+    def _get_gitlab(self) -> None:
+        query = parse_qs(urlparse(self.path).query)
+        session_id = (query.get("sessionId") or [""])[0]
+        session = self._session_by_id(session_id)
+        if not session:
+            self._json({"ok": False, "message": "That session is no longer running"}, 404)
+            return
+        root = session.get("repoRoot")
+        if not root:
+            self._json({"ok": False, "isRepo": False, "isProject": False,
+                        "message": "This session's folder is not in a git repository"})
+            return
+        force = (query.get("force") or [""])[0] == "1"
+        answer = project_items(root, session.get("branch") or "", force)
+        self._json({**answer, "isRepo": True, "canWrite": config.SAY_ENABLED})
+
+    @route("GET", "/api/gitlab/items")
+    def _get_gitlab_items(self) -> None:
+        """Every open work item assigned to you, and where each one lives here.
+
+        The folder is worked out on this side rather than in the browser, and it
+        is the matcher's answer, not a path anybody sent: the page shows what was
+        found, and *Start a session* names the same work item again rather than
+        handing back the folder it was shown.
+        """
+        query = parse_qs(urlparse(self.path).query)
+        force = (query.get("force") or [""])[0] == "1"
+        # The sessions on screen are the best evidence there is about which
+        # checkouts you work in, and they are already in hand.
+        remember_repos([s.get("repoRoot") for s in STORE.snapshot()["sessions"]
+                        if s.get("repoRoot")])
+        answer = assigned_items(force)
+        known = repo_index()
+        items = [{**item, "folder": folder_for(item["host"], item["project"], known)}
+                 for item in answer.get("items", [])]
+        self._json({**answer, "items": items, "canWrite": config.SAY_ENABLED,
+                    "canPick": can_pick_folder()})
+
+    @route("GET", "/api/gitlab/item")
+    def _get_gitlab_item(self) -> None:
+        """One work item in full, for the tab to open in place.
+
+        Named by number against a session, never by project: the project is read
+        out of that session's own checkout, which is the same rule every other
+        route here keeps.
+        """
+        query = parse_qs(urlparse(self.path).query)
+        root = self._session_repo((query.get("sessionId") or [""])[0])
+        if not root:
+            self._json({"ok": False, "message": "That session is not in a git repository"}, 404)
+            return
+        project = project_for(root)
+        if not project:
+            self._json({"ok": False, "message": "This repository has no GitLab behind it"}, 404)
+            return
+        try:
+            iid = int((query.get("iid") or ["0"])[0])
+        except ValueError:
+            iid = 0
+        if iid <= 0:
+            self._json({"ok": False, "message": "No work item asked for"}, 400)
+            return
+        answer = item_detail(project["host"], project["path"], iid,
+                             (query.get("force") or [""])[0] == "1")
+        self._json(answer, 200 if answer.get("ok") else 502)
+
+    @route("GET", "/api/gitlab/hosts")
+    def _get_gitlab_hosts(self) -> None:
+        query = parse_qs(urlparse(self.path).query)
+        self._json(gitlab_hosts((query.get("force") or [""])[0] == "1"))
+
+    @route("POST", "/api/gitlab/issue")
+    def _post_gitlab_issue(self, payload: dict, session_id: str) -> None:
+        if not config.SAY_ENABLED:
+            self._json({"ok": False, "message": "Filing a work item is off — this panel is "
+                                                "serving read-only"}, 403)
+            return
+        root = self._session_repo(session_id)
+        if not root:
+            self._json({"ok": False, "message": "That session is not in a git repository"}, 404)
+            return
+        project = project_for(root)
+        if not project:
+            self._json({"ok": False, "message": "This repository has no remote to file against"},
+                       409)
+            return
+        ok, message, status, item = create_issue(project, payload)
+        self._json({"ok": ok, "message": message, "item": item}, status)
+
+    @route("POST", "/api/gitlab/start")
+    def _post_gitlab_start(self, payload: dict, session_id: str) -> None:
+        """Open a terminal on a work item, in the checkout that work item is for.
+
+        The folder is not in the request. It is either the one the matcher found
+        for this work item, or — when `pick` is set, because there was none — the
+        one the desktop's own chooser came back with. That is the same rule
+        /api/new keeps, and it is the reason a path typed into a request still
+        cannot make this panel run anything anywhere.
+        """
+        if not config.SAY_ENABLED:
+            self._json({"ok": False, "message": "Starting a session is off — this panel is "
+                                                "serving read-only"}, 403)
+            return
+        host = str(payload.get("host") or "")
+        project = str(payload.get("project") or "")
+        try:
+            iid = int(payload.get("iid"))
+        except (TypeError, ValueError):
+            iid = 0
+        if not host or not project or iid <= 0:
+            self._json({"ok": False, "message": "No work item asked for"}, 400)
+            return
+        folder = ""
+        if payload.get("pick"):
+            folder, why = pick_folder(str(HOME))
+            if not folder:
+                self._json({"ok": False, "message": why}, 409)
+                return
+            # A folder chosen by hand is one the panel now knows about, which is
+            # what makes the next work item on that project find it by itself.
+            remember_repos([folder])
+        ok, message, status = start_on(host, project, iid, folder)
+        self._json({"ok": ok, "message": message}, status)
 
     @route("POST", "/api/focus")
     def _post_focus(self, payload: dict, session_id: str) -> None:

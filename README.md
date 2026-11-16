@@ -189,7 +189,7 @@ Everything below is the full reference: how each part works, and why it works th
 | Section | What's inside |
 |---|---|
 | [What it shows](#what-it-shows) | The four states, and why the one you care about is inferred rather than read |
-| [Layout](#layout-an-index-and-a-detail-pane) | The index, groups, dragging the rows into order, the detail pane and its five tabs |
+| [Layout](#layout-an-index-and-a-detail-pane) | The index, groups, dragging the rows into order, the detail pane and its six tabs |
 | [From your phone](#from-your-phone) | The code to scan, the key that guards it, and the port it keeps |
 | [Sending a message](#sending-a-message) | The composer, the unix socket behind it, and its three honest limits |
 | [Pasting a picture](#pasting-a-picture) | A screenshot pasted into the box, saved into the session's folder and sent as a path |
@@ -200,6 +200,7 @@ Everything below is the full reference: how each part works, and why it works th
 | [Commenting on a passage](#commenting-on-a-passage) | Select what it said, and say what you think of it |
 | [Permission mode](#permission-mode) | How much rope a session has, when it was true, and why it is read-only |
 | [Git and History](#git-and-history) | Staging, committing and pushing in the editor's own Source Control layout, and a commit graph drawn from real ancestry |
+| [GitLab and work items](#gitlab-and-work-items) | What is assigned to you, across every GitLab, and a session started in the right folder already knowing the item |
 | [Usage and cost](#usage-and-cost) | What a session has spent in tokens, and what that comes to at list price |
 | [How much of your plan has gone](#how-much-of-your-plan-has-gone) | The subscription's session and weekly limits, in the app bar |
 | [Updating the panel](#updating-the-panel) | The release tags on its own repository, the one button that moves to the newest, and what it warns you it will stop |
@@ -621,6 +622,32 @@ Each row reads name first, then the folder it sits in, then one letter for what 
 **Nothing here opens a prompt you cannot answer.** Writes run with no terminal prompt, no askpass helper and no editor, so a push that needs a passphrase nobody can type fails with git's own message in a snackbar instead of hanging. Network commands get 180 seconds, local ones 25. The panel's own writes are serialised, so two clicks cannot race each other for `index.lock` — a session racing you for it is git's lock to report, and it does.
 
 **The panel does not choose for you.** A pull that cannot fast-forward, a merge, a rebase, a force-push without a lease: none of them happen here. `pull --ff-only` refuses and says the branch has diverged, because deciding between a merge and a rebase under a session that is editing the same tree belongs to whoever can see the conflict. Discarding is the one action that cannot be undone with git, so it is the one action that asks first — and it says *delete* rather than *discard* for a file that was never committed, because that is what happens to it.
+
+## GitLab and work items
+
+The panel shows what your sessions are doing. It could not tell you what you are *supposed* to be doing — that lives in GitLab, and the trip from "an issue is assigned to me" to "a session is running in the right folder knowing what the issue says" was entirely by hand: find the item, find the checkout, open a terminal, paste the description in.
+
+**The work items icon in the app bar, beside Settings, is that trip.** It opens every open item assigned to you, on every GitLab this machine is logged in to — and it is a launcher rather than a report. The whole row is the press: it opens a terminal running `claude` in that project's folder, with the item as the first thing it reads — the title, the link, the labels, the milestone, the description and the last few comments. The briefing is written as a briefing rather than as an order, ending by asking the session to get its bearings and say what it thinks the work is, because a prompt ending in *now implement this* gets an implementation of the first paragraph before anybody has read the code.
+
+Items are grouped by project, because the project is the folder and the folder is what makes the press work: it is stated in each group's header rather than repeated on every row. Groups are ordered by their most urgent item, so the thing to do next is at the top of the page, and a project with no checkout on this machine sorts last however urgent it is — it cannot be started on without answering one more question first. Rows are drawn exactly as the GitLab tab draws them, priority rail and scoped labels and all, because they are the same objects seen from two places.
+
+A project with no checkout here says so rather than offering a button that cannot work, and its button opens the same desktop folder chooser [*Open a session*](#opening-a-session) uses. A folder picked once is remembered, so the next item on that project finds it by itself.
+
+**Matching an item to a folder is done here, not there.** Nothing on GitLab knows where your checkout is, so the panel keeps its own index, keyed by the remote each checkout points at and built from the sessions in the list — a folder with a session in it is certainly one you work in — plus the folders it has been shown before. `CLAUDE_WATCHTOWER_PROJECT_DIRS` widens it if you want: a colon-separated list of folders, each scanned one level down. It is empty by default, because walking a home directory is not something to do because a page was opened.
+
+**The GitLab tab** is the same thing for the session you are looking at, and it goes two deep.
+
+The list is the project's open work items: **Yours** and **All open** as two chips carrying their own counts, a filter, the merge requests from the branch this session is on, and whether that branch's last pipeline passed. Both chips are the same reading looked at two ways — the project is fetched once — so switching between them costs nothing and the counts are always honest.
+
+Two things about a work item are drawn as what they are rather than as labels. **Priority** is an order to work in, so it is lifted out of the labels into a rail down the leading edge of the row and becomes the sort: highest first, untriaged last, most recently touched within each band. The rail is drawn in ink — the heavier and darker, the more it matters — rather than in a colour, because here colour means a session's state and rose means something failed. And a **scoped label** — `priority::high`, `type::feature` — is a field and its value, so it is drawn as two halves in the colour the project gave it, the way GitLab draws it. Six labels on a row stay scannable by key instead of becoming a hedge of identical pills. Assignees appear as initials, never avatars: an avatar is an image on somebody else's server, and a list of forty would have your browser fetch forty pictures from a GitLab.
+
+**Opening an item stands it in front of the list**, the way a subagent's conversation stands in front of a session's, because the point of reading it here is that the session working on it is one tab away. The description and the comments are rendered as markdown — tables, code blocks and all — and three actions sit under the title: **Start a session on this**, which is the same briefed terminal the work items page opens; **Branch for it**, which proposes the branch GitLab itself would name (`6-clean-up-the-repo`) in a box you can edit before it runs; and a copy of its reference. Escape comes back to the list.
+
+**New work item** opens a compose card above the list rather than a dialog, so what you are writing sits over the list it is about. It offers the project's own labels, drawn exactly as they will appear on the item once it is filed.
+
+**The panel holds no GitLab credentials.** Everything here shells out to [`glab`](https://gitlab.com/gitlab-org/cli), the GitLab CLI, which already holds your tokens, already knows which hosts you have, and already refreshes them. So there is nothing to configure in the panel, nothing to store, and nothing that outlives the access you meant to give: log out of `glab` and the panel is out too. **Settings → Sessions → GitLab** says which hosts it can read and, for one it cannot, the `glab auth login --hostname …` line that fixes it. Whether a host can be read is settled by asking that host — one call to `/user` — rather than by reading `glab auth status`, which is wrong in both directions: it prints `! Invalid token provided` for any token it cannot fetch the metadata of, including tokens that are scoped for the API and work perfectly, and it has nothing to say about one revoked a minute ago. The only line taken at its word is *No token provided*, because then there is nothing to try.
+
+Reading is all it does unless the panel is bound to loopback. Filing a work item and starting a session both change something, so both sit behind the same gate as [sending a message](#sending-a-message); served to the network or started with `--no-send`, they are not offered and the endpoints answer 403. No endpoint here takes a URL, a host or a project from the browser: a request names a session, and the project is read out of that checkout's own remote.
 
 ## Usage and cost
 
@@ -1261,6 +1288,12 @@ PANEL_URL=http://127.0.0.1:8787 node tests/ui-check.mjs
 | `GET /api/git` | `?sessionId=…` — that session's repository: branch, upstream drift, changed files, recent commits with their parents, and the branches it could switch to |
 | `GET /api/git/diff` | `?sessionId=…&path=…&staged=1` — one changed file's unified diff, one side at a time |
 | `POST /api/git` | `{"sessionId": "...", "action": "...", …}` — one source-control action: `stage`, `unstage`, `discard` (each with `paths`), `stageAll`, `unstageAll`, `discardAll`, `commit` (`message`, `amend`, `stageAll`), `push` (`force` uses a lease), `pull`, `fetch`, `sync`, `stash`, `stashPop`, `switch` (`branch`, `create`, `from`), `suggestMessage` (answers with `text`, the message it wrote); loopback only |
+| `GET /api/gitlab` | `?sessionId=…` — the GitLab project behind that session's repository: the work items assigned to you in it, the merge requests from its branch, and that branch's last pipeline. `?force=1` asks GitLab again rather than answering from the held reading |
+| `GET /api/gitlab/items` | Every open work item assigned to you, on every GitLab `glab` is logged in to, each carrying the folder on this machine the panel matched it to. `?force=1` asks again |
+| `GET /api/gitlab/item` | `?sessionId=…&iid=4` — one work item in full: its description, its labels and the last few comments, for the tab to open in place. Named by number against a session; the project comes from that session's own checkout |
+| `GET /api/gitlab/hosts` | Which GitLabs `glab` knows about and which of them its credentials actually work for |
+| `POST /api/gitlab/issue` | `{"sessionId": "...", "title": "...", "description": "...", "labels": […], "assignToMe": true}` — file a work item on that session's project; loopback only |
+| `POST /api/gitlab/start` | `{"host": "...", "project": "...", "iid": 4, "pick": false}` — open a terminal running `claude` in that work item's checkout, briefed with the item. `pick` opens the desktop's folder chooser first, for a project with no checkout here. The folder is never taken from the request; loopback only |
 | `POST /api/focus` | `{"sessionId": "..."}` — raise that session's window |
 | `POST /api/identify` | Ask a session's terminal which window it is showing, and remember it |
 | `POST /api/pair` | Click a window to bind it to a session |

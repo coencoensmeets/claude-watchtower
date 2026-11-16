@@ -9,11 +9,11 @@ import { run } from "./net.js";
 import { isAmbiguous, windowSays } from "./sessions/facts.js";
 import { ASK_ICON, ASK_WORD, STATE, STATE_ORDER, displaySince, drawnStateOf, standingAsk, stateKeyOf } from "./sessions/state.js";
 import type { StateKey } from "./sessions/state.js";
-import { CHAT_LIMIT_MAX, CHAT_PAGE, app, chat, loadKeySet, mutedSessions, quietWhenDone, readJson, repo, sayDrafts, selected, sessionById, sidebar, spend, ui } from "./state.js";
+import { CHAT_LIMIT_MAX, CHAT_PAGE, app, chat, forge, loadKeySet, mutedSessions, quietWhenDone, readJson, repo, sayDrafts, selected, sessionById, sidebar, spend, ui, work } from "./state.js";
 import { askConfirm, askScrim, closeAsk } from "./ui/ask.js";
 import { browseFolder, onThisMachine } from "./ui/folders.js";
 import { openRoute, refreshRouteEnabled, routeEnabled } from "./ui/route.js";
-import { backButton, barNudge, barNudgeIcon, barNudgeLink, barNudgeText, barSupporting, chipSet, control, detailPane, endScrim, hitClosest, hitElement, linkChip, linkChipText, listEmpty, panes, pickBar, pickClear, pickCount, pickGroup, sessionList, settingsButton } from "./ui/dom.js";
+import { backButton, barNudge, barNudgeIcon, barNudgeLink, barNudgeText, barSupporting, chipSet, control, detailPane, endScrim, hitClosest, hitElement, itemsButton, linkChip, linkChipText, listEmpty, panes, pickBar, pickClear, pickCount, pickGroup, sessionList, settingsButton } from "./ui/dom.js";
 import { duration, escapeHtml, shorten, tokens } from "./ui/format.js";
 import { ICON, hostOf } from "./ui/icons.js";
 import { attachPicture, choosePictures, dropImage, imagesStamp, picturesOn, sendMessage } from "./ui/images.js";
@@ -33,6 +33,8 @@ import { changeBusy, chatPanel, hideChange, showChange } from "./views/change.js
 import { agentBusy, hideAgent, refreshAgent, showAgent } from "./views/subagent.js";
 import { IDENTIFY_NOTE, commentIsOpen, markCommented, paintTrace, questionCard, renderRail, startRename, wireTrace } from "./views/chat.js";
 import { closeDiff, fetchGit, gitPanel, gitStamp, historyPanel, wireGit } from "./views/git.js";
+import { closeItem, fetchGitlab, gitlabPanel, gitlabStamp, wireGitlab } from "./views/gitlab.js";
+import { openItems, paintItems } from "./views/items.js";
 import { askPicksFor, compactPct, composer, detailHeader, ownedFor, pickMode, pickTmuxMode, runsHere, sendAskAnswer } from "./views/owned.js";
 import { fetchPlan, openPlan, planScrim } from "./views/plan.js";
 import { fetchUpdate, openUpdate, updateScrim } from "./views/update.js";
@@ -449,6 +451,7 @@ async function poll() {
     if (app.selectedId && (chat.transcriptFor !== app.selectedId || app.tab === "chat")) fetchTranscript();
     if (app.selectedId && app.tab === "chat" && chat.agentShown !== null) refreshAgent(selected());
     if (app.selectedId && isGitTab(app.tab)) fetchGit();
+    if (app.selectedId && app.tab === "gitlab") fetchGitlab();
     if (app.selectedId && app.tab === "usage") fetchUsage();
   } catch (error) {
     if (!app.lostSince) app.lostSince = Date.now();
@@ -958,8 +961,17 @@ export function selectSession(id) {
   // Picking a session is the way out of the settings page: it is what the pane
   // would otherwise be showing.
   if (app.showingSettings) { app.showingSettings = false; settingsButton.setAttribute("aria-pressed", "false"); }
+  if (app.showingItems) { app.showingItems = false; itemsButton.setAttribute("aria-pressed", "false"); }
   app.selectedId = id;
   localStorage.setItem("cbu-selected", id);
+  // A work item belongs to the project the last session was in, so reading one
+  // does not follow you to the next session — and neither does half a work item
+  // typed into the compose card.
+  forge.shown = null;
+  forge.detail = null;
+  forge.detailFor = null;
+  forge.composing = false;
+  forge.query = "";
   chat.transcript = null;
   chat.transcriptFor = null;
   chat.chatLimit = CHAT_PAGE;
@@ -980,6 +992,7 @@ export function selectSession(id) {
   render();
   fetchTranscript();
   if (isGitTab(app.tab)) fetchGit(true);
+  if (app.tab === "gitlab") fetchGitlab(true);
 }
 
 function setTab(next) {
@@ -990,6 +1003,7 @@ function setTab(next) {
   renderDetail(true);
   if (next === "chat") fetchTranscript();
   if (isGitTab(next)) fetchGit();
+  if (next === "gitlab") fetchGitlab();
   if (next === "usage") fetchUsage(true);
 }
 
@@ -1558,6 +1572,7 @@ document.addEventListener("scroll", (event) => {
 }, true);
 
 function renderDetail(force = false) {
+  if (app.showingItems) { paintItems(); return; }
   if (app.showingSettings) { paintSettings(); return; }
   const session = selected();
   if (!session) {
@@ -1572,7 +1587,7 @@ function renderDetail(force = false) {
   const host = hostOf(session);
   // A session outside a repository has no Git tab to show, so a tab left over
   // from the last session you looked at falls back rather than showing nothing.
-  if (isGitTab(app.tab) && !session.repoRoot) app.tab = "chat";
+  if ((isGitTab(app.tab) || app.tab === "gitlab") && !session.repoRoot) app.tab = "chat";
   // The same for Preview, on a session that has never shown anything.
   if (app.tab === "preview" && !previewsOf(session).length) app.tab = "chat";
   const signature = [
@@ -1580,6 +1595,14 @@ function renderDetail(force = false) {
     host.label, app.tab, chat.transcript?.messages?.length ?? -1, chat.transcript?.title ?? "",
     session.repoRoot ?? "", repo.gitFor === session.sessionId ? gitStamp(repo.git) : "",
     spend.usageFor === session.sessionId ? usageStamp(spend.usage) : "",
+    forge.for === session.sessionId ? gitlabStamp(forge.data) : "",
+    // Where the GitLab tab is standing: which item is open, which list, what is
+    // being filtered for and whether the compose card is up. All of it is state
+    // the pane draws from and none of it comes from the server, so without it a
+    // poll would rebuild the pane back to the list you had just left.
+    app.tab === "gitlab"
+      ? [forge.shown ?? "", forge.scope, forge.query, forge.composing, forge.filing,
+         forge.acting, forge.detailBusy, forge.detailFor ?? ""].join(",") : "",
     mutedSessions.has(session.sessionId), app.feed.canFocus, app.feed.canSend, session.canSay,
     session.pinned, session.kept,
     session.permissionMode ?? "", session.modeLive ?? "", session.title ?? "", session.parentName ?? "",
@@ -1720,7 +1743,8 @@ function renderDetail(force = false) {
         : previewsOf(session).length > 1 ? `<span class="tab__count md-label-small">${previewsOf(session).length}</span>` : ""}</button>` : ""}
       ${session.repoRoot ? `
         <button class="tab md-state md-label-large" role="tab" data-tab="git" aria-selected="${app.tab === "git"}">${ICON.branch}Git</button>
-        <button class="tab md-state md-label-large" role="tab" data-tab="history" aria-selected="${app.tab === "history"}">${ICON.history}History</button>` : ""}
+        <button class="tab md-state md-label-large" role="tab" data-tab="history" aria-selected="${app.tab === "history"}">${ICON.history}History</button>
+        <button class="tab md-state md-label-large" role="tab" data-tab="gitlab" aria-selected="${app.tab === "gitlab"}">${ICON.ticket}GitLab</button>` : ""}
       <button class="tab md-state md-label-large" role="tab" data-tab="usage" aria-selected="${app.tab === "usage"}">${ICON.coin}Usage</button>
       <button class="tab md-state md-label-large" role="tab" data-tab="about" aria-selected="${app.tab === "about"}">${ICON.info}Details</button>
     </div>
@@ -1730,6 +1754,7 @@ function renderDetail(force = false) {
           : app.tab === "preview" ? previewPanel(session)
           : app.tab === "git" ? gitPanel(session)
           : app.tab === "history" ? historyPanel(session)
+          : app.tab === "gitlab" ? gitlabPanel(session)
           : app.tab === "usage" ? usagePanel(session)
           : aboutPanel(session, host)}
       </div>
@@ -1961,6 +1986,7 @@ function renderDetail(force = false) {
 
   // Both git tabs carry the same header, and the header has buttons in it.
   if (isGitTab(app.tab)) wireGit(session);
+  if (app.tab === "gitlab") wireGitlab(session);
   if (app.tab === "preview") wirePreviews(session, () => renderDetail(true));
 
   detailPane.querySelector("[data-act='more']")?.addEventListener("click", showMoreChat);
@@ -2792,6 +2818,8 @@ for (const [id, force] of [["endConfirm", false], ["endForce", true]] as [string
 
 export function openSettings(open) {
   app.showingSettings = open;
+  // Two pages, one pane: opening either one puts the other away.
+  if (open && app.showingItems) { app.showingItems = false; itemsButton.setAttribute("aria-pressed", "false"); }
   settingsButton.setAttribute("aria-pressed", String(open));
   // On one pane at a time the page is the detail side, so opening it has to
   // bring that side forward the way picking a session does.
@@ -2804,6 +2832,7 @@ export function openSettings(open) {
   else settingsButton.focus();
 }
 settingsButton.addEventListener("click", () => openSettings(!app.showingSettings));
+itemsButton.addEventListener("click", () => openItems(!app.showingItems));
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
   if (askScrim.dataset.open === "true") closeAsk(false);
@@ -2811,7 +2840,12 @@ document.addEventListener("keydown", (event) => {
   else if (endScrim.dataset.open === "true") closeEndDialog();
   else if (planScrim.dataset.open === "true") openPlan(false);
   else if (updateScrim.dataset.open === "true") openUpdate(false);
+  // A work item standing in front of the list is the nearest thing to modal in
+  // the GitLab tab, and Escape is how you come back out of it — the same as it
+  // is for a comparison or a subagent below.
+  else if (app.tab === "gitlab" && closeItem()) { /* back to the list */ }
   else if (app.showingSettings) openSettings(false);
+  else if (app.showingItems) openItems(false);
   // A comparison standing in front of the conversation is the nearest thing to
   // modal in the pane, and Escape is how you come back out of it.
   else if (hideChange()) { /* the conversation is back */ }

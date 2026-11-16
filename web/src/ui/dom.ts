@@ -14,6 +14,7 @@ const byId = <T extends HTMLElement>(id: string): T => document.getElementById(i
 
 export const panes = byId<HTMLDivElement>("panes");
 export const settingsButton = byId<HTMLButtonElement>("settingsButton");
+export const itemsButton = byId<HTMLButtonElement>("itemsButton");
 export const sessionList = byId<HTMLUListElement>("sessionList");
 export const listEmpty = byId<HTMLParagraphElement>("listEmpty");
 export const detailPane = byId<HTMLElement>("detailPane");

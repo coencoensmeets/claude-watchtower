@@ -206,8 +206,20 @@ def start_session(entry: dict) -> tuple[bool, str]:
 
 
 
-def new_session(cwd: str) -> tuple[bool, str]:
+def new_session(cwd: str, prompt: str = "") -> tuple[bool, str]:
     """Open a terminal running a fresh `claude` in a folder, from a shell prompt.
+
+    `prompt` is what the session should open on, handed to `claude` as its
+    positional argument — which Claude Code takes as the first thing said to it,
+    and then goes on interactively. It is quoted on the way through
+    interactive_argv like every other part of the line, so a work item whose
+    description is full of backticks and dollar signs arrives as text rather than
+    as something the shell had opinions about.
+
+    Positional rather than piped on stdin: `claude <<< text` is the headless
+    spelling, and it takes the terminal's stdin with it. The session has to be
+    one you can type at afterwards — that is the entire point of starting it in
+    a window rather than over the panel's own pipe.
 
     In auto mode, the same as a session the panel starts itself — see
     owned.NEW_SESSION_MODE — so a new session begins the same way whichever
@@ -218,7 +230,7 @@ def new_session(cwd: str) -> tuple[bool, str]:
     claude = shutil.which("claude")
     if not claude:
         return False, "Cannot find the claude command on PATH"
-    argv = terminal_argv(interactive_argv([claude, "--permission-mode", "auto"]), cwd)
+    argv = terminal_argv(interactive_argv([claude, "--permission-mode", "auto", *([prompt] if prompt else [])]), cwd)
     if not argv:
         return False, "No terminal found to start it in — set CLAUDE_WATCHTOWER_TERMINAL"
     try:
