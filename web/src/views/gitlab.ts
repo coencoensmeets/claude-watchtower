@@ -195,6 +195,19 @@ export function faces(people, me = "") {
   ).join("")}</span>`;
 }
 
+/* How much has been said on it, at the end of the row. It used to be a 13px
+   glyph and a figure among the labels, where a work item with a long
+   discussion looked like one with none. Now it is a column of its own, the
+   same width on every row so the counts line up and can be run down, and a
+   bold pill where there is anything to read. An item nobody has commented on
+   keeps the column empty rather than saying 0: absence is the quiet case. */
+export function talk(item) {
+  const n = Number(item.comments) || 0;
+  const said = n === 1 ? "1 comment" : `${n} comments`;
+  return `<span class="gl-talk-slot">${n ? `<span class="gl-talk${n >= 5 ? " gl-talk--busy" : ""}"
+      title="${said}" aria-label="${said}">${ICON.chat}<span class="gl-talk__n">${n}</span></span>` : ""}</span>`;
+}
+
 function itemRow(item, me = "") {
   const priority = priorityOf(item);
   const rest = asLabels(item).filter((l) =>
@@ -214,11 +227,11 @@ function itemRow(item, me = "") {
               escapeHtml(priority.name.toLowerCase())}">${escapeHtml(priority.name)}</span>` : ""}
             ${rest.map(labelChip).join("")}
             ${item.milestone ? `<span class="gl-meta-fact">${ICON.flag}${escapeHtml(item.milestone)}</span>` : ""}
-            ${item.comments ? `<span class="gl-meta-fact">${ICON.chat}${item.comments}</span>` : ""}
             <span class="gl-meta-fact gl-meta-fact--quiet">${item.updatedAt
               ? escapeHtml(since(item.updatedAt)) : ""}</span>
           </span>
         </span>
+        ${talk(item)}
         ${faces(item.assignees, me)}
       </button>
     </li>`;
@@ -420,25 +433,28 @@ export function gitlabPanel(session) {
   // One work item, standing in front of the list it came from.
   if (forge.shown !== null) return head + detailPanel(data);
 
+  /* One list, not two chips: everything open in the project, with what is
+     assigned to you in a section of its own at the top. Yours is what you came
+     for, and the rest is what you would otherwise have had to press a chip to
+     find out existed — a project where nothing is assigned to you opened on an
+     empty list. Each section is sorted by priority on its own. */
   const items = data.items || [];
-  const mine = items.filter((i) => i.mine);
-  const shown = forge.scope === "mine" ? mine : items;
-  const found = !forge.query ? shown : shown.filter((item) =>
+  const found = !forge.query ? items : items.filter((item) =>
     `${item.title} #${item.iid} ${asLabels(item).map((l) => l.name).join(" ")}`
       .toLowerCase().includes(forge.query.toLowerCase()));
-
-  const chip = (key, label, count) => `<button class="gl-chip md-state md-label-large"
-      type="button" data-scope="${key}" aria-pressed="${forge.scope === key}">${label}
-      <span class="gl-chip__count">${count}</span></button>`;
+  const mine = found.filter((i) => i.mine);
+  const rest = found.filter((i) => !i.mine);
+  const me = data.me || "";
+  const section = (key, title, list) => list.length ? `
+    <section class="gl-part" data-part="${key}">
+      <h3 class="gl-part__h md-label-large">${title}<span class="gl-part__n">${list.length}</span></h3>
+      <ul class="gl-list gl-list--items">${ordered(list).map((item) => itemRow(item, me)).join("")}</ul>
+    </section>` : "";
 
   const mrs = data.mrs || [];
   return `
     ${head}
     <div class="gl-bar">
-      <div class="gl-chips" role="group" aria-label="Which work items to show">
-        ${chip("mine", "Yours", mine.length)}
-        ${chip("all", "All open", items.length)}
-      </div>
       <input class="gl-search md-body-medium" id="glSearch" type="search"
              placeholder="Filter" value="${escapeHtml(forge.query)}"
              aria-label="Filter these work items">
@@ -449,14 +465,10 @@ export function gitlabPanel(session) {
     ${composeCard(data)}
 
     ${found.length
-      ? `<ul class="gl-list gl-list--items">${ordered(found).map((item) => itemRow(item, data.me || "")).join("")}</ul>`
+      ? section("mine", "Assigned to you", mine)
+        + section("rest", mine.length ? "Everything else open" : "Open in this project", rest)
       : `<p class="git-empty md-body-medium">${
-          forge.query ? "Nothing matches that."
-          : forge.scope === "mine"
-            ? (items.length
-                ? `Nothing here is assigned to you. ${items.length} open in the project — see <b>All open</b>.`
-                : "Nothing open in this project.")
-            : "Nothing open in this project."}</p>`}
+          forge.query ? "Nothing matches that." : "Nothing open in this project."}</p>`}
 
     ${mrs.length ? `<section class="section">
       <h3 class="section__title md-title-small">${hub ? "Pull requests" : "Merge requests"} from this branch</h3>
@@ -589,12 +601,6 @@ export function wireGitlab(session) {
   detailPane.querySelector("#gitlabRefresh")?.addEventListener("click", () => {
     if (forge.shown !== null) { forge.detail = null; fetchItem(forge.shown, true); return; }
     fetchGitlab(true);
-  });
-
-  on('[data-scope]', "click", (event) => {
-    forge.scope = (event.currentTarget as HTMLElement).dataset.scope;
-    localStorage.setItem("cbu-forge-scope", forge.scope);
-    refreshDetail(true);
   });
 
   const search = detailPane.querySelector<HTMLInputElement>("#glSearch");

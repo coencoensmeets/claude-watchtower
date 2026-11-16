@@ -20,7 +20,7 @@ import { app, work } from "../state.js";
 import { detailPane, itemsButton, panes } from "../ui/dom.js";
 import { escapeHtml, shorten } from "../ui/format.js";
 import { ICON } from "../ui/icons.js";
-import { asLabels, forgeName, isPriority, labelChip, ordered, priorityOf, since, startOn } from "./gitlab.js";
+import { asLabels, forgeName, isPriority, labelChip, ordered, priorityOf, since, startOn, talk } from "./gitlab.js";
 
 export async function fetchItems(force = false) {
   if (work.busy) return;
@@ -97,11 +97,11 @@ function itemRow(item, ready) {
             ${labels.map(labelChip).join("")}
             ${item.milestone ? `<span class="gl-meta-fact">${ICON.flag}${
               escapeHtml(item.milestone)}</span>` : ""}
-            ${item.comments ? `<span class="gl-meta-fact">${ICON.chat}${item.comments}</span>` : ""}
             <span class="gl-meta-fact gl-meta-fact--quiet">${item.updatedAt
               ? escapeHtml(since(item.updatedAt)) : ""}</span>
           </span>
         </span>
+        ${talk(item)}
         <span class="gl-go md-label-large" data-ready="${ready}">
           ${starting ? ICON.sync : ready ? ICON.play : ICON.folder}
           <span class="gl-go__word">${starting ? "Starting…"

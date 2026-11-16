@@ -146,9 +146,6 @@ export const forge = {
   data: null,
   for: null,
   busy: false,
-  // Which of the two lists the tab is showing — "mine" or "all" — kept across
-  // sessions because it is a habit rather than a property of a repository.
-  scope: localStorage.getItem("cbu-forge-scope") || "mine",
   query: "",
   // The work item standing in front of the list, by number, and what was read
   // of it. Same idea as a subagent standing in front of the conversation: one
@@ -185,6 +182,17 @@ export const spend = {
   usage: null,
   usageFor: null,
   usageBusy: false,
+};
+
+/* The Sessions tab: the other conversations in the selected session's folder,
+   and which of them is being brought back while the request is out. */
+export const past = {
+  data: null,
+  for: null,
+  busy: false,
+  opening: null as string | null,
+  // What the list is filtered for. Kept across a repaint, dropped with the session.
+  query: "",
 };
 
 /* The index. The session whose name is being edited must survive a poll: a

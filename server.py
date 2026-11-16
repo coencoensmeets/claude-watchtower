@@ -35,7 +35,7 @@ import signal
 import sys
 import threading
 
-from watchtower import build, config, listen, paste, tailnet, wslnet
+from watchtower import build, config, listen, paste, schedules, tailnet, wslnet
 from watchtower.config import SESSION_DIR
 from watchtower.http import Handler, PanelServer
 from watchtower.input import is_loopback
@@ -67,12 +67,20 @@ def main() -> None:
                         help="throw away the remembered key and make another")
     parser.add_argument("--no-send", action="store_true",
                         help="serve the conversation read-only, with no way to send input")
+    parser.add_argument("--install-service", action="store_true",
+                        help="install and start the panel as a systemd user service, "
+                             "with this clone's paths, and exit")
     parser.add_argument("--build", action="store_true",
                         help="build the frontend and exit")
     parser.add_argument("--no-build", action="store_true",
                         help="serve whatever is already built, however stale")
     args = parser.parse_args()
 
+    if args.install_service:
+        from watchtower import service
+        ok, said = service.install()
+        print(said, file=sys.stdout if ok else sys.stderr)
+        raise SystemExit(0 if ok else 1)
     if args.build:
         ok, said = build.build()
         if said:
@@ -138,6 +146,9 @@ def main() -> None:
     # Pasted pictures and dropped files older than five days, in every project
     # the panel has written them into — not only the one being pasted into next.
     paste.start_sweeping()
+    # The clock for scheduled tasks. Started after SAY_ENABLED is settled, which
+    # it reads before running anything.
+    schedules.start()
     # flush on every line: stdout is a pipe under a service unit, and the
     # address is the one thing here nobody can work out for themselves.
     say = lambda line: print(line, flush=True)
@@ -145,7 +156,7 @@ def main() -> None:
     if not is_loopback(host):
         # The address a phone will actually reach, not the one the socket is
         # bound to: nothing can open http://0.0.0.0.
-        where = listen.lan_address()
+        where = listen.chosen_address()[0]
         key = f"/?k={config.ACCESS_KEY}" if config.ACCESS_KEY else ""
         if where:
             say(f"on this network  → http://{where}:{port}{key}")

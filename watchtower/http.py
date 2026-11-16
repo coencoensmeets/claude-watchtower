@@ -53,16 +53,18 @@ from watchtower.owned import (
     owned_queued, owned_release, owned_resume, owned_running, owned_say, owned_send_now, owned_set_mode,
     owned_unqueue, save_owned,
 )
+from watchtower.past import past_session, past_sessions
 from watchtower.paste import (DROP_MAX_BYTES, PASTE_MAX_BYTES, POST_MAX_BYTES,
                               save_dropped_file, save_pasted_image)
 from watchtower.plan import read_plan
-from watchtower.listen import lan_address
+from watchtower.listen import address_candidates, chosen_address, set_address, valid_host
 from watchtower.wslnet import allow_port, phone_reach
 from watchtower import tailnet
 from watchtower.proc import proc_gone
 from watchtower.qr import svg as qr_svg
 from watchtower.skills import read_skills, set_skill
 from watchtower import previews
+from watchtower import schedules
 from watchtower import route as router
 from watchtower.rows import (
     _KEPT, _KEPT_LOCK, drop_unpinned_row, forget_row, keep_row, kept_rows, pin_row, unpin_row,
@@ -71,7 +73,7 @@ from watchtower.store import STORE
 from watchtower.tmux import answer_permission, answer_question, pane_of, skip_question
 from watchtower.tmux import set_mode as set_tmux_mode
 from watchtower.transcript import (
-    TRANSCRIPT_LIMIT_MAX, has_conversation, read_change, read_transcript,
+    TRANSCRIPT_LIMIT_MAX, has_conversation, read_change, read_permission_mode, read_transcript,
 )
 from watchtower.update import do_update, read_channel, read_update, write_channel, running_here
 from watchtower.usage import read_usage
@@ -407,7 +409,103 @@ class Handler(BaseHTTPRequestHandler):
     @route("GET", "/api/state")
     def _get_state(self) -> None:
         self._json({**STORE.snapshot(), "previews": previews.read_previews(),
-                    "starred": previews.read_starred()})
+                    "starred": previews.read_starred(),
+                    # Light: no history and no output, which /api/schedules has.
+                    "schedules": [{k: v for k, v in t.items() if k != "history"}
+                                  | ({"last": {k: v for k, v in t["last"].items() if k != "output"}}
+                                     if t.get("last") else {})
+                                  for t in schedules.read_schedules()]})
+
+    # --- scheduled tasks: a prompt or a command, later or on repeat
+
+    @route("GET", "/api/schedules")
+    def _get_schedules(self) -> None:
+        """One task in full, runs and output included; or every task in a folder."""
+        query = parse_qs(urlparse(self.path).query)
+        task_id = (query.get("id") or [""])[0]
+        if task_id:
+            task = schedules.get(task_id)
+            self._json({"ok": bool(task), "task": task}, 200 if task else 404)
+            return
+        where = {"sessionId": (query.get("sessionId") or [""])[0], "cwd": (query.get("cwd") or [""])[0]}
+        cwd = None
+        if any(where.values()):
+            cwd, why = self._schedule_folder(where)
+            if not cwd:
+                self._json({"ok": False, "message": why}, 404)
+                return
+        self._json({"ok": True, "tasks": schedules.read_schedules(cwd)})
+
+    def _schedule_folder(self, payload: dict) -> tuple[str | None, str]:
+        """The folder a task is for: a session's own, or one named and held
+        inside home the way the folder browser holds it."""
+        if payload.get("cwd"):
+            spot, why = _home_folder(str(payload["cwd"]))
+            return (str(spot), "") if spot else (None, why)
+        session_id = str(payload.get("sessionId") or "")
+        session = self._session_by_id(session_id) if session_id else None
+        cwd = (session or {}).get("cwd") or (kept_rows().get(session_id) or {}).get("cwd") or ""
+        return (cwd, "") if cwd else (None, "Say which folder: a session, or a folder inside home")
+
+    @route("POST", "/api/schedules")
+    def _post_schedules(self, payload: dict, session_id: str) -> None:
+        """Add a task, or change the one `id` names."""
+        if not config.SAY_ENABLED:
+            self._json({"ok": False, "message": OFF_HERE}, 403)
+            return
+        fields = {k: payload.get(k) for k in ("id", "title", "kind", "text", "at", "every", "mode",
+                                              "session", "timeout", "enabled", "createdBy", "starred")}
+        if payload.get("targetSession"):
+            fields["sessionId"] = str(payload["targetSession"])
+        if not fields["id"]:
+            cwd, why = self._schedule_folder(payload)
+            if not cwd:
+                self._json({"ok": False, "message": why}, 400)
+                return
+            fields["cwd"] = cwd
+        task, why = schedules.save_task(fields)
+        if task is None:
+            self._json({"ok": False, "message": why}, 409)
+            return
+        self._json({"ok": True, "task": task, "message": f"Scheduled {task['title']!r}"})
+
+    @route("POST", "/api/schedules/remove")
+    def _post_schedules_remove(self, payload: dict, session_id: str) -> None:
+        if not config.SAY_ENABLED:
+            self._json({"ok": False, "message": OFF_HERE}, 403)
+            return
+        gone = schedules.remove(str(payload.get("id") or ""))
+        self._json({"ok": gone, "message": "Removed" if gone else "No such task"}, 200 if gone else 404)
+
+    @route("POST", "/api/schedules/enable")
+    def _post_schedules_enable(self, payload: dict, session_id: str) -> None:
+        if not config.SAY_ENABLED:
+            self._json({"ok": False, "message": OFF_HERE}, 403)
+            return
+        task = schedules.set_enabled(str(payload.get("id") or ""), payload.get("enabled") is not False)
+        self._json({"ok": bool(task), "task": task,
+                    "message": ("Resumed" if task["enabled"] else "Paused") if task else "No such task"},
+                   200 if task else 404)
+
+    @route("POST", "/api/schedules/star")
+    def _post_schedules_star(self, payload: dict, session_id: str) -> None:
+        """Star a task, so it is listed under the sessions whether or not a
+        session in its folder is; or take the star off."""
+        if not config.SAY_ENABLED:
+            self._json({"ok": False, "message": OFF_HERE}, 403)
+            return
+        task = schedules.set_starred(str(payload.get("id") or ""), payload.get("starred") is not False)
+        self._json({"ok": bool(task), "task": task,
+                    "message": ("Starred" if task["starred"] else "Unstarred") if task else "No such task"},
+                   200 if task else 404)
+
+    @route("POST", "/api/schedules/run")
+    def _post_schedules_run(self, payload: dict, session_id: str) -> None:
+        if not config.SAY_ENABLED:
+            self._json({"ok": False, "message": OFF_HERE}, 403)
+            return
+        ok, said = schedules.start_run(str(payload.get("id") or ""))
+        self._json({"ok": ok, "message": said}, 200 if ok else 409)
 
     # --- previews: pages a session made, for you to look at
 
@@ -535,6 +633,8 @@ class Handler(BaseHTTPRequestHandler):
             kind += "; charset=utf-8"
         if spot.suffix.lower() in (".md", ".markdown"):
             kind = "text/plain; charset=utf-8"
+        if kind.startswith("text/html"):
+            body = previews.with_pin_script(body)
         self.send_response(200)
         self.send_header("Content-Type", kind)
         self.send_header("Content-Length", str(len(body)))
@@ -582,13 +682,21 @@ class Handler(BaseHTTPRequestHandler):
         key, which is the same rule as everything else here — and on loopback
         there is no key to see.
         """
-        where = lan_address() if config.SERVE_LAN else None
+        candidates = address_candidates() if config.SERVE_LAN else []
+        where, source = chosen_address(candidates) if config.SERVE_LAN else (None, "auto")
         key = config.ACCESS_KEY or ""
         url = f"http://{where}:{config.SERVE_PORT}/{f'?k={key}' if key else ''}" if where else ""
         self._json({
             "ok": True,
             "lan": config.SERVE_LAN,
             "address": where or "",
+            # Every address a phone might reach, and how this one was settled
+            # on: picked in Settings, set in the environment, or worked out.
+            "candidates": candidates,
+            "addressSource": source,
+            # Changing it changes what every phone is told, so only somebody at
+            # this machine may — the same rule as switching Tailscale.
+            "canPick": is_loopback(self.client_address[0]) and source != "env",
             "port": config.SERVE_PORT,
             "key": key,
             "url": url,
@@ -616,6 +724,22 @@ class Handler(BaseHTTPRequestHandler):
         # off would cut the phone off — so only somebody at this machine may.
         found["canSwitch"] = is_loopback(self.client_address[0])
         return found
+
+    @route("POST", "/api/reach/address")
+    def _post_reach_address(self, payload: dict, session_id: str) -> None:
+        """Pick the address a phone is handed, or (empty) go back to the panel
+        working it out. An address or a host name; from this machine only."""
+        if not is_loopback(self.client_address[0]):
+            self._json({"ok": False, "message": "Only this computer can change the address"}, 403)
+            return
+        address = str(payload.get("address") or "").strip()
+        if address and not valid_host(address):
+            self._json({"ok": False, "message": "That is not an address or a host name"}, 400)
+            return
+        set_address(address or None)
+        where, source = chosen_address()
+        self._json({"ok": True, "address": where, "addressSource": source,
+                    "message": f"Phones are now told {where}" if where else "Back to working it out"})
 
     @route("POST", "/api/reach/tailnet")
     def _post_reach_tailnet(self, payload: dict, session_id: str) -> None:
@@ -691,7 +815,7 @@ class Handler(BaseHTTPRequestHandler):
         and the encoder is a hundred lines of arithmetic either way — and here it
         can be checked against a reference encoder in a test.
         """
-        where = lan_address() if config.SERVE_LAN else None
+        where = chosen_address()[0] if config.SERVE_LAN else None
         # ?via=tailnet draws the tailnet address instead: the one that works
         # from anywhere, once this machine is on it.
         scheme = "http"
@@ -857,6 +981,70 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": False, "message": "That session is no longer running"}, 404)
             return
         self._json(read_usage(session_id, session["cwd"]))
+
+    # --- Sessions: the other conversations in this folder, and going back to one
+
+    @route("GET", "/api/past")
+    def _get_past(self) -> None:
+        # What `/resume` would offer in this session's folder. The folder is the
+        # session's own, never one named in the request — the same rule the git
+        # routes keep — so this lists nothing the panel is not already showing.
+        query = parse_qs(urlparse(self.path).query)
+        session_id = (query.get("sessionId") or [""])[0]
+        session = self._session_by_id(session_id)
+        cwd = (session or {}).get("cwd") or (kept_rows().get(session_id) or {}).get("cwd") or ""
+        if not cwd:
+            self._json({"ok": False, "message": "That session has no folder"}, 404)
+            return
+        found, more = past_sessions(cwd)
+        # The ones on the list already are opened by selecting them: a second
+        # process on a transcript something is holding is the one thing never to do.
+        on_list = {x["sessionId"] for x in STORE.snapshot()["sessions"]}
+        self._json({
+            "ok": True, "cwd": cwd, "more": more, "canOpen": config.SAY_ENABLED,
+            "sessions": [{**x, "current": x["sessionId"] == session_id,
+                          "onList": x["sessionId"] in on_list} for x in found],
+        })
+
+    @route("POST", "/api/past/open")
+    def _post_past_open(self, payload: dict, session_id: str) -> None:
+        # Bringing one back as a row the panel runs. The request names the session
+        # it was asked from and the conversation it wants; the folder comes off
+        # the first, and the second has to be a transcript in that folder.
+        if not config.SAY_ENABLED:
+            self._json({"ok": False, "message": OFF_HERE}, 403)
+            return
+        session = self._session_by_id(session_id)
+        cwd = (session or {}).get("cwd") or (kept_rows().get(session_id) or {}).get("cwd") or ""
+        past_id = str(payload.get("pastId") or "")
+        found = past_session(cwd, past_id) if cwd else None
+        if not found:
+            self._json({"ok": False, "message": "There is no such conversation in this folder"}, 404)
+            return
+        if self._session_by_id(past_id):
+            self._json({"ok": True, "sessionId": past_id, "message": "Already on the list"})
+            return
+        if not Path(cwd).is_dir():
+            self._json({"ok": False, "message": f"Its folder is gone: {cwd}"}, 409)
+            return
+        # Pinned, like a session started from the panel: you went back for it on
+        # purpose, so it stays until you take it off. Named after its folder like
+        # every other row; what it is about is the title, which the row shows too.
+        pin_row(past_id, {
+            "sessionId": past_id, "name": Path(cwd).name, "cwd": cwd,
+            "startedAt": found.get("startedAt") or found["lastAt"], "lastSeen": found["lastAt"],
+            "version": None, "kind": "interactive",
+        })
+        # Run here, in the mode it was left in when that is one the panel runs.
+        owned = load_owned()
+        mode = (owned.get(past_id) or {}).get("mode") or read_permission_mode(past_id, cwd)
+        mode = mode if mode in OWNED_MODES else OWNED_MODES[0]
+        owned[past_id] = {"mode": mode, "here": True}
+        save_owned(owned)
+        up, said = owned_hold(past_id, cwd, mode)
+        self._json({"ok": True, "sessionId": past_id, "running": up,
+                    "message": "Picked it back up" if up
+                               else f"It is on the list, but did not start: {said}"})
 
     @route("GET", "/api/commands")
     def _get_commands(self) -> None:

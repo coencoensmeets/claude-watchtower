@@ -238,6 +238,8 @@ export interface Feed {
   previews?: Record<string, Preview[]>;
   /** Previews you starred: listed under the sessions, with no session attached. */
   starred?: Starred[];
+  /** Every scheduled task, without its history. See views/schedules.ts. */
+  schedules?: ScheduledTask[];
 }
 
 /** A starred preview. A copy rather than a pointer, so it outlives the session
@@ -546,4 +548,42 @@ export interface Reply {
   ok?: boolean;
   message?: string;
   [key: string]: unknown;
+}
+
+/** One run of a scheduled task. `output` and `exit` are a command's. */
+export interface ScheduledRun {
+  at: number;
+  ok: boolean;
+  message: string;
+  kind?: "claude" | "command";
+  sessionId?: string;
+  exit?: number | null;
+  seconds?: number;
+  output?: string;
+}
+
+/** A task the panel runs in a folder, once or on repeat — watchtower/schedules.py. */
+export interface ScheduledTask {
+  id: string;
+  cwd: string;
+  title: string;
+  kind: "claude" | "command";
+  text: string;
+  /** The first (or only) moment, epoch seconds. */
+  at: number;
+  /** Seconds between runs; null for a one-off. */
+  every: number | null;
+  enabled: boolean;
+  next: number | null;
+  runs: number;
+  running?: boolean;
+  /** Listed under the sessions, so it stays in view with no session in its folder. */
+  starred?: boolean;
+  createdBy?: string;
+  mode?: string;
+  session?: "new" | "same";
+  sessionId?: string;
+  timeout?: number;
+  last?: ScheduledRun;
+  history?: ScheduledRun[];
 }

@@ -186,7 +186,8 @@ def _ask(prompt: str, run=None) -> tuple[bool, str]:
         return False, "Cannot find the claude command on PATH"
     try:
         process = subprocess.Popen(
-            [claude, "--print", "--model", ROUTE_MODEL, "--allowed-tools", "", "--output-format", "text"],
+            [claude, "--print", "--model", ROUTE_MODEL, "--allowed-tools", "", "--output-format", "text",
+             "--no-session-persistence"],
             cwd=str(HOME), text=True,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     except (OSError, subprocess.SubprocessError) as error:

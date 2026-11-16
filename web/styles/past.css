@@ -1,0 +1,345 @@
+/* The Sessions tab: the other conversations in this session's folder.
+
+   Watchtower rules, applied to a list you go back into. Neutral tiles in the
+   field tone carry it, and the step in tone is the only edge — no borders. Ink
+   is what you press, and it appears where you point: each row ends in a quiet
+   circle that opens into an ink pill with its arrow riding in lime, the same
+   act the comment card's Done is drawn as. One loud thing at a time, then.
+   Lilac marks the conversation you are in, because lilac is what is active;
+   ember, lime and the rest are left to the sessions in the list beside it. */
+
+/* ---------------------------------------------------------------- the top */
+
+.past-top {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--md-sys-spacing-4) var(--md-sys-spacing-6);
+  margin: var(--md-sys-spacing-2) 0 var(--md-sys-spacing-6);
+}
+
+/* A big numeral with its label beside it, as the guide draws a stat: the
+   number is what the eye takes, the words are there when it asks. */
+.past-count { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.past-count__n {
+  font-size: 44px;
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  color: var(--md-sys-color-on-surface);
+}
+.past-count__l { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.past-count__l .md-title-small { color: var(--md-sys-color-on-surface); font-weight: 650; }
+.past-count__l .md-body-small { color: var(--md-sys-color-on-surface-variant); overflow-wrap: anywhere; }
+
+/* The filter: a pill field with its glyph inside, the lilac ring on focus. */
+.past-filter {
+  position: relative;
+  flex: 1 1 260px;
+  max-width: 420px;
+  margin-inline-start: auto;
+}
+.past-filter svg {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  transform: translateY(-50%);
+  color: var(--md-sys-color-on-surface-variant);
+  pointer-events: none;
+}
+.past-filter__field {
+  width: 100%;
+  height: 44px;
+  padding: 0 18px 0 44px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--wt-field, var(--md-sys-color-surface-container));
+  color: var(--md-sys-color-on-surface);
+  font: inherit;
+  transition: box-shadow 0.2s var(--wt-ease, ease), background-color 0.2s var(--wt-ease, ease);
+}
+.past-filter__field::placeholder { color: var(--md-sys-color-outline); }
+.past-filter__field:hover { background: color-mix(in srgb, var(--wt-field, var(--md-sys-color-surface-container)) 70%, var(--wt-line, transparent)); }
+.past-filter__field:focus {
+  outline: none;
+  background: var(--md-sys-color-surface-container-lowest);
+  box-shadow: 0 0 0 3px var(--wt-lilac, var(--md-sys-color-primary));
+}
+
+/* ------------------------------------------------------------- the groups */
+
+.past-group + .past-group { margin-top: var(--md-sys-spacing-6); }
+
+.past-group__h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 var(--md-sys-spacing-3) 4px;
+  color: var(--md-sys-color-on-surface);
+  font-weight: 650;
+}
+/* The count rides beside the heading as a small circle, the chip's rider. */
+.past-group__n {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  box-sizing: border-box;
+  display: inline-grid;
+  place-items: center;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--wt-field, var(--md-sys-color-surface-container));
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.past-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.past-item { display: block; }
+
+/* ---------------------------------------------------------------- the row */
+
+.past {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 16px;
+  width: 100%;
+  padding: 14px 14px 14px 18px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 24px;
+  background: var(--wt-field, var(--md-sys-color-surface-container));
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  transition: background-color 0.2s var(--wt-ease, ease), transform 0.2s var(--wt-ease, ease);
+}
+button.past { cursor: pointer; }
+button.past:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--wt-field, var(--md-sys-color-surface-container)) 72%, var(--wt-line, transparent));
+}
+button.past:active:not(:disabled) { transform: scale(0.985); }
+button.past:focus-visible { outline: 3px solid var(--wt-lilac, var(--md-sys-color-primary)); outline-offset: 2px; }
+button.past:disabled { cursor: progress; }
+button.past:disabled:not(:has(.past__act--busy)) { opacity: 0.55; }
+
+/* The one you are in: tinted lilac, and not a press. */
+.past--current {
+  background: color-mix(in srgb, var(--wt-lilac, #A59FE2) 22%, var(--md-sys-color-surface));
+  grid-template-columns: 56px minmax(0, 1fr);
+}
+/* Shown, but there is nothing the panel may do with it from here. */
+.past--inert { grid-template-columns: 56px minmax(0, 1fr); }
+
+/* The time column: tabular, quiet, set at the top so it lines up with the name. */
+.past__when {
+  align-self: start;
+  padding-top: 3px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.past__text { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+
+.past__name {
+  color: var(--md-sys-color-on-surface);
+  font-size: 17px;
+  line-height: 1.3;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.past__said {
+  color: var(--md-sys-color-on-surface-variant);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.past__said-l {
+  display: inline-block;
+  margin-inline-end: 8px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface-variant);
+  vertical-align: 1px;
+}
+
+.past__facts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+/* Facts are tags: radius 10, the surface tone against the tile's field. */
+.past__fact {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 2px 10px;
+  border-radius: 10px;
+  background: var(--md-sys-color-surface);
+  font-variant-numeric: tabular-nums;
+}
+.past__fact--branch { font-size: 12px; overflow-wrap: anywhere; }
+.past__fact--branch svg { flex: none; width: 13px; height: 13px; }
+.past__fact--open { background: transparent; box-shadow: inset 0 0 0 1.5px var(--wt-line, var(--md-sys-color-outline-variant)); }
+
+/* "You're here": the guide's dot label, in lilac. */
+.past__here {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px 2px 8px;
+  border-radius: 10px;
+  background: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+  font-weight: 650;
+}
+.past__here i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--wt-lilac, #A59FE2);
+}
+
+/* ------------------------------------------------------------- the action */
+
+/* At rest a circle in the surface tone with the arrow in it; pointed at, the
+   word opens out beside it and the whole thing turns ink, the arrow riding in
+   lime. The word is there for the reader all along — aria-label carries it —
+   and only drawn when it is the thing about to happen. */
+.past__act {
+  display: inline-flex;
+  align-items: center;
+  height: 44px;
+  padding: 4px;
+  box-sizing: border-box;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+  transition: background-color 0.2s var(--wt-ease, ease), color 0.2s var(--wt-ease, ease);
+}
+.past__word {
+  max-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-weight: 650;
+  opacity: 0;
+  transition: max-width 0.25s var(--wt-ease, ease), opacity 0.2s var(--wt-ease, ease),
+              padding 0.25s var(--wt-ease, ease);
+}
+.past__ride {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--md-sys-color-on-surface-variant);
+  transition: background-color 0.2s var(--wt-ease, ease), color 0.2s var(--wt-ease, ease);
+}
+.past__ride svg { width: 18px; height: 18px; transform: rotate(90deg); }
+
+button.past:hover:not(:disabled) .past__act,
+button.past:focus-visible .past__act,
+.past__act--busy {
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+}
+button.past:hover:not(:disabled) .past__word,
+button.past:focus-visible .past__word,
+.past__act--busy .past__word {
+  max-width: 120px;
+  padding: 0 12px 0 14px;
+  opacity: 1;
+}
+button.past:hover:not(:disabled) .past__ride,
+button.past:focus-visible .past__ride,
+.past__act--busy .past__ride {
+  background: var(--wt-lime, #CBDA72);
+  color: var(--wt-on-state, #1E1F24);
+}
+/* The word sits before the circle, so the pill grows leftward into the row. */
+.past__act { flex-direction: row; }
+
+.past__spin {
+  width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: past-spin 0.8s linear infinite;
+}
+@keyframes past-spin { to { transform: rotate(360deg); } }
+
+/* ------------------------------------------- loading, empty, and the end */
+
+/* While it is read: three hatched tiles where the rows will be. Hatching is
+   the guide's "nothing here", which is exactly what is here for a moment. */
+.past-loading { display: flex; flex-direction: column; gap: 6px; margin-top: 72px; }
+.past-ghost {
+  height: 84px;
+  border-radius: 24px;
+  background-color: var(--wt-field, var(--md-sys-color-surface-container));
+  background-image: var(--wt-hatch-fine, none);
+}
+
+.past-empty { max-width: 420px; margin: var(--md-sys-spacing-12, 48px) auto; text-align: center; }
+.past-empty__art {
+  width: 96px;
+  height: 96px;
+  margin: 0 auto var(--md-sys-spacing-4);
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background-color: var(--wt-field, var(--md-sys-color-surface-container));
+  background-image: var(--wt-hatch, none);
+  color: var(--md-sys-color-on-surface);
+}
+.past-empty__art svg { width: 36px; height: 36px; }
+.past-empty h3 { margin: 0 0 6px; font-size: 1.25rem; font-weight: 650; color: var(--md-sys-color-on-surface); }
+.past-empty p { margin: 0; color: var(--md-sys-color-on-surface-variant); overflow-wrap: anywhere; }
+
+.past-none {
+  margin: 0;
+  padding: var(--md-sys-spacing-6) var(--md-sys-spacing-4);
+  border-radius: 24px;
+  box-shadow: inset 0 0 0 1.5px var(--wt-line, var(--md-sys-color-outline-variant));
+  background-image: var(--wt-hatch, none);
+  text-align: center;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.past-more {
+  margin: var(--md-sys-spacing-6) 0 0;
+  text-align: center;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+/* ------------------------------------------------------------ narrow panes */
+
+@media (max-width: 600px) {
+  .past { grid-template-columns: minmax(0, 1fr) auto; padding: 12px 10px 12px 16px; }
+  .past--current, .past--inert { grid-template-columns: minmax(0, 1fr); }
+  .past__when { display: none; }
+  .past-filter { max-width: none; margin-inline-start: 0; }
+  .past-count__n { font-size: 36px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .past, .past__act, .past__word, .past__ride { transition: none; }
+  button.past:active:not(:disabled) { transform: none; }
+}

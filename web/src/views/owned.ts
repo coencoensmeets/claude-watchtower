@@ -518,12 +518,13 @@ function queuedStrip(session) {
       <ul class="queued__list">${rows}</ul>
       ${!held && owned.busy ? `<div class="queued__ask">
         <button class="button button--tonal md-state queued__go" type="button" data-act="send-now"
-          title="Put ${waiting.length === 1 ? "it" : "them"} into the turn that is running — Ctrl+Enter in the box does the same">
+          title="Put ${waiting.length === 1 ? "it" : "them"} into the turn that is running — Ctrl+Enter does the same">
           ${ICON.play}Send now</button>
         <span class="queued__note md-label-small">instead of waiting for this turn to end</span>
       </div>` : ""}
       ${held ? `<div class="queued__ask">
-        <button class="button button--filled md-state queued__go" type="button" data-act="resume">
+        <button class="button button--filled md-state queued__go" type="button" data-act="resume"
+          title="Ctrl+Enter does the same">
           ${ICON.play}${waiting.length === 1 ? "Send it" : "Send them"}</button>
         <button class="button button--text md-state" type="button" data-act="unqueue">
           ${waiting.length === 1 ? "Drop it" : "Drop them"}</button>

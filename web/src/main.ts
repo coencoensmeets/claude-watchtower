@@ -9,14 +9,14 @@ import { run } from "./net.js";
 import { isAmbiguous, windowSays } from "./sessions/facts.js";
 import { ASK_ICON, ASK_WORD, STATE, STATE_ORDER, displaySince, drawnStateOf, standingAsk, stateKeyOf } from "./sessions/state.js";
 import type { StateKey } from "./sessions/state.js";
-import { CHAT_LIMIT_MAX, CHAT_PAGE, app, chat, forge, loadKeySet, mutedSessions, quietWhenDone, readJson, repo, sayDrafts, selected, sessionById, sidebar, spend, ui, work } from "./state.js";
+import { CHAT_LIMIT_MAX, CHAT_PAGE, app, chat, forge, loadKeySet, mutedSessions, past, quietWhenDone, readJson, repo, sayDrafts, selected, sessionById, sidebar, spend, ui, work } from "./state.js";
 import { askConfirm, askScrim, closeAsk } from "./ui/ask.js";
 import { browseFolder, onThisMachine } from "./ui/folders.js";
 import { openRoute, refreshRouteEnabled, routeEnabled } from "./ui/route.js";
 import { backButton, barNudge, barNudgeIcon, barNudgeLink, barNudgeText, barSupporting, chipSet, control, detailPane, endScrim, hitClosest, hitElement, itemsButton, linkChip, linkChipText, listEmpty, panes, pickBar, pickClear, pickCount, pickGroup, sessionList, settingsButton } from "./ui/dom.js";
 import { duration, escapeHtml, shorten, tokens } from "./ui/format.js";
 import { ICON, hostOf } from "./ui/icons.js";
-import { attachPicture, choosePictures, dropImage, imagesStamp, picturesOn, sendMessage } from "./ui/images.js";
+import { attachPicture, choosePictures, dropImage, imagesFor, imagesStamp, picturesOn, sendMessage } from "./ui/images.js";
 import { wireDrop } from "./ui/dropped.js";
 import { stopVoice, wireVoice } from "./ui/voice.js";
 import { closeSessionMenu, menuIsOpen, openMenu, sessionMenu } from "./ui/menu.js";
@@ -31,7 +31,7 @@ import { showSnackbar } from "./ui/snackbar.js";
 import { CONTRAST_LEVELS, NOTIFY_KINDS, SYS_ROLES, WT_INK, WT_PAGE, WT_PLENTY, WT_SCHEME, WT_STATE, WT_TINT, kebab } from "./ui/theme.js";
 import { changeBusy, chatPanel, hideChange, showChange } from "./views/change.js";
 import { agentBusy, hideAgent, refreshAgent, showAgent } from "./views/subagent.js";
-import { IDENTIFY_NOTE, commentIsOpen, markCommented, paintTrace, questionCard, renderRail, startRename, wireTrace } from "./views/chat.js";
+import { IDENTIFY_NOTE, commentIsOpen, draftsReady, markCommented, paintTrace, pressQueued, questionCard, renderRail, sendDraftsNow, startRename, wireTrace } from "./views/chat.js";
 import { closeDiff, fetchGit, gitPanel, gitStamp, historyPanel, wireGit } from "./views/git.js";
 import { closeItem, fetchGitlab, forgeName, gitlabPanel, gitlabStamp, wireGitlab } from "./views/gitlab.js";
 import { openItems, paintItems } from "./views/items.js";
@@ -39,6 +39,8 @@ import { askPicksFor, compactPct, composer, detailHeader, ownedFor, pickMode, pi
 import { fetchPlan, openPlan, planScrim } from "./views/plan.js";
 import { fetchUpdate, openUpdate, updateScrim } from "./views/update.js";
 import { aboutPanel, usagePanel } from "./views/usage.js";
+import { pastPanel, pastStamp } from "./views/past.js";
+import { renderStarredTasks, schedulePanel, scheduleStamp, schedulesOf, wireSchedules, wireStarredTasks } from "./views/schedules.js";
 import { previewPanel, previewStamp, previewUnseen, previewsOf, stageKey, wirePreviews } from "./views/previews.js";
 import { renderStarred, wireStarred } from "./views/starred.js";
 import "./ui/markdown.js";
@@ -453,6 +455,7 @@ async function poll() {
     if (app.selectedId && isGitTab(app.tab)) fetchGit();
     if (app.selectedId && app.tab === "gitlab") fetchGitlab();
     if (app.selectedId && app.tab === "usage") fetchUsage();
+    if (app.selectedId && app.tab === "past") fetchPast();
   } catch (error) {
     if (!app.lostSince) app.lostSince = Date.now();
     barSupporting.textContent = "lost the server — retrying";
@@ -597,6 +600,66 @@ async function fetchUsage(force = false) {
   }
 }
 
+/* The Sessions tab's list. Not on every poll: reading it means reading the
+   transcript that is growing under the session you are looking at, and the
+   other conversations in a folder do not change while you watch. */
+const PAST_EVERY_MS = 15000;
+let pastAt = 0;
+async function fetchPast(force = false) {
+  const id = app.selectedId;
+  if (!id || past.busy) return;
+  if (!force && (document.hidden || Date.now() - pastAt < PAST_EVERY_MS)) return;
+  past.busy = true;
+  pastAt = Date.now();
+  try {
+    const response = await fetch(`/api/past?sessionId=${encodeURIComponent(id)}`, { cache: "no-store" });
+    const data = await response.json().catch(() => ({ ok: false, message: "Could not read them" }));
+    if (app.selectedId !== id) return;
+    const changed = pastStamp(data) !== pastStamp(past.data) || past.for !== id;
+    past.data = data;
+    past.for = id;
+    if (changed) renderDetail(true);
+  } catch (error) {
+    /* leave the previous list on screen */
+  } finally {
+    past.busy = false;
+  }
+}
+
+/* Going back to one. On the list already, it is selected; otherwise it is
+   brought back as a row the panel runs, and opened on its conversation. */
+async function openPast(session, pastId) {
+  const row = (past.data?.sessions || []).find((x) => x.sessionId === pastId);
+  if (!row || row.current || past.opening) return;
+  if (row.onList && sessionById(pastId)) {
+    setTab("chat");
+    selectSession(pastId);
+    return;
+  }
+  past.opening = pastId;
+  renderDetail(true);
+  try {
+    const response = await fetch("/api/past/open", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: session.sessionId, pastId }),
+    });
+    const data = await response.json().catch(() => ({}));
+    showSnackbar(data.message || (response.ok ? "Picked it back up" : "That did not open"));
+    if (data.ok && data.sessionId) {
+      past.opening = null;
+      pastAt = 0;
+      app.tab = "chat";
+      localStorage.setItem("cbu-tab", "chat");
+      await poll();
+      selectSession(data.sessionId);
+    }
+  } catch (error) {
+    showSnackbar("Could not reach the server");
+  } finally {
+    if (past.opening) { past.opening = null; renderDetail(true); }
+  }
+}
+
 /* ------------------------------------------------------------------ nudges */
 /* Every session is working and none of them is asking anything: there is
    nothing here for you to do for a while, so the bar says so. The list is
@@ -680,6 +743,7 @@ function renderNudge(counts: Record<string, number>) {
 /* --------------------------------------------------------------- rendering */
 function render() {
   renderStarred();
+  renderStarredTasks();
   const counts: Record<string, number> = {};
   for (const session of app.feed.sessions) {
     const key = stateKeyOf(session.status);
@@ -972,6 +1036,7 @@ export function selectSession(id) {
   forge.detailFor = null;
   forge.composing = false;
   forge.query = "";
+  past.query = "";
   chat.transcript = null;
   chat.transcriptFor = null;
   chat.chatLimit = CHAT_PAGE;
@@ -993,6 +1058,7 @@ export function selectSession(id) {
   fetchTranscript();
   if (isGitTab(app.tab)) fetchGit(true);
   if (app.tab === "gitlab") fetchGitlab(true);
+  if (app.tab === "past") fetchPast(true);
 }
 
 function setTab(next) {
@@ -1005,6 +1071,7 @@ function setTab(next) {
   if (isGitTab(next)) fetchGit();
   if (next === "gitlab") fetchGitlab();
   if (next === "usage") fetchUsage(true);
+  if (next === "past") fetchPast(true);
 }
 
 function setMuted(id, muted) {
@@ -1596,12 +1663,14 @@ function renderDetail(force = false) {
     session.repoRoot ?? "", repo.gitFor === session.sessionId ? gitStamp(repo.git) : "",
     spend.usageFor === session.sessionId ? usageStamp(spend.usage) : "",
     forge.for === session.sessionId ? gitlabStamp(forge.data) : "",
+    past.for === session.sessionId ? pastStamp(past.data) : "",
+    app.tab === "schedule" ? scheduleStamp(session) : schedulesOf(session).length,
     // Where the GitLab tab is standing: which item is open, which list, what is
     // being filtered for and whether the compose card is up. All of it is state
     // the pane draws from and none of it comes from the server, so without it a
     // poll would rebuild the pane back to the list you had just left.
     app.tab === "gitlab"
-      ? [forge.shown ?? "", forge.scope, forge.query, forge.composing, forge.filing,
+      ? [forge.shown ?? "", forge.query, forge.composing, forge.filing,
          forge.acting, forge.detailBusy, forge.detailFor ?? ""].join(",") : "",
     mutedSessions.has(session.sessionId), app.feed.canFocus, app.feed.canSend, session.canSay,
     session.pinned, session.kept,
@@ -1745,6 +1814,9 @@ function renderDetail(force = false) {
         <button class="tab md-state md-label-large" role="tab" data-tab="git" aria-selected="${app.tab === "git"}">${ICON.branch}Git</button>
         <button class="tab md-state md-label-large" role="tab" data-tab="history" aria-selected="${app.tab === "history"}">${ICON.history}History</button>
         <button class="tab md-state md-label-large" role="tab" data-tab="gitlab" aria-selected="${app.tab === "gitlab"}">${ICON.ticket}${forgeName(session.forge)}</button>` : ""}
+      <button class="tab md-state md-label-large" role="tab" data-tab="past" aria-selected="${app.tab === "past"}">${ICON.rewind}Sessions</button>
+      <button class="tab md-state md-label-large" role="tab" data-tab="schedule" aria-selected="${app.tab === "schedule"}">${ICON.clock}Schedule${
+        schedulesOf(session).length ? `<span class="tab__count md-label-small">${schedulesOf(session).length}</span>` : ""}</button>
       <button class="tab md-state md-label-large" role="tab" data-tab="usage" aria-selected="${app.tab === "usage"}">${ICON.coin}Usage</button>
       <button class="tab md-state md-label-large" role="tab" data-tab="about" aria-selected="${app.tab === "about"}">${ICON.info}Details</button>
     </div>
@@ -1756,6 +1828,8 @@ function renderDetail(force = false) {
           : app.tab === "history" ? historyPanel(session)
           : app.tab === "gitlab" ? gitlabPanel(session)
           : app.tab === "usage" ? usagePanel(session)
+          : app.tab === "past" ? pastPanel(session)
+          : app.tab === "schedule" ? schedulePanel(session)
           : aboutPanel(session, host)}
       </div>
       ${app.tab === "chat" && chat.changeShown === null && chat.agentShown === null ? `<div class="jump-dock">
@@ -1884,6 +1958,24 @@ function renderDetail(force = false) {
       if (event.key === "Enter" && !event.shiftKey && !event.altKey) {
         event.preventDefault();
         const now = event.ctrlKey || event.metaKey;
+        // With comments waiting, Ctrl+Enter sends them — and what is in the box
+        // goes with them as the note underneath, in the same message. Pictures
+        // are the box's own Send, so with one attached the box sends as usual.
+        // With the box empty and messages typed ahead, Ctrl+Enter is the queue's
+        // own Send now — or Send them, when stopping the turn held the queue.
+        // Comments come first: they were the newer thing to have been written.
+        if (now && !field.value.trim() && !imagesFor(session.sessionId).length
+            && !draftsReady(session.sessionId) && pressQueued()) return;
+        if (now && draftsReady(session.sessionId) && !imagesFor(session.sessionId).length) {
+          const typed = field.value;
+          sendDraftsNow(session, typed).then((result) => {
+            if (!result?.ok || !typed.trim()) return;
+            setSayDraft(session.sessionId, "");
+            const live = detailPane.querySelector<HTMLTextAreaElement>("#sayField");
+            if (live && live.value === typed) { live.value = ""; growField(live); }
+          });
+          return;
+        }
         // Whichever way this session is sent to. An interactive one shows
         // only [data-act=own], and looking for [data-act=say] alone found
         // nothing — so Enter did nothing at all on the sessions the panel runs.
@@ -1987,7 +2079,22 @@ function renderDetail(force = false) {
   // Both git tabs carry the same header, and the header has buttons in it.
   if (isGitTab(app.tab)) wireGit(session);
   if (app.tab === "gitlab") wireGitlab(session);
+  if (app.tab === "past") {
+    for (const button of detailPane.querySelectorAll<HTMLElement>("[data-past]")) {
+      button.addEventListener("click", () => openPast(session, button.dataset.past));
+    }
+    const search = detailPane.querySelector<HTMLInputElement>("#pastSearch");
+    search?.addEventListener("input", () => {
+      past.query = search.value;
+      renderDetail(true);
+      // The pane is rebuilt under the field, so the caret is put back where it was.
+      const again = detailPane.querySelector<HTMLInputElement>("#pastSearch");
+      again?.focus();
+      again?.setSelectionRange(again.value.length, again.value.length);
+    });
+  }
   if (app.tab === "preview") wirePreviews(session, () => renderDetail(true));
+  if (app.tab === "schedule") wireSchedules(session, () => renderDetail(true));
 
   detailPane.querySelector("[data-act='more']")?.addEventListener("click", showMoreChat);
   // A change opens on the bar or on the folded patch itself — the whole block is
@@ -2608,8 +2715,13 @@ wireStarred({
   startChat: (cwd, prefill, item) => startOwnedSession({ cwd }, item, prefill),
   showSession: (id) => selectSession(id),
 });
+/* A starred task with no session in its folder: one is started there, and
+   opens on the Schedule tab with the task's runs showing. */
+wireStarredTasks({
+  openInFolder: (cwd, item) => startOwnedSession({ cwd }, item, "", "schedule"),
+});
 
-async function startOwnedSession(where, item, prefill = "") {
+async function startOwnedSession(where, item, prefill = "", tab = "chat") {
   if (item) item.disabled = true;
   showSnackbar(where.pick ? "Pick a folder in the chooser…" : "Starting it…", 300000);
   try {
@@ -2623,8 +2735,9 @@ async function startOwnedSession(where, item, prefill = "") {
     if (data.ok && data.sessionId) {
       app.selectedId = data.sessionId;
       localStorage.setItem("cbu-selected", data.sessionId);
-      setTab("chat");
+      setTab(tab);
       await poll();
+      if (tab !== "chat") return;
       const field = detailPane.querySelector<HTMLTextAreaElement>("#sayField");
       if (field && prefill) {
         field.value = prefill;

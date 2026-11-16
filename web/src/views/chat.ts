@@ -219,6 +219,7 @@ function commentOnSelection() {
   activeComment = made[made.length - 1].id;
   renderRail();
   focusComment(activeComment);
+  changed();
 }
 
 /* One card gets the caret when it opens; the rest are there to be filled in
@@ -260,6 +261,51 @@ const commentsFor = (id) => comments.get(id) || [];
 /* A card being typed in must not be rebuilt underneath, the same way a
    half-typed name or a drag on the composer grip holds off a repaint. */
 export const commentIsOpen = () => commentsFor(app.selectedId).some((c) => c.editing);
+
+/* ------------------------------------------------- one list, three views
+   A session has one set of draft comments, wherever they were written: on the
+   conversation, on a preview in the Preview tab, or in a preview opened in a
+   tab of its own (views/previewnotes.ts). Each view draws the drafts it is
+   about, and any of them can send — what goes is all of the session's drafts,
+   in one message, so nothing written in one place is left behind by sending
+   from another.
+
+   A preview's comment carries `preview`: which page, and where on it. It has
+   no passage in the transcript, so on the conversation it waits at the end of
+   it, labelled with the page it is about. */
+export type PreviewSource = { id: string; title: string; entry: string; where: string; page: string };
+
+export const draftsOf = (sessionId: string) => commentsFor(sessionId);
+
+export function addDraft(sessionId: string, entry) {
+  comments.set(sessionId, [...commentsFor(sessionId), entry]);
+  changed();
+}
+
+export function dropDraft(sessionId: string, id: string) {
+  comments.set(sessionId, commentsFor(sessionId).filter((c) => c.id !== id));
+  if (activeComment === id) activeComment = null;
+  forgetCommented(id);
+  window.dispatchEvent(new CustomEvent("wt-comment-dropped", { detail: { sessionId, id } }));
+  changed();
+}
+
+/* Every view repaints from the list on this, rather than each telling the
+   others what it did. Not called from inside a repaint, so it cannot loop. */
+export function changed() {
+  window.dispatchEvent(new CustomEvent("wt-comments"));
+}
+window.addEventListener("wt-comments", () => {
+  if (detailPane.querySelector("#commentRail")) renderRail();
+});
+
+/* Typing in a card changes what Send would send but not what is on screen, so
+   it says only that: the views update their counts and leave the cards — and
+   the caret in one of them — alone. */
+export function typed() {
+  window.dispatchEvent(new CustomEvent("wt-comment-typed"));
+}
+window.addEventListener("wt-comment-typed", () => refreshSendLabel());
 
 function rememberCommented(entries) {
   const id = app.selectedId;
@@ -396,12 +442,14 @@ export function renderRail() {
             title="Delete" aria-label="Delete this comment">${ICON.trash}</button>
         </span>`}
       </div>
+      ${c.preview ? `<p class="ccard__source md-label-small">${ICON.preview}On the preview “${
+        escapeHtml(c.preview.title)}”</p>` : ""}
       <p class="ccard__quote md-body-small">${escapeHtml(c.text.split("\n")[0].slice(0, 160))}</p>
       ${c.editing
         ? `<textarea class="ccard__field md-body-medium" aria-label="Your comment on this passage"
              placeholder="What about it?">${escapeHtml(c.remark)}</textarea>
            <div class="ccard__actions">
-             <span class="ccard__hint md-label-small"><kbd>Enter</kbd> done · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line</span>
+             <span class="ccard__hint md-label-small"><kbd>Enter</kbd> done · <kbd>Ctrl</kbd>+<kbd>Enter</kbd> send all</span>
              <button class="ccard__icon md-state" type="button" data-cc="drop" data-id="${escapeHtml(c.id)}"
                title="Delete" aria-label="Delete this comment">${ICON.trash}</button>
              <button class="ccard__done md-state md-label-large" type="button" data-cc="keep"
@@ -444,8 +492,15 @@ export function renderRail() {
     card.addEventListener("mousedown", () => { activeComment = id; });
     const field = card.querySelector<HTMLTextAreaElement>(".ccard__field");
     if (field) {
-      field.addEventListener("input", () => { entry.remark = field.value; refreshSendLabel(); });
+      field.addEventListener("input", () => { entry.remark = field.value; refreshSendLabel(); typed(); });
       field.addEventListener("keydown", (event) => {
+        // Ctrl+Enter finishes the card and sends every draft, there and then.
+        if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+          event.preventDefault();
+          event.stopPropagation();
+          sendDraftsNow(selected());
+          return;
+        }
         // Enter finishes the card; a newline inside a remark needs the modifier,
         // which is the same bargain the composer makes.
         if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); closeComment(id, true); }
@@ -487,10 +542,10 @@ function closeComment(id, keep) {
   const entry = list.find((c) => c.id === id);
   if (!entry) return;
   if (!keep && !entry.remark.trim()) {
-    comments.set(app.selectedId, list.filter((c) => c.id !== id));
-    forgetCommented(id);
+    dropDraft(app.selectedId, id);
   } else {
     entry.editing = false;
+    changed();
   }
   if (activeComment === id) activeComment = null;
   renderRail();
@@ -522,7 +577,7 @@ function positionRail() {
    link cannot be wrapped in one, and anchoring to marks alone put exactly those
    cards at the top of the rail rather than beside anything. */
 function findAnchor(scroller, entry) {
-  if (!entry) return null;
+  if (!entry || entry.preview) return null;
   const first = entry.text.split("\n").map((l) => l.trim()).find((l) => l.length >= 12)
     || entry.text.trim();
 
@@ -583,14 +638,35 @@ function findAnchor(scroller, entry) {
    conversation rather than the order they were written. */
 function commentsAsMessage(list) {
   return list.filter((c) => c.remark.trim())
-    .map((c) => `${quoteBlock(c)}\n\n${c.remark.trim()}`)
+    .map((c) => `${c.preview ? previewQuote(c) : quoteBlock(c)}\n\n${c.remark.trim()}`)
     .join("\n\n");
 }
 
-async function sendComments(session, button) {
-  const list = commentsFor(app.selectedId).filter((c) => c.remark.trim());
-  if (!list.length || app.inFlight) return;
-  const text = commentsAsMessage(commentsFor(app.selectedId));
+/* A passage from a preview, quoted under the page it is on and a short
+   selector for where — which is what lets the session find it in the source it
+   wrote, the way [you, 14:32] lets it find a passage in its transcript. */
+function previewQuote(c) {
+  const p: PreviewSource = c.preview;
+  const where = [p.page && p.page !== p.entry ? p.page : "", p.where].filter(Boolean).join(" · ");
+  const head = `[preview “${p.title}”${where ? `, ${where}` : ""}]`;
+  return [head, ...c.text.replace(/\r/g, "").split("\n")].map((line) => `> ${line}`.trimEnd()).join("\n");
+}
+
+/* Send every draft this session has, from wherever it was written. Returns
+   whether it went, and what the server said. Exported for the Preview tab and
+   for a preview's own tab, which send through here rather than keeping a
+   second copy of the rules. */
+export async function sendDrafts(session, button: HTMLButtonElement | null = null,
+                                 { extra = "", now = false } = {}): Promise<{ ok: boolean; message: string }> {
+  const id = session.sessionId;
+  const list = commentsFor(id).filter((c) => c.remark.trim());
+  if (!list.length) return { ok: false, message: "Nothing written to send" };
+  if (app.inFlight) return { ok: false, message: "Something is being sent already" };
+  const why = sendBlockedReason(session);
+  if (why) return { ok: false, message: why };
+  // Anything typed in the message box goes last, as the note under the
+  // comments — which is where you would have written it.
+  const text = [commentsAsMessage(commentsFor(id)), extra.trim()].filter(Boolean).join("\n\n");
   // The same two destinations as the composer's own Send, for the same reasons:
   // a session of ours takes the turn here whether or not it happens to be held
   // open at this moment, and a session in a terminal is sent to. `/api/start`
@@ -598,28 +674,85 @@ async function sendComments(session, button) {
   // sends a page of comments somewhere you are not looking.
   const url = runsHere(session) ? "/api/owned/say" : "/api/say";
   app.inFlight = url;
-  button.disabled = true;
+  if (button) button.disabled = true;
+  let result = { ok: false, message: "That did not send" };
   try {
     const response = await fetch(url, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId: session.sessionId, text }),
+      body: JSON.stringify({ sessionId: id, text, ...(now ? { now: true } : {}) }),
     });
     const data = await response.json().catch(() => ({}));
-    if (response.ok && data.ok) {
+    result = { ok: !!(response.ok && data.ok), message: data.message || (response.ok ? "Sent" : "That did not send") };
+    if (result.ok) {
       // Sent comments leave the rail but keep their marks: the rail is what is
       // outstanding, the marks are where you have been.
-      comments.set(app.selectedId, commentsFor(app.selectedId).filter((c) => !c.remark.trim()));
+      comments.set(id, commentsFor(id).filter((c) => !c.remark.trim()));
       activeComment = null;
-      renderRail();
     }
-    showSnackbar(data.message || (response.ok ? "Sent" : "That did not send"));
   } catch (error) {
-    showSnackbar("Could not reach the server");
+    result = { ok: false, message: "Could not reach the server" };
   } finally {
     app.inFlight = null;
-    button.disabled = false;
+    if (button) button.disabled = false;
+    changed();
     reloadState();
   }
+  return result;
+}
+
+/* Ctrl+Enter (Cmd+Enter on a Mac) with drafts waiting sends them, as it is the
+   terminal's Send now everywhere else in the panel. A card still open with
+   something written in it is finished first, so what you were typing goes too;
+   one open with nothing in it is put away. Returns null when there was nothing
+   to send, so the key can fall through to whatever it does otherwise. */
+export const draftsReady = (sessionId: string) =>
+  commentsFor(sessionId).some((c) => c.remark.trim());
+
+export async function sendDraftsNow(session, extra = "") {
+  if (!session) return null;
+  const id = session.sessionId;
+  for (const c of commentsFor(id)) {
+    if (!c.editing) continue;
+    if (c.remark.trim()) c.editing = false;
+    else dropDraft(id, c.id);
+  }
+  if (!draftsReady(id)) { changed(); return null; }
+  const result = await sendDrafts(session, null, { extra, now: true });
+  showSnackbar(result.message);
+  return result;
+}
+
+/* Anywhere on the panel that is not a text field: the message box and the
+   cards have their own Ctrl+Enter, and a field elsewhere (a commit message,
+   a rename) means something else by it. */
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" || !(event.ctrlKey || event.metaKey) || event.shiftKey || event.altKey) return;
+  const at = event.target as HTMLElement;
+  if (at?.closest?.("input, textarea, select, [contenteditable='true']")) return;
+  const session = selected();
+  if (!session) return;
+  if (draftsReady(session.sessionId)) {
+    event.preventDefault();
+    sendDraftsNow(session);
+  } else if (pressQueued()) {
+    event.preventDefault();
+  }
+});
+
+/* The queue's own button, pressed: Send now while the turn runs, or Send them
+   when stopping it held the queue. Through the button rather than around it,
+   so the key does exactly what the button on screen says, and nothing when
+   there is no such button. */
+export function pressQueued(): boolean {
+  const button = detailPane.querySelector<HTMLButtonElement>("[data-act='send-now'], [data-act='resume']");
+  if (!button || button.disabled) return false;
+  button.click();
+  return true;
+}
+
+async function sendComments(session, button) {
+  const result = await sendDrafts(session, button);
+  showSnackbar(result.message);
 }
 
 /* Attached once, to the pane, and never inside a render.
@@ -635,9 +768,7 @@ detailPane.addEventListener("click", (event) => {
   if (act) {
     const id = act.dataset.id;
     if (act.dataset.cc === "drop") {
-      comments.set(app.selectedId, commentsFor(app.selectedId).filter((c) => c.id !== id));
-      if (activeComment === id) activeComment = null;
-      forgetCommented(id);
+      dropDraft(app.selectedId, id);
       renderRail();
     } else if (act.dataset.cc === "edit") {
       const entry = commentsFor(app.selectedId).find((c) => c.id === id);
@@ -672,6 +803,18 @@ quoteChip.addEventListener("click", (event) => {
   if (act === "copy") copySelection();
   else if (act === "comment") commentOnSelection();
 });
+
+/* Right-clicking a selection in the transcript offers the chip's two actions as
+   a menu: the same Comment and Copy, at the pointer. The passage is read now,
+   while the selection is still standing — pressing a menu item can take it. */
+export function selectionMenuItems() {
+  const quote = quotableSelection();
+  if (!quote) return null;
+  return [
+    { key: "comment", icon: ICON.chat, label: "Comment", run: () => { pendingQuote = quote; commentOnSelection(); } },
+    { key: "copy", icon: ICON.copy, label: "Copy", run: () => { pendingQuote = quote; copySelection(); } },
+  ];
+}
 
 /* Copy is the other half of what you want from a selection, and the panel is the
    one place the transcript is readable without opening the terminal. */

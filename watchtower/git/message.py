@@ -123,7 +123,10 @@ def suggest_message(root: str) -> tuple[bool, str]:
             [claude, "--print", "--model", MESSAGE_MODEL,
              # It is handed everything it needs on stdin. No tools means no
              # permission prompt to answer and nothing it can do to the tree.
-             "--allowed-tools", "", "--output-format", "text"],
+             "--allowed-tools", "", "--output-format", "text",
+             # Run in the repository, so a transcript of it would land among
+             # that folder's conversations under Sessions. It is not one.
+             "--no-session-persistence"],
             cwd=root, text=True,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )

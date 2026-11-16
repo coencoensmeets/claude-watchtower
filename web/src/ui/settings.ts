@@ -764,11 +764,12 @@ async function paintReach() {
     <div class="tailnet" id="tailnetBox" hidden></div>
     <h4 class="md-title-small reach__subtitle" id="lanTitle" hidden>On this network</h4>
     <div class="reach">
-      ${reach.address ? `<img class="reach__code" src="/api/qr" alt="The address of this panel, as a code to scan"
+      ${reach.address ? `<img class="reach__code" src="/api/qr?t=${Date.now()}" alt="The address of this panel, as a code to scan"
         width="248" height="248">` : ""}
       <div class="reach__said">
         <p class="md-body-medium">Point a camera at this, or type it in:</p>
         ${where}
+        ${addressPicker(reach)}
         ${reach.key
           ? `<p class="md-body-small reach__note">The key on the end is what lets a phone in — the
              panel answers nothing from off this machine without it. It is the same key every
@@ -778,6 +779,7 @@ async function paintReach() {
       </div>
     </div>
     <div class="settings-notice" id="wslHint" hidden></div>`;
+  wireAddressPicker(section);
   paintWslHint(section.querySelector<HTMLElement>("#wslHint"), reach.wsl);
   paintTailnet(section.querySelector<HTMLElement>("#tailnetBox"), reach.tailnet);
   // Named only when there is something above it to tell it apart from.
@@ -792,6 +794,65 @@ async function paintReach() {
     // the other end of the pane, and the answer belongs where the press was.
     copy.innerHTML = ICON.check;
     setTimeout(() => { if (copy.isConnected) copy.innerHTML = ICON.copy; }, 1400);
+  });
+}
+
+/* Which of this machine's addresses the code points at. A laptop on ethernet
+   and Wi-Fi at once has two, and the phone is on one of them; the panel's own
+   guess is the one traffic leaves from, which need not be the phone's. So the
+   candidates are offered as chips — the one in use pressed — with Other… for
+   a host name, and Automatic to go back to the guess. Set from the environment,
+   it is only said; from a phone, only shown. */
+const KIND_WORD = { wifi: "Wi-Fi", wired: "Wired", vpn: "VPN", other: "" };
+
+function addressPicker(reach): string {
+  const candidates = reach.candidates || [];
+  const source = reach.addressSource;
+  if (source === "env") {
+    return `<p class="md-body-small reach__note">Set with <code class="md-mono">CLAUDE_WATCHTOWER_ADDRESS</code>
+      in the panel's environment.</p>`;
+  }
+  const custom = source === "picked" && !candidates.some((c) => c.address === reach.address);
+  if (candidates.length < 2 && !custom && source !== "picked") return "";
+  const chip = (value: string, label: string, sub: string, on: boolean) =>
+    `<button type="button" class="reach__choice md-label-large" data-address="${escapeHtml(value)}"
+      aria-pressed="${on}" ${reach.canPick ? "" : "disabled"}>${escapeHtml(label)}${
+      sub ? `<span class="reach__choice-sub md-label-small">${escapeHtml(sub)}</span>` : ""}</button>`;
+  return `<div class="reach__pick" role="group" aria-label="Which address phones are given">
+      <span class="md-label-medium reach__pick-l">${candidates.length > 1
+        ? "This computer is on more than one network. Pick the one your phone is on:"
+        : "Address phones are given:"}</span>
+      <div class="reach__choices">
+        ${candidates.map((c) => chip(c.address, c.address, [KIND_WORD[c.kind], c.iface].filter(Boolean).join(" · "),
+          source === "picked" && c.address === reach.address)).join("")}
+        ${custom ? chip(reach.address, reach.address, "your own", true) : ""}
+        ${reach.canPick ? `<button type="button" class="reach__choice reach__choice--quiet md-label-large" data-address-other>Other…</button>` : ""}
+        ${chip("", "Automatic", source === "auto" && reach.address ? reach.address : "", source === "auto")}
+      </div>
+      ${reach.canPick ? "" : `<span class="md-body-small reach__note">Only this computer can change it.</span>`}
+    </div>`;
+}
+
+function wireAddressPicker(section: HTMLElement) {
+  const pick = async (address: string, button: HTMLButtonElement) => {
+    button.disabled = true;
+    try {
+      const response = await fetch("/api/reach/address", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ address }),
+      });
+      const data = await response.json().catch(() => ({}));
+      showSnackbar(data.message || (response.ok ? "Done" : "That did not work"));
+    } catch {
+      showSnackbar("Could not reach the server");
+    }
+    paintReach();
+  };
+  for (const button of section.querySelectorAll<HTMLButtonElement>("[data-address]")) {
+    button.addEventListener("click", () => pick(button.dataset.address || "", button));
+  }
+  section.querySelector<HTMLButtonElement>("[data-address-other]")?.addEventListener("click", (event) => {
+    const typed = window.prompt("The address or host name a phone should use (for example mypc.local)", "");
+    if (typed && typed.trim()) pick(typed.trim(), event.currentTarget as HTMLButtonElement);
   });
 }
 

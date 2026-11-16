@@ -26,8 +26,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
+import time
+from datetime import datetime
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any, Callable
 
@@ -229,6 +233,95 @@ def summarise(session: dict, owned: dict, me: dict | None) -> dict:
         row["isYou"] = True
     return row
 
+
+
+# ---------------------------------------------------------------- the clock
+
+_SPAN = re.compile(r"(\d+(?:\.\d+)?)\s*(seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h|days?|d|weeks?|w)(?![a-z])",
+                   re.IGNORECASE)
+_UNIT = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
+
+
+def parse_span(raw: Any) -> int | None:
+    """Seconds from '30m', '2h', '1h30m', '1 day', or a bare number of minutes."""
+    if raw is None or raw == "":
+        return None
+    if isinstance(raw, (int, float)):
+        return int(raw * 60)
+    text = str(raw).strip().casefold()
+    if re.fullmatch(r"\d+(\.\d+)?", text):
+        return int(float(text) * 60)
+    text = re.sub(r"^every\s+", "", text)
+    if text in ("minute", "hour", "day", "week"):
+        return _UNIT[text[0]]
+    parts = _SPAN.findall(text)
+    if not parts or _SPAN.sub("", text).strip(" ,and") != "":
+        raise ToolError(f"Cannot read {raw!r} as a span of time. Use e.g. '15m', '2h', '1d' or '1h30m'.")
+    return int(sum(float(n) * _UNIT[u[0].casefold()] for n, u in parts))
+
+
+def parse_moment(raw: Any, now: float | None = None) -> float | None:
+    """A moment from 'in 10m', an ISO date-time (local time unless it says
+    otherwise), 'HH:MM' (today, or tomorrow once it has gone), or epoch seconds."""
+    now = time.time() if now is None else now
+    if raw is None or raw == "":
+        return None
+    if isinstance(raw, (int, float)):
+        return float(raw)
+    text = str(raw).strip()
+    low = text.casefold()
+    if low == "now":
+        return now
+    if low.startswith("in "):
+        return now + (parse_span(low[3:]) or 0)
+    if re.fullmatch(r"\d{1,2}:\d{2}", text):
+        hour, minute = map(int, text.split(":"))
+        today = datetime.fromtimestamp(now).replace(hour=hour, minute=minute, second=0, microsecond=0)
+        at = today.timestamp()
+        return at if at > now else at + 86400
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        raise ToolError(f"Cannot read {raw!r} as a moment. Use 'in 10m', '14:30', or an ISO "
+                        "date-time such as '2026-11-17T09:00'.") from None
+
+
+def when_words(at: float | None) -> str | None:
+    return datetime.fromtimestamp(at).isoformat(timespec="minutes") if at else None
+
+
+def task_summary(task: dict) -> dict:
+    every = task.get("every")
+    out = {"id": task["id"], "title": task["title"], "kind": task["kind"], "folder": task["cwd"],
+           "what": task["text"] if len(task["text"]) <= 300 else task["text"][:300] + " …",
+           "repeats": _every_words(every), "enabled": task.get("enabled"),
+           "nextRun": when_words(task.get("next")), "runs": task.get("runs") or 0}
+    if task["kind"] == "claude":
+        out["mode"] = task.get("mode")
+        out["session"] = task.get("session")
+        if task.get("sessionId"):
+            out["sessionId"] = task["sessionId"]
+    if task.get("running"):
+        out["running"] = True
+    if task.get("starred"):
+        out["starred"] = True
+    last = task.get("last")
+    if last:
+        out["lastRun"] = {"at": when_words(last.get("at")), "ok": last.get("ok"),
+                          "message": last.get("message")}
+        if last.get("output"):
+            out["lastRun"]["output"] = last["output"][-1500:]
+    return out
+
+
+def _every_words(every: int | None) -> str:
+    if not every:
+        return "once"
+    for unit, size in (("day", 86400), ("hour", 3600), ("minute", 60)):
+        if every % size == 0:
+            n = every // size
+            return f"every {unit}" if n == 1 else f"every {n} {unit}s"
+    return f"every {every} seconds"
 
 # --------------------------------------------------------------------- tools
 
@@ -439,6 +532,70 @@ class Tools:
         said = self.call("POST", "/api/end", {"sessionId": target["sessionId"]})
         return {"ok": True, "message": said.get("message")}
 
+    # --- scheduled tasks
+
+    def _task_folder(self, folder: str) -> dict:
+        """Where a task goes: the folder named, else this session's own."""
+        if folder:
+            return {"cwd": os.path.abspath(os.path.expanduser(str(folder)))}
+        _, _, me = self._feed()
+        if not me:
+            raise ToolError("The panel cannot tell which session this is, so pass `folder`.")
+        return {"sessionId": me["sessionId"]}
+
+    def schedule_task(self, prompt: str = "", command: str = "", at: Any = "", every: Any = "",
+                      title: str = "", folder: str = "", mode: str = "", session: str = "",
+                      timeout_minutes: Any = None, id: str = "", enabled: Any = None,
+                      starred: Any = None) -> Any:
+        if prompt and command:
+            raise ToolError("A task is a prompt for Claude or a command, not both.")
+        body: dict[str, Any] = {"title": title or None, "mode": mode or None, "session": session or None}
+        if prompt or command:
+            body["kind"] = "claude" if prompt else "command"
+            body["text"] = prompt or command
+        elif not id:
+            raise ToolError("Say what to do: `prompt` for Claude, or `command` for a shell command.")
+        moment = parse_moment(at)
+        span = parse_span(every)
+        if moment is not None:
+            body["at"] = moment
+        if span is not None:
+            body["every"] = span
+        if timeout_minutes not in (None, ""):
+            body["timeout"] = int(float(timeout_minutes) * 60)
+        if enabled is not None:
+            body["enabled"] = bool(enabled)
+        if starred is not None:
+            body["starred"] = bool(starred)
+        if id:
+            body["id"] = id
+        else:
+            body.update(self._task_folder(folder))
+            _, _, me = self._feed()
+            body["createdBy"] = me["name"] if me else "an MCP client"
+        said = self.call("POST", "/api/schedules", {k: v for k, v in body.items() if v is not None})
+        task = said.get("task") or {}
+        return {"ok": True, "task": task_summary(task),
+                "message": f"Scheduled in the Watchtower panel — {_every_words(task.get('every'))}, "
+                           f"next at {when_words(task.get('next'))}. The panel must be running for it to run."}
+
+    def list_scheduled_tasks(self, folder: str = "", everywhere: bool = False) -> Any:
+        if everywhere:
+            said = self.call("GET", "/api/schedules", None)
+        else:
+            where = self._task_folder(folder)
+            query = "&".join(f"{k}={urllib.parse.quote(str(v))}" for k, v in where.items())
+            said = self.call("GET", f"/api/schedules?{query}", None)
+        return {"tasks": [task_summary(t) for t in said.get("tasks") or []]}
+
+    def cancel_scheduled_task(self, id: str) -> Any:
+        said = self.call("POST", "/api/schedules/remove", {"id": str(id or "")})
+        return {"ok": True, "message": said.get("message")}
+
+    def run_scheduled_task(self, id: str) -> Any:
+        said = self.call("POST", "/api/schedules/run", {"id": str(id or "")})
+        return {"ok": True, "message": said.get("message")}
+
 
 SESSION = {"type": "string", "description": "The session's name or id, as list_sessions gives them"}
 
@@ -517,6 +674,48 @@ TOOLS = [
      "description": "End another session: stop its process, or stop running it if the panel runs it.",
      "inputSchema": {"type": "object", "required": ["session"], "properties": {"session": SESSION}},
      "annotations": {"destructiveHint": True}},
+    {"name": "schedule_task",
+     "description": "Schedule a task in a project folder, run by the Watchtower panel: once at a "
+                    "moment, or repeating every so often. A task is either a `prompt` for Claude (sent "
+                    "as a turn to a fresh session each run, or to the same session every time with "
+                    "session='same') or a shell `command` (run with bash in the folder; exit code and "
+                    "output are kept). Defaults to this session's folder and to running now. Pass `id` "
+                    "to change an existing task; `enabled: false` pauses one. Runs only while the "
+                    "panel is running.",
+     "inputSchema": {"type": "object", "properties": {
+         "prompt": {"type": "string", "description": "What to ask Claude to do, for a Claude task"},
+         "command": {"type": "string", "description": "A shell command, for a command task"},
+         "at": {"type": "string", "description": "When it first runs: 'now', 'in 10m', '14:30' "
+                "(next time it is that time), or a local ISO date-time like '2026-11-17T09:00'"},
+         "every": {"type": "string", "description": "Repeat interval, e.g. '15m', '2h', '1d', "
+                   "'1h30m'. Leave out for a one-off. At least a minute."},
+         "title": {"type": "string", "description": "A short name for the task"},
+         "folder": {"type": "string", "description": "The project folder; defaults to this session's"},
+         "mode": {"type": "string", "enum": list(MODES), "description": "Permission mode for a Claude "
+                  "task's turns (default auto)"},
+         "session": {"type": "string", "enum": ["new", "same"], "description": "Claude tasks: 'new' "
+                     "starts a fresh session every run (default); 'same' keeps one conversation going"},
+         "timeout_minutes": {"type": "number", "description": "Command tasks: stop it after this "
+                             "long (default 30)"},
+         "id": {"type": "string", "description": "Change this existing task instead of adding one"},
+         "enabled": {"type": "boolean", "description": "false pauses the task, true resumes it"},
+         "starred": {"type": "boolean", "description": "true lists it under the sessions in the panel, "
+                     "so it stays in view when no session in its folder is open"}}}},
+    {"name": "list_scheduled_tasks",
+     "description": "The tasks scheduled in this session's folder (or `folder`, or everywhere): what "
+                    "each does, how often, when it runs next, and how its last run went.",
+     "inputSchema": {"type": "object", "properties": {
+         "folder": {"type": "string"},
+         "everywhere": {"type": "boolean", "default": False, "description": "Every folder's tasks"}}},
+     "annotations": {"readOnlyHint": True}},
+    {"name": "cancel_scheduled_task",
+     "description": "Remove a scheduled task for good. To pause one instead, use schedule_task with "
+                    "its id and enabled: false.",
+     "inputSchema": {"type": "object", "required": ["id"], "properties": {"id": {"type": "string"}}},
+     "annotations": {"destructiveHint": True}},
+    {"name": "run_scheduled_task",
+     "description": "Run a scheduled task once now, without moving its schedule.",
+     "inputSchema": {"type": "object", "required": ["id"], "properties": {"id": {"type": "string"}}}},
 ]
 
 
@@ -542,7 +741,9 @@ class Server:
                           "instructions": "Watch and drive the other Claude Code sessions on this "
                                           "machine through the Watchtower panel. Start with list_sessions. "
                                           "When you make something viewable (an HTML page, styleguide, "
-                                          "report or dev server), hand it to the user with show_preview."}
+                                          "report or dev server), hand it to the user with show_preview. "
+                                          "To do something later or on repeat in a project — a prompt "
+                                          "for Claude or a shell command — use schedule_task."}
             elif method == "ping":
                 result = {}
             elif method == "tools/list":

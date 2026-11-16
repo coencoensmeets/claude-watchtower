@@ -241,3 +241,21 @@ def resolve_file(row: dict, rest: str) -> Path | None:
     if spot.is_dir():
         spot = next((spot / n for n in INDEX_NAMES if (spot / n).is_file()), None)
     return spot if spot and spot.is_file() else None
+
+
+# The script that lets you comment on a preview — see preview_pin.js. Read once:
+# it ships with the panel, and is the same for every page.
+PIN_SCRIPT = (Path(__file__).with_name("preview_pin.js")).read_bytes()
+
+
+def with_pin_script(body: bytes) -> bytes:
+    """An HTML page with the commenting script added before its closing body tag.
+
+    Inert on its own: it waits to be asked by the panel framing the page, and
+    a page opened in a tab of its own has no panel around it. Put before the
+    last `</body>` so it runs after the page's own markup, or on the end when
+    there is none — a fragment is still a page to the browser.
+    """
+    tag = b"<script data-wt-pin>" + PIN_SCRIPT + b"</script>"
+    at = body.lower().rfind(b"</body>")
+    return body[:at] + tag + body[at:] if at != -1 else body + tag
