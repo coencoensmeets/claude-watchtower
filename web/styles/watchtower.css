@@ -96,6 +96,12 @@
     --row-bg: transparent; background-image: var(--wt-hatch);
     box-shadow: inset 0 0 0 1.5px var(--md-sys-color-outline-variant);
   }
+  /* Selected and closed: still the ink fill the selection's light text is drawn
+     for. Without this the closed rule cleared the fill and left light text on a
+     light, hatched row. */
+  .session-item[aria-current="true"]:is([data-status="offline"], [data-status="stopped"]) {
+    --row-bg: var(--md-sys-color-primary); box-shadow: none;
+  }
   .session-item__avatar { width: 46px; height: 46px; }
   .session-item__lamp {
     top: -1px; bottom: auto; width: 13px; height: 13px;

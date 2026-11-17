@@ -352,3 +352,18 @@
   .git-mix__legend li { display: inline-flex; align-items: center; gap: 6px; }
   .git-mix__legend i { width: 10px; height: 10px; border-radius: 50%; background: var(--c); }
   .git-mix__legend b { color: var(--md-sys-color-on-surface); font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  /* Git and History are one tab (main.ts gitSwitch): two segments in one ink
+     pill at the top, the pressed one filled. */
+  .git-switch {
+    display: inline-flex; margin: 0 0 14px; padding: 3px; gap: 2px;
+    border-radius: var(--md-sys-shape-corner-full);
+    box-shadow: inset 0 0 0 1.5px var(--md-sys-color-outline-variant);
+  }
+  .git-switch__seg {
+    display: inline-flex; align-items: center; gap: 6px; padding: 6px 16px;
+    border: 0; border-radius: var(--md-sys-shape-corner-full); cursor: pointer;
+    background: transparent; color: var(--md-sys-color-on-surface);
+  }
+  .git-switch__seg svg { width: 16px; height: 16px; }
+  .git-switch__seg[aria-pressed="true"] { background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); }

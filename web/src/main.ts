@@ -38,7 +38,8 @@ import { openItems, paintItems } from "./views/items.js";
 import { askPicksFor, compactPct, composer, detailHeader, ownedFor, pickMode, pickTmuxMode, runsHere, sendAskAnswer } from "./views/owned.js";
 import { fetchPlan, openPlan, planScrim } from "./views/plan.js";
 import { fetchUpdate, openUpdate, updateScrim } from "./views/update.js";
-import { aboutPanel, usagePanel } from "./views/usage.js";
+import { aboutPanel } from "./views/usage.js";
+import { sandboxPanel, wireSandbox } from "./views/sandbox.js";
 import { pastPanel, pastStamp } from "./views/past.js";
 import { renderStarredTasks, schedulePanel, scheduleStamp, schedulesOf, wireSchedules, wireStarredTasks } from "./views/schedules.js";
 import { previewPanel, previewStamp, previewUnseen, previewsOf, stageKey, wirePreviews } from "./views/previews.js";
@@ -454,7 +455,7 @@ async function poll() {
     if (app.selectedId && app.tab === "chat" && chat.agentShown !== null) refreshAgent(selected());
     if (app.selectedId && isGitTab(app.tab)) fetchGit();
     if (app.selectedId && app.tab === "gitlab") fetchGitlab();
-    if (app.selectedId && app.tab === "usage") fetchUsage();
+    if (app.selectedId && app.tab === "about") fetchUsage();
     if (app.selectedId && app.tab === "past") fetchPast();
   } catch (error) {
     if (!app.lostSince) app.lostSince = Date.now();
@@ -569,6 +570,17 @@ function showMoreChat(event) {
 /* Both git tabs are drawn from the same reading, so they fetch and fall back
    together. */
 const isGitTab = (name: string) => name === "git" || name === "history";
+
+/* Git and History are one tab with two views. They kept their own names
+   underneath — `git` and `history` — because everything that fetches, wires and
+   falls back already speaks in those, and the strip only needed one button. */
+function gitSwitch() {
+  const seg = (name: string, icon: string, label: string) =>
+    `<button type="button" class="git-switch__seg md-state md-label-large" data-tab="${name}"
+       aria-pressed="${app.tab === name}">${icon}${label}</button>`;
+  return `<div class="git-switch" role="group" aria-label="Git view">${
+    seg("git", ICON.branch, "Changes")}${seg("history", ICON.history, "History")}</div>`;
+}
 
 /* Tokens and cost. Cheaper to read than the repository — the server scans the
    transcript once and picks up where it stopped — but there is no point reading
@@ -962,26 +974,36 @@ function paintListItem(item, session) {
   // And a command it left running in the background, which is the other thing
   // a session can be doing while its own status says it is waiting for you.
   const behind = session.shells?.running ? `${session.shells.running} in background` : "";
+  // Sandboxed: switched on, and whether the process behind it right now really
+  // is in the box. Said three ways, because a mark small enough to sit beside
+  // the name was too easily read as the preview badge: the avatar becomes a
+  // shield, ringed in ink (dashed while it waits for its next start), and the
+  // line under the name says so in words.
+  const owned = ownedFor(session);
+  const boxed = owned.sandbox ? (owned.boxed ? "in" : "next") : "";
+  const boxWord = boxed === "in" ? "sandbox" : boxed ? "sandbox next start" : "";
   // The badge carries the kind, so the words beside it do not have to repeat it
   // — and it takes the place of the state word, which a standing prompt has
   // already said more precisely.
   const supporting = (ask ? `<span class="session-item__ask md-label-small">${
       ICON[ASK_ICON[ask.kind]]
     }${ASK_WORD[ask.kind]}</span>` : "")
-    + [ask ? ask.label : state.short, fanned, behind, session.folder, nested].filter(Boolean)
+    + [ask ? ask.label : state.short, boxWord, fanned, behind, session.folder, nested].filter(Boolean)
       .map(escapeHtml).join(" · ");
   // `state.short` alongside the raw status, because they are not the same
   // question: a compacting session and a working one share a status, and the row
   // says different words for them.
   const signature = [stateKeyOf(session.status), state.short, session.name, session.folder, host.label,
                      isSelected, session.pinned, subject, nested, ask?.kind, ask?.label, fanned,
-                     previewsOf(session).length, previewUnseen(session)].join(" ");
+                     previewsOf(session).length, previewUnseen(session), boxed].join(" ");
   if (item.dataset.signature !== signature) {
     item.dataset.signature = signature;
     item.innerHTML = `
       <button class="session-item md-state" type="button" data-status="${stateKeyOf(session.status)}"
               aria-current="${isSelected}" data-picked="${isPicked}">
-        <span class="session-item__avatar">${host.icon}<span class="session-item__lamp"></span></span>
+        <span class="session-item__avatar" data-boxed="${boxed}"${boxed ? ` title="${boxed === "in"
+          ? "Running in the sandbox: it can change only its own checkout"
+          : "Set to run in the sandbox from its next start"}"` : ""}>${boxed ? ICON.shield : host.icon}<span class="session-item__lamp"></span></span>
         <span class="session-item__text">
           <span class="session-item__headline md-title-small">${
             session.pinned ? `<span class="session-item__pin" title="Pinned — survives a panel restart">${ICON.pin}</span>` : ""
@@ -1070,7 +1092,7 @@ function setTab(next) {
   if (next === "chat") fetchTranscript();
   if (isGitTab(next)) fetchGit();
   if (next === "gitlab") fetchGitlab();
-  if (next === "usage") fetchUsage(true);
+  if (next === "about") fetchUsage(true);
   if (next === "past") fetchPast(true);
 }
 
@@ -1811,23 +1833,21 @@ function renderDetail(force = false) {
         previewUnseen(session) && app.tab !== "preview" ? `<span class="tab__lamp" aria-label="New"></span>`
         : previewsOf(session).length > 1 ? `<span class="tab__count md-label-small">${previewsOf(session).length}</span>` : ""}</button>` : ""}
       ${session.repoRoot ? `
-        <button class="tab md-state md-label-large" role="tab" data-tab="git" aria-selected="${app.tab === "git"}">${ICON.branch}Git</button>
-        <button class="tab md-state md-label-large" role="tab" data-tab="history" aria-selected="${app.tab === "history"}">${ICON.history}History</button>
+        <button class="tab md-state md-label-large" role="tab" data-tab="${app.tab === "history" ? "history" : "git"}" data-tab-group="git" aria-selected="${isGitTab(app.tab)}">${ICON.branch}Git</button>
         <button class="tab md-state md-label-large" role="tab" data-tab="gitlab" aria-selected="${app.tab === "gitlab"}">${ICON.ticket}${forgeName(session.forge)}</button>` : ""}
       <button class="tab md-state md-label-large" role="tab" data-tab="past" aria-selected="${app.tab === "past"}">${ICON.rewind}Sessions</button>
       <button class="tab md-state md-label-large" role="tab" data-tab="schedule" aria-selected="${app.tab === "schedule"}">${ICON.clock}Schedule${
         schedulesOf(session).length ? `<span class="tab__count md-label-small">${schedulesOf(session).length}</span>` : ""}</button>
-      <button class="tab md-state md-label-large" role="tab" data-tab="usage" aria-selected="${app.tab === "usage"}">${ICON.coin}Usage</button>
+      <button class="tab md-state md-label-large" role="tab" data-tab="sandbox" aria-selected="${app.tab === "sandbox"}">${ICON.shield}Sandbox</button>
       <button class="tab md-state md-label-large" role="tab" data-tab="about" aria-selected="${app.tab === "about"}">${ICON.info}Details</button>
     </div>
     <div class="panel-wrap">
       <div class="tab-panel${app.tab === "preview" ? " tab-panel--preview" : ""}" id="chatScroll" role="tabpanel">
         ${app.tab === "chat" ? chatPanel(session)
           : app.tab === "preview" ? previewPanel(session)
-          : app.tab === "git" ? gitPanel(session)
-          : app.tab === "history" ? historyPanel(session)
+          : isGitTab(app.tab) ? gitSwitch() + (app.tab === "git" ? gitPanel(session) : historyPanel(session))
           : app.tab === "gitlab" ? gitlabPanel(session)
-          : app.tab === "usage" ? usagePanel(session)
+          : app.tab === "sandbox" ? sandboxPanel(session)
           : app.tab === "past" ? pastPanel(session)
           : app.tab === "schedule" ? schedulePanel(session)
           : aboutPanel(session, host)}
@@ -1887,6 +1907,14 @@ function renderDetail(force = false) {
   detailPane.querySelector("#stickyToggle")?.addEventListener("change", (event) =>
     run("/api/sticky", session, control(event), null,
         { pinned: control<HTMLInputElement>(event).checked }));
+  detailPane.querySelector("#sandboxToggle")?.addEventListener("change", async (event) => {
+    const box = control<HTMLInputElement>(event);
+    const on = box.checked;
+    const data = await run("/api/owned/sandbox", session, box as unknown as HTMLButtonElement,
+      on ? "Moving it into the sandbox…" : null, { on });
+    if (!data.ok) box.checked = !on;
+  });
+  if (app.tab === "sandbox") wireSandbox(detailPane, session);
   detailPane.querySelector("[data-act='forget']")?.addEventListener("click", () => openForgetDialog(session));
   detailPane.querySelector("#muteToggle")?.addEventListener("change", (event) => {
     if (control<HTMLInputElement>(event).checked) mutedSessions.delete(session.sessionId);

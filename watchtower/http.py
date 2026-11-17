@@ -54,6 +54,11 @@ from watchtower.owned import (
     owned_unqueue, save_owned,
 )
 from watchtower.past import past_session, past_sessions
+from watchtower.sandbox import (
+    can_box, create_ssh_key, delete_secret, delete_ssh_key, ensure_image, grant_secrets, is_sandboxed,
+    lan_for, load_settings, sandbox_report, secrets_for, set_lan, set_new_sessions, set_packages,
+    set_sandboxed, set_secret,
+)
 from watchtower.paste import (DROP_MAX_BYTES, PASTE_MAX_BYTES, POST_MAX_BYTES,
                               save_dropped_file, save_pasted_image)
 from watchtower.plan import read_plan
@@ -410,6 +415,10 @@ class Handler(BaseHTTPRequestHandler):
     def _get_state(self) -> None:
         self._json({**STORE.snapshot(), "previews": previews.read_previews(),
                     "starred": previews.read_starred(),
+                    # Whether this browser is on this computer: what only this
+                    # computer may change (the sandbox's shared settings) is
+                    # drawn read-only anywhere else.
+                    "thisComputer": is_loopback(self.client_address[0]),
                     # Light: no history and no output, which /api/schedules has.
                     "schedules": [{k: v for k, v in t.items() if k != "history"}
                                   | ({"last": {k: v for k, v in t["last"].items() if k != "output"}}
@@ -1482,6 +1491,218 @@ class Handler(BaseHTTPRequestHandler):
         ok, message = owned_set_mode(session_id, mode)
         self._json({"ok": ok, "message": message, "mode": mode}, 200 if ok else 400)
 
+    @route("POST", "/api/owned/sandbox")
+    def _post_owned_sandbox(self, payload: dict, session_id: str) -> None:
+        # The Sandbox tab's switch that boxes a session: from its next start it runs
+        # in a container that can change its own checkout and nothing else. See
+        # watchtower.sandbox for exactly what it can see.
+        #
+        # Only a session the panel runs can be boxed. A terminal session is a
+        # process somebody else started, and the switch saying *on* over a
+        # session that is in fact running loose would be the one outcome worse
+        # than having no switch — so that is a refusal, not a preference saved
+        # for later.
+        if not config.SAY_ENABLED:
+            self._json({"ok": False, "message": OFF_HERE}, 403)
+            return
+        on = bool(payload.get("on"))
+        if on == is_sandboxed(session_id):
+            self._json({"ok": True, "message": "Already so", "sandbox": on})
+            return
+        if STORE.raw(session_id):
+            self._json({"ok": False, "message": "It is running in a terminal. Make it interactive "
+                                                "here first — only a session the panel runs can be "
+                                                "put in the sandbox"}, 409)
+            return
+        with _OWNED_LOCK:
+            busy = session_id in OWNED_BUSY
+        if busy:
+            self._json({"ok": False, "message": "It is in the middle of a turn. Switch when it has "
+                                                "finished"}, 409)
+            return
+        if on:
+            report = sandbox_report(fresh=True)
+            if not report["available"]:
+                self._json({"ok": False, "message": report["why"]}, 400)
+                return
+        session = self._session_by_id(session_id)
+        cwd = str((session or {}).get("cwd") or (kept_rows().get(session_id) or {}).get("cwd") or "")
+        if on:
+            fits, why = can_box(cwd)
+            if not fits:
+                self._json({"ok": False, "message": why}, 400)
+                return
+        mode = (load_owned().get(session_id) or {}).get("mode") or OWNED_MODES[0]
+        set_sandboxed(session_id, on)
+        # Whatever is serving it now was started the other way, so it goes. The
+        # next start reads the switch, and a turn never runs in the box it was
+        # not meant to be in.
+        was_running = owned_running(session_id)
+        if was_running:
+            owned_release(session_id)
+
+        def restart() -> None:
+            if was_running and not owned_running(session_id):
+                owned_hold(session_id, cwd, mode)
+
+        if on:
+            ready, said = ensure_image(restart)
+            if not ready:
+                self._json({"ok": True, "sandbox": on, "message": f"{said}. It starts in the sandbox "
+                            "once the image is ready" + ("" if was_running else
+                                                         ", the next time it runs")})
+                return
+        if not was_running:
+            self._json({"ok": True, "sandbox": on,
+                        "message": "It runs in the sandbox from its next turn" if on
+                        else "It runs outside the sandbox from its next turn"})
+            return
+        up, said = owned_hold(session_id, cwd, mode)
+        self._json({"ok": up, "sandbox": on, "message": said if up else
+                    f"Switched, but it did not start back up: {said}"}, 200 if up else 500)
+
+    @route("POST", "/api/owned/sandbox/lan")
+    def _post_owned_sandbox_lan(self, payload: dict, session_id: str) -> None:
+        # The local addresses a boxed session may reach after all — a
+        # controller to ssh to. Replaces the whole list. This computer stays
+        # shut out whatever is on it (sandbox/entry.sh rejects it first).
+        #
+        # The firewall is set when a box starts, so a box that is running is
+        # restarted between turns to take the new list; mid-turn the list is
+        # saved and refused for now, rather than changing under a command that
+        # is part way through talking to the very device being added.
+        if not config.SAY_ENABLED:
+            self._json({"ok": False, "message": OFF_HERE}, 403)
+            return
+        allow = payload.get("allow")
+        if not isinstance(allow, list) or not all(isinstance(x, str) for x in allow):
+            self._json({"ok": False, "message": "Send the addresses as a list"}, 400)
+            return
+        with _OWNED_LOCK:
+            busy = session_id in OWNED_BUSY
+        if busy:
+            self._json({"ok": False, "message": "It is in the middle of a turn. Change this when it "
+                                                "has finished"}, 409)
+            return
+        before = lan_for(session_id)
+        ok, why, saved = set_lan(session_id, allow)
+        if not ok:
+            self._json({"ok": False, "message": why, "allow": before}, 400)
+            return
+        if saved == before:
+            self._json({"ok": True, "message": "No change", "allow": saved})
+            return
+        if not (is_sandboxed(session_id) and owned_running(session_id)):
+            self._json({"ok": True, "allow": saved, "message": "Saved. It applies when the box next starts"})
+            return
+        session = self._session_by_id(session_id)
+        cwd = str((session or {}).get("cwd") or (kept_rows().get(session_id) or {}).get("cwd") or "")
+        mode = (load_owned().get(session_id) or {}).get("mode") or OWNED_MODES[0]
+        owned_release(session_id)
+        up, said = owned_hold(session_id, cwd, mode)
+        self._json({"ok": up, "allow": saved,
+                    "message": "Restarted the box with the new list" if up
+                    else f"Saved, but the box did not start back up: {said}"}, 200 if up else 500)
+
+    # --- what every box shares. Changed from this computer only, whatever the
+    # key says: one of them hands secrets to sessions, and all of them change
+    # what every sandboxed session gets.
+
+    def _sandbox_local(self) -> bool:
+        if not config.SAY_ENABLED or not is_loopback(self.client_address[0]):
+            self._json({"ok": False, "message": "Only this computer can change that"}, 403)
+            return False
+        return True
+
+    @route("POST", "/api/sandbox/settings")
+    def _post_sandbox_settings(self, payload: dict, session_id: str) -> None:
+        if not self._sandbox_local():
+            return
+        if "newSessions" in payload:
+            set_new_sessions(bool(payload.get("newSessions")))
+        on = load_settings()["newSessions"]
+        self._json({"ok": True, "newSessions": on,
+                    "message": "New sessions start in the sandbox" if on
+                    else "New sessions start outside the sandbox"})
+
+    @route("POST", "/api/sandbox/packages")
+    def _post_sandbox_packages(self, payload: dict, session_id: str) -> None:
+        # Saved, then built onto the image in the background. Boxes already
+        # running keep the image they started on; the next start gets the new one.
+        if not self._sandbox_local():
+            return
+        ok, why, saved = set_packages(payload)
+        if not ok:
+            self._json({"ok": False, "message": why}, 400)
+            return
+        ready, said = ensure_image()
+        self._json({"ok": True, "packages": saved,
+                    "message": "Saved. Boxes get them from their next start" if ready
+                    else f"Saved. {said}; boxes get them from their next start after that"})
+
+    @route("POST", "/api/sandbox/sshkey")
+    def _post_sandbox_sshkey(self, payload: dict, session_id: str) -> None:
+        if not self._sandbox_local():
+            return
+        action = str(payload.get("action") or "")
+        if action not in ("create", "delete"):
+            self._json({"ok": False, "message": "create or delete"}, 400)
+            return
+        ok, message = create_ssh_key() if action == "create" else delete_ssh_key()
+        self._json({"ok": ok, "message": message, "sshKey": sandbox_report()["sshKey"]},
+                   200 if ok else 409)
+
+    @route("POST", "/api/sandbox/secrets")
+    def _post_sandbox_secrets(self, payload: dict, session_id: str) -> None:
+        # Values come in and never go back out: the feed carries names only.
+        if not self._sandbox_local():
+            return
+        action = str(payload.get("action") or "")
+        name = str(payload.get("name") or "")
+        if action == "set":
+            ok, message = set_secret(name, str(payload.get("value") or ""))
+        elif action == "delete":
+            ok, message = delete_secret(name)
+        else:
+            self._json({"ok": False, "message": "set or delete"}, 400)
+            return
+        self._json({"ok": ok, "message": message}, 200 if ok else 400)
+
+    @route("POST", "/api/owned/sandbox/secrets")
+    def _post_owned_sandbox_secrets(self, payload: dict, session_id: str) -> None:
+        # Which secrets this session's box gets. Like the local network list,
+        # they are set when the box starts, so a running box is restarted
+        # between turns to take them.
+        if not self._sandbox_local():
+            return
+        names = payload.get("names")
+        if not isinstance(names, list) or not all(isinstance(x, str) for x in names):
+            self._json({"ok": False, "message": "Send the names as a list"}, 400)
+            return
+        with _OWNED_LOCK:
+            busy = session_id in OWNED_BUSY
+        if busy:
+            self._json({"ok": False, "message": "It is in the middle of a turn. Change this when it "
+                                                "has finished"}, 409)
+            return
+        before = secrets_for(session_id)
+        ok, why, saved = grant_secrets(session_id, names)
+        if not ok:
+            self._json({"ok": False, "message": why}, 400)
+            return
+        if saved == before or not (is_sandboxed(session_id) and owned_running(session_id)):
+            self._json({"ok": True, "names": saved, "message": "Saved. It applies when the box next starts"
+                        if saved != before else "No change"})
+            return
+        session = self._session_by_id(session_id)
+        cwd = str((session or {}).get("cwd") or (kept_rows().get(session_id) or {}).get("cwd") or "")
+        mode = (load_owned().get(session_id) or {}).get("mode") or OWNED_MODES[0]
+        owned_release(session_id)
+        up, said = owned_hold(session_id, cwd, mode)
+        self._json({"ok": up, "names": saved,
+                    "message": "Restarted the box with them" if up
+                    else f"Saved, but the box did not start back up: {said}"}, 200 if up else 500)
+
     @route("POST", "/api/owned/adopt")
     def _post_owned_adopt(self, payload: dict, session_id: str) -> None:
         # Taking a live session's turns over. There is exactly one way to do it
@@ -1643,7 +1864,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": False, "message": "There is no folder to start it in"}, 404)
                 return
         mode = str(payload.get("mode") or NEW_SESSION_MODE)
-        made, message = owned_new(cwd, mode)
+        made, message = owned_new(cwd, mode, boxed=load_settings()["newSessions"])
         if made:
             self._pin_new(made, cwd)
         self._json({"ok": bool(made), "message": message, "sessionId": made, "cwd": cwd},
@@ -1699,7 +1920,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": False, "message": why}, 400)
             return
         mode = str(payload.get("mode") or NEW_SESSION_MODE)
-        made, message = owned_new(cwd, mode)
+        made, message = owned_new(cwd, mode, boxed=load_settings()["newSessions"])
         if not made:
             self._json({"ok": False, "message": message}, 409)
             return
@@ -2064,6 +2285,13 @@ class Handler(BaseHTTPRequestHandler):
                                    "the turn, first" if on_ask else
                                    "A turn from the panel is running on it — let it finish first"},
                        409)
+            return
+        # A terminal is outside the box, so handing a boxed session to one would
+        # quietly undo the switch that says it can only touch its own checkout.
+        if is_sandboxed(session_id):
+            self._json({"ok": False, "message": "It is set to run in the sandbox, and a terminal "
+                                                "would run it outside. Switch the sandbox off on its "
+                                                "Sandbox tab first"}, 409)
             return
         # Handing it back is the one thing that legitimately takes the transcript
         # off the panel, so it lets go rather than refusing.

@@ -364,20 +364,21 @@ const editor = JSON.parse(await evaluate(`(() => {
 check("the header opens the session's folder in an editor",
   editor.there && editor.named && editor.drawn && editor.folder, JSON.stringify(editor));
 
-/* The Usage tab totals the transcript, so a fixture with no recorded model
-   request has nothing to add up. Either way the tab must be there and must say
-   which of the two it is rather than drawing an empty page. */
-await evaluate(`document.querySelector('[data-tab="usage"]').click()`);
+/* Usage is a section of Details and totals the transcript, so a fixture with
+   no recorded model request has nothing to add up. Either way it must be there
+   and must say which of the two it is rather than drawing an empty page. */
+await evaluate(`document.querySelector('[data-tab="about"]').click()`);
 await sleep(1200);
 const use = JSON.parse(await evaluate(`JSON.stringify({
-  selected: document.querySelector('[data-tab="usage"]').getAttribute('aria-selected'),
+  selected: document.querySelector('[data-tab="about"]').getAttribute('aria-selected')
+    === 'true' && !!document.querySelector('.about-usage') ? 'true' : 'false',
   tiles: document.querySelectorAll('.spend-stat').length,
   cost: document.querySelector('.spend-hero__n')?.textContent.trim() || "",
   rows: document.querySelectorAll('.use-table tbody tr').length,
   note: document.querySelector('.git-empty')?.textContent.trim().slice(0, 40) || "",
   wide: document.documentElement.scrollWidth > document.documentElement.clientWidth,
 })`));
-check("usage tab switches", use.selected === "true");
+check("usage shows in details", use.selected === "true");
 if (use.tiles) {
   check("usage shows a cost and a row per model", /^\$/.test(use.cost) && use.rows >= 1,
     `${use.cost}, ${use.rows} models`);
@@ -440,14 +441,18 @@ if (!gitSession) {
 } else {
   await evaluate(`document.querySelector('[data-id="' + CSS.escape(${JSON.stringify(gitSession)}) + '"] .session-item').click()`);
   await sleep(900);
-  const hasTab = await evaluate(`!!document.querySelector('[data-tab="git"]') && !!document.querySelector('[data-tab="history"]')`);
-  check("git and history tabs appear for a session inside a repository", hasTab);
+  const hasTab = await evaluate(`!!document.querySelector('[data-tab-group="git"]')`);
+  check("the git tab appears for a session inside a repository", hasTab);
   if (hasTab) {
     /* --- Git: the working tree --- */
-    await evaluate(`document.querySelector('[data-tab="git"]').click()`);
+    await evaluate(`document.querySelector('[data-tab-group="git"]').click()`);
+    await sleep(600);
+    // Changes is one of the two views inside the tab; land on it whichever the
+    // tab remembered.
+    await evaluate(`document.querySelector('.git-switch [data-tab="git"]').click()`);
     await sleep(2200);
     const git = JSON.parse(await evaluate(`JSON.stringify({
-      selected: document.querySelector('[data-tab="git"]').getAttribute('aria-selected'),
+      selected: document.querySelector('[data-tab-group="git"]').getAttribute('aria-selected'),
       branch: (document.querySelector('.git-badge')?.textContent || '').trim(),
       files: document.querySelectorAll('.git-file').length,
       // One letter per row, for the side of the file that row stands for.
@@ -597,10 +602,10 @@ if (!gitSession) {
     }
 
     /* --- History: the graph --- */
-    await evaluate(`document.querySelector('[data-tab="history"]').click()`);
+    await evaluate(`document.querySelector('.git-switch [data-tab="history"]').click()`);
     await sleep(2200);
     const hist = JSON.parse(await evaluate(`JSON.stringify({
-      selected: document.querySelector('[data-tab="history"]').getAttribute('aria-selected'),
+      selected: document.querySelector('.git-switch [data-tab="history"]').getAttribute('aria-pressed'),
       branch: (document.querySelector('.git-badge')?.textContent || '').trim(),
       commits: document.querySelectorAll('.git-commit').length,
       rails: document.querySelectorAll('.git-commit__rail circle').length,
@@ -634,7 +639,7 @@ if (!gitSession) {
       `worst ${gitWorst}:1 over ${gitContrast.length} spots`);
 
     // Back to Git for the file-row contrast, which only exists there.
-    await evaluate(`document.querySelector('[data-tab="git"]').click()`);
+    await evaluate(`document.querySelector('.git-switch [data-tab="git"]').click()`);
     await sleep(1600);
     const fileContrast = JSON.parse(await evaluate(`JSON.stringify((() => {
       const out = [];

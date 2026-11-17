@@ -10,7 +10,28 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import json
 from pathlib import Path
+
+from watchtower.config import SANDBOX_ROOTS_FILE
+
+
+# Passed to every git the panel runs. A checkout's own .git/config can name a
+# command to run as its filesystem monitor, and `git status` runs it — the panel
+# has no use for one, and a checkout is not trusted to choose what the panel
+# executes. Matters most for a checkout a sandboxed session has written to, and
+# costs nothing anywhere else. `-c` reaches the git processes a submodule spawns
+# too, through GIT_CONFIG_PARAMETERS.
+GIT_SAFE_CONFIG = ("-c", "core.fsmonitor=false")
+
+
+def guarded_roots() -> set[str]:
+    """Checkouts a sandboxed session has run in. See config.SANDBOX_ROOTS_FILE."""
+    try:
+        data = json.loads(SANDBOX_ROOTS_FILE.read_text())
+    except (OSError, ValueError):
+        return set()
+    return {str(x) for x in data} if isinstance(data, list) else set()
 
 
 def git_root(cwd: str) -> str | None:
@@ -83,7 +104,7 @@ def git_run(root: str, args: list[str], timeout: float = 6.0) -> tuple[bool, str
         return False, ""
     try:
         result = subprocess.run(
-            ["git", "--no-optional-locks", "-C", root, *args],
+            ["git", "--no-optional-locks", *GIT_SAFE_CONFIG, "-C", root, *args],
             capture_output=True, text=True, timeout=timeout,
             # A repository is not a place to inherit the panel's environment
             # wholesale; a pager or an editor would hang the request.

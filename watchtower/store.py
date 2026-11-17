@@ -28,6 +28,7 @@ from watchtower.control import can_pick_folder
 from watchtower.errands import is_own_errand
 from watchtower.forges import forge_of_repo
 from watchtower.git.read import git_branch, git_root
+from watchtower.sandbox import sandbox_report
 from watchtower.owned import OWNED_ASK, OWNED_BUSY, owned_running, owned_moved, owned_state
 from watchtower.proc import (
     ancestors, cpu_seconds, descendants, proc_gone, proc_name, proc_starttime, session_tty, started_at,
@@ -840,6 +841,9 @@ class SessionStore:
             # Where a cleared session went. See owned_rekey: clearing gives a
             # session a new id, and the browser is holding the old one.
             "moved": owned_moved(),
+            # Whether a session can be put in the sandbox on this machine, and
+            # why not when it cannot — Docker missing, an npm claude.
+            "sandbox": sandbox_report(),
         }
 
     def forget(self, session_id: str) -> None:

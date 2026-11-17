@@ -222,7 +222,7 @@ export function usagePanel(session) {
 const CLOCK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`;
 
 /* A switch exactly as the rest of the panel draws one. */
-function switchRow(id, label, note, checked, disabled = false) {
+export function switchRow(id, label, note, checked, disabled = false) {
   return `<label class="switch about-switch">
     <input type="checkbox" id="${id}" ${checked ? "checked" : ""}${disabled ? " disabled" : ""}>
     <span class="switch__track"><span class="switch__thumb">
@@ -233,7 +233,7 @@ function switchRow(id, label, note, checked, disabled = false) {
   </label>`;
 }
 
-function aboutCard(icon, title, body, extra = "") {
+export function aboutCard(icon, title, body, extra = "") {
   return `<section class="about-card${extra}">
     <header class="about-card__head"><span class="about-card__icon">${icon}</span>
       <h3 class="about-card__title">${title}</h3></header>
@@ -347,6 +347,10 @@ export function aboutPanel(session, host) {
       ${pinCard}
       ${notifyCard}
     </div>
+    <section class="about-usage">
+      <h3 class="about-section-title">${ICON.coin}Usage</h3>
+      ${usagePanel(session)}
+    </section>
     ${aboutCard(ICON.info, "Facts", `<dl class="about-facts">
         ${facts.map(([key, value, action]) => `<div class="about-fact">
           <dt>${escapeHtml(key)}</dt><dd><span class="about-fact__v">${value}</span>${action || ""}</dd>
