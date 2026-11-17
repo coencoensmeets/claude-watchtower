@@ -96,7 +96,10 @@ export const app = {
   // A notification tapped with no panel open opens one at /?session=<id>.
   selectedId: new URLSearchParams(location.search).get("session")
     || localStorage.getItem("cbu-selected") || null,
-  tab: localStorage.getItem("cbu-tab") || "chat",
+  // The Usage tab became a section of Details; a tab remembered from before
+  // lands there rather than on a tab that no longer exists.
+  tab: ({ usage: "about" } as Record<string, string>)[localStorage.getItem("cbu-tab") || ""]
+    || localStorage.getItem("cbu-tab") || "chat",
   inFlight: null,
   showingSettings: false,
   // Whether the detail pane is on the work items page rather than a session or

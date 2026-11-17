@@ -98,6 +98,12 @@ OWNED_FILE = HOME / ".config" / "claude-watchtower" / "owned.json"
 MAX_OWNED = 200
 
 
+# Checkouts a sandboxed session has ever run in. Kept for good, because what a
+# box wrote into a checkout stays there after the box is gone: the panel's own
+# git commands in these run with hooks off — see watchtower.sandbox.
+SANDBOX_ROOTS_FILE = HOME / ".config" / "claude-watchtower" / "sandbox-roots.json"
+
+
 # How many running subagents the strip over the composer names one by one. Past
 # a handful it is a wall of chips over the box you were typing in, and the count
 # on the row already says how many there are.

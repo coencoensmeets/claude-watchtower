@@ -77,6 +77,15 @@
     display: grid; place-items: center; position: relative;
   }
   .session-item__avatar svg { width: 20px; height: 20px; }
+  /* Sandboxed (watchtower/sandbox.py): the host icon gives way to a shield and
+     the avatar is ringed in ink — solid while the box is running it, dashed
+     while it is switched on and waiting for its next start. A ring rather than a
+     fill, so the state colour inside still says working, waiting or done. */
+  .session-item__avatar[data-boxed="in"] { box-shadow: 0 0 0 2.5px var(--md-sys-color-on-surface); }
+  .session-item__avatar[data-boxed="next"] { outline: 2px dashed var(--md-sys-color-on-surface); outline-offset: 1px; }
+  .session-item[aria-current="true"] .session-item__avatar[data-boxed="in"] { box-shadow: 0 0 0 2.5px var(--md-sys-color-on-secondary-container); }
+  .session-item[aria-current="true"] .session-item__avatar[data-boxed="next"] { outline-color: var(--md-sys-color-on-secondary-container); }
+  .session-item__avatar:is([data-boxed="in"], [data-boxed="next"]) svg { width: 22px; height: 22px; }
   .session-item__lamp {
     position: absolute; right: -1px; bottom: -1px;
     width: 12px; height: 12px; border-radius: var(--md-sys-shape-corner-full);

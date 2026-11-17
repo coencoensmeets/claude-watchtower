@@ -26,6 +26,10 @@ from watchtower.config import MAX_OWNED, OWNED_FILE
 from watchtower.control import top_level_env
 from watchtower.errands import own_errand
 from watchtower.rows import forget_row, keep_row, kept_rows, load_pinned
+from watchtower.sandbox import (
+    can_box, is_sandboxed, lan_rekey, last_error, load_lan, load_sandboxed, log_file, reap_stale,
+    sandbox_rekey, secrets_for, secrets_rekey, set_sandboxed, stop_container, token_stale, wrap,
+)
 from watchtower.transcript import has_conversation
 from watchtower.windows import load_names, save_names
 
@@ -195,8 +199,13 @@ def owned_state() -> dict[str, dict]:
         compacting = {k: dict(v) for k, v in OWNED_COMPACT.items()}
         commands = {k: dict(v) for k, v in OWNED_COMMANDS.items()}
     out: dict[str, dict] = {}
+    boxed = load_sandboxed()
+    with _OWNED_LOCK:
+        in_box = {k: v.get("runtime") or "runc" for k, v in OWNED_PROCS.items() if v.get("container")}
+        missed = {k: list(v.get("lanMissed") or []) for k, v in OWNED_PROCS.items() if v.get("container")}
+    lan = load_lan()
     for session_id in (set(kept) | set(busy) | set(last) | set(asking) | set(waiting)
-                       | set(compacting) | set(commands)):
+                       | set(compacting) | set(commands) | boxed):
         out[session_id] = {
             "mode": (kept.get(session_id) or {}).get("mode", OWNED_MODES[0]),
             # Adopted, as against merely having had a mode picked for it.
@@ -229,6 +238,19 @@ def owned_state() -> dict[str, dict]:
             # Held open, i.e. a process is there between turns — which is what
             # makes the row a running session rather than one that wakes up.
             "running": owned_running(session_id),
+            # Switched to run in the sandbox, and whether the process serving it
+            # right now actually is in one — they differ for the moment between
+            # flipping the switch and the next start.
+            "sandbox": session_id in boxed,
+            "boxed": session_id in in_box,
+            # `runsc` when it has a kernel of its own (gVisor), `runc` when not.
+            "boxRuntime": in_box.get(session_id),
+            # Local addresses it may reach after all, as typed, and any host
+            # name among them that did not resolve when the box started.
+            "lan": lan.get(session_id, []),
+            "lanMissed": missed.get(session_id, []),
+            # Secret names this session's box is given (never the values).
+            "secrets": secrets_for(session_id) if session_id in boxed else [],
         }
     return out
 
@@ -427,6 +449,10 @@ def owned_rekey(old: str, new: str, held: dict) -> None:
     if old in owned:
         owned[new] = owned.pop(old)
         save_owned(owned)
+    # A boxed session is still boxed after a clear: it is the same process.
+    sandbox_rekey(old, new)
+    lan_rekey(old, new)
+    secrets_rekey(old, new)
     # Whoever asked for the clear is waiting to be told where the session went,
     # so that the browser can go on looking at it rather than at a row that is
     # not there any more.
@@ -925,6 +951,68 @@ def owned_reader(session_id: str, held: dict) -> None:
                 deliver_later(session_id, text)
 
 
+def _spawn(argv: list[str], cwd: str, session_id: str | None,
+           boxed: bool) -> tuple[subprocess.Popen | None, dict, str]:
+    """Start a held claude, in the sandbox when asked: (process, box facts, why not).
+
+    Boxed is the same argv inside `docker run -i` — see watchtower.sandbox. A box
+    that cannot be made is a refusal, never a quiet fallback to running loose:
+    somebody switched it on to be sure of what this session can reach.
+    """
+    facts: dict = {}
+    env = top_level_env()
+    stderr = subprocess.DEVNULL
+    if boxed:
+        argv, facts, why = wrap(argv, cwd, session_id)
+        if not argv:
+            return None, {}, f"Not started, because it is meant to run in the sandbox: {why}"
+        # The token rides in the docker client's environment, named on its
+        # command line with a bare `-e`, so it is never in `ps`.
+        env = {**env, **facts.get("env", {})}
+        try:
+            stderr = open(log_file(session_id), "w")
+        except OSError:
+            stderr = subprocess.DEVNULL
+    try:
+        proc = subprocess.Popen(
+            argv, cwd=cwd, env=env, text=True, bufsize=1,
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr,
+        )
+    except OSError as exc:
+        return None, {}, f"Could not start it: {exc}"
+    finally:
+        if stderr is not subprocess.DEVNULL:
+            stderr.close()
+    if boxed:
+        # A box that cannot set its firewall, or whose image is wrong, exits
+        # within a second or two. Caught here it is a reason; missed, it is a
+        # message that went down a dead pipe with nothing to say why.
+        try:
+            proc.wait(timeout=2.5)
+        except subprocess.TimeoutExpired:
+            pass
+        else:
+            said = last_error(session_id) or f"it exited with {proc.returncode}"
+            return None, {}, f"The sandbox would not start: {said}"
+    facts.pop("env", None)
+    return proc, facts, ""
+
+
+def _renew_box(session_id: str) -> None:
+    """Let go of a box whose token is about to run out, so the next turn gets a fresh one.
+
+    A box is given an access token and never the refresh token (see
+    watchtower.sandbox), so it cannot renew itself. Between turns, with nothing
+    waiting, restarting it costs a second and nothing else — the conversation is
+    on disk — and is far better than a turn failing half way for want of a login.
+    """
+    with _OWNED_LOCK:
+        held = OWNED_PROCS.get(session_id)
+        idle = session_id not in OWNED_BUSY and not OWNED_QUEUE.get(session_id)
+    if held and held.get("container") and idle and token_stale(held.get("expires")):
+        owned_release(session_id)
+
+
 def owned_hold(session_id: str, cwd: str, mode: str) -> tuple[bool, str]:
     """Start holding this session open, or say why it cannot be held."""
     if mode not in OWNED_MODES:
@@ -952,25 +1040,22 @@ def owned_hold(session_id: str, cwd: str, mode: str) -> tuple[bool, str]:
         # `stdio` means ask over this channel rather than at a terminal.
         "--permission-prompt-tool", "stdio",
     ]
-    try:
-        proc = subprocess.Popen(
-            argv, cwd=cwd, env=top_level_env(), text=True, bufsize=1,
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-        )
-    except OSError as exc:
-        return False, f"Could not start it: {exc}"
+    boxed = is_sandboxed(session_id)
+    proc, box, why = _spawn(argv, cwd, session_id, boxed)
+    if not proc:
+        return False, why
     held = {"proc": proc, "write": threading.Lock(), "mode": mode, "cwd": cwd,
-            "since": time.time(), "id": session_id, "named": threading.Event()}
+            "since": time.time(), "id": session_id, "named": threading.Event(), **box}
     with _OWNED_LOCK:
         OWNED_PROCS[session_id] = held
     # A `claude` of ours on the session's own transcript would otherwise arrive
     # in the list as a second live session. See OWN_ERRANDS.
     own_errand(proc.pid, True)
     threading.Thread(target=owned_reader, args=(session_id, held), daemon=True).start()
-    return True, "Running here"
+    return True, "Running here in the sandbox" if boxed else "Running here"
 
 
-def owned_new(cwd: str, mode: str) -> tuple[str | None, str]:
+def owned_new(cwd: str, mode: str, boxed: bool = False) -> tuple[str | None, str]:
     """Start a brand new session the panel runs, and answer with its id.
 
     Interactive from the first word rather than adopted later. The panel names it
@@ -980,11 +1065,20 @@ def owned_new(cwd: str, mode: str) -> tuple[str | None, str]:
     have had to be asked for in a dialog before there was a session to type at.
     Now the session is simply there, and the first message is the first thing you
     type into it, like any other session.
+
+    `boxed` starts it in the sandbox from its first word (the Sandbox tab's
+    *Start new sessions in the sandbox*). A folder that cannot be boxed is a
+    refusal that says so, not a session quietly started outside.
     """
     if mode not in OWNED_MODES:
         return None, f"The panel does not run turns in {mode!r}"
     if not cwd or not Path(cwd).is_dir():
         return None, f"That folder is gone: {cwd}" if cwd else "There is no folder to start it in"
+    if boxed:
+        fits, why = can_box(cwd)
+        if not fits:
+            return None, (f"New sessions start in the sandbox, and this one cannot: {why}. "
+                          "Or turn that off on the Sandbox tab")
     claude = shutil.which("claude")
     if not claude:
         return None, "Cannot find the claude command on PATH"
@@ -998,15 +1092,15 @@ def owned_new(cwd: str, mode: str) -> tuple[str | None, str]:
         "--permission-mode", CLI_MODES.get(mode, mode),
         "--permission-prompt-tool", "stdio",
     ]
-    try:
-        proc = subprocess.Popen(
-            argv, cwd=cwd, env=top_level_env(), text=True, bufsize=1,
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-        )
-    except OSError as exc:
-        return None, f"Could not start it: {exc}"
+    if boxed:
+        set_sandboxed(session_id, True)
+    proc, box, why = _spawn(argv, cwd, session_id, boxed)
+    if not proc:
+        if boxed:
+            set_sandboxed(session_id, False)
+        return None, why
     held = {"proc": proc, "write": threading.Lock(), "mode": mode, "cwd": cwd,
-            "since": time.time(), "id": session_id, "named": threading.Event()}
+            "since": time.time(), "id": session_id, "named": threading.Event(), **box}
     held["named"].set()
     with _OWNED_LOCK:
         OWNED_PROCS[session_id] = held
@@ -1024,7 +1118,7 @@ def owned_new(cwd: str, mode: str) -> tuple[str | None, str]:
     owned = load_owned()
     owned[session_id] = {"mode": mode, "here": True}
     save_owned(owned)
-    return session_id, "Running here"
+    return session_id, "Running here in the sandbox" if boxed else "Running here"
 
 
 def owned_release(session_id: str) -> bool:
@@ -1049,6 +1143,8 @@ def owned_release(session_id: str) -> bool:
         proc.wait(timeout=10)
     except subprocess.TimeoutExpired:
         proc.kill()
+        # Killing `docker run` is killing the client, not the box it started.
+        stop_container(held.get("container") or "")
     own_errand(proc.pid, False)
     return True
 
@@ -1080,6 +1176,7 @@ def owned_say(session_id: str, cwd: str, text: str, mode: str) -> tuple[bool, st
     """Send a turn to the held session, holding it first if it is not held yet."""
     if not text.strip():
         return False, "There is nothing to send"
+    _renew_box(session_id)
     if not owned_running(session_id):
         ok, message = owned_hold(session_id, cwd, mode)
         if not ok:
@@ -1223,6 +1320,8 @@ def owned_resume_held() -> None:
     """
     from watchtower.store import STORE
 
+    # Boxes the last panel left behind hold nobody's pipe and cannot be used.
+    reap_stale()
     pinned = load_pinned()
     owned = load_owned()
     stale = [key for key, entry in owned.items() if entry.get("here") and key not in pinned]

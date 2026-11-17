@@ -108,7 +108,7 @@ class StartPins(Fixture):
         patches = [
             mock.patch.object(config, "SAY_ENABLED", True),
             mock.patch.object(web, "HOME", self.home),
-            mock.patch.object(web, "owned_new", lambda cwd, mode: ("sid-1", "Started")),
+            mock.patch.object(web, "owned_new", lambda cwd, mode, boxed=False: ("sid-1", "Started")),
             mock.patch.object(web, "owned_say", lambda sid, cwd, text, mode: (said.append((sid, cwd, text)), (True, "ok"))[1]),
             mock.patch.object(web, "pin_row", lambda sid, entry: pinned.__setitem__(sid, entry)),
             mock.patch.object(web, "kept_rows", lambda: {}),

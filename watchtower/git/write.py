@@ -14,7 +14,7 @@ import shutil
 import subprocess
 import threading
 
-from watchtower.git.read import git_run, read_branches, read_git, read_status
+from watchtower.git.read import GIT_SAFE_CONFIG, git_run, guarded_roots, read_branches, read_git, read_status
 
 
 # The writing half of the allowlist above. Split from the readers on purpose:
@@ -51,10 +51,15 @@ def git_write(root: str, args: list[str], timeout: float = GIT_WRITE_TIMEOUT) ->
         return False, "That is not something this panel runs"
     if not shutil.which("git"):
         return False, "git is not installed"
+    # A checkout a sandboxed session has written to may have hooks it wrote —
+    # husky and friends point core.hooksPath into the tree, which the box can
+    # change. The panel committing there must not be what runs them on this
+    # machine, so its own commits there skip hooks altogether.
+    guard = ("-c", "core.hooksPath=/dev/null") if root in guarded_roots() else ()
     try:
         with GIT_WRITE_LOCK:
             result = subprocess.run(
-                ["git", "-C", root, *args],
+                ["git", *GIT_SAFE_CONFIG, *guard, "-C", root, *args],
                 capture_output=True, text=True, timeout=timeout,
                 env={**os.environ, "GIT_PAGER": "cat", "GIT_TERMINAL_PROMPT": "0",
                      "GIT_ASKPASS": "", "SSH_ASKPASS": "", "GIT_EDITOR": "true",

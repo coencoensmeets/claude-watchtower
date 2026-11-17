@@ -172,6 +172,42 @@ export interface Owned {
       Null until then — see the note on a held pipe in the README. */
   commands: OwnedCommands | null;
   running: boolean;
+  /** Switched to run in the sandbox (Details), from its next start. */
+  sandbox?: boolean;
+  /** The process serving it right now is in fact inside a container. */
+  boxed?: boolean;
+  /** `runsc` when that container has a kernel of its own (gVisor). */
+  boxRuntime?: string | null;
+  /** Local addresses the box may reach after all, as typed. */
+  lan?: string[];
+  /** Host names among them that did not resolve when the box started. */
+  lanMissed?: string[];
+  /** Secret names this session's box is given. */
+  secrets?: string[];
+}
+
+/** Whether this machine can run a session in the sandbox at all. */
+export interface SandboxReport {
+  available: boolean;
+  /** Why not, when it cannot: Docker missing or unreachable, an npm claude. */
+  why: string;
+  image: string;
+  imageReady: boolean;
+  /** The runtime the next box gets; `gvisor` when that is runsc. */
+  runtime: string;
+  gvisor: boolean;
+  /** How it signs in: "token" (long-lived), "session", "apikey". */
+  login: string;
+  /** Sessions started from the New menu start in the sandbox. */
+  newSessions: boolean;
+  /** Packages layered onto the image for every box. */
+  packages: { apt: string[]; pip: string[]; npm: string[] };
+  /** The boxes' own SSH key, public half; "" when there is none. */
+  sshKey: string;
+  /** Secret names (never values). */
+  secrets: string[];
+  building: boolean;
+  buildError: string | null;
 }
 
 /** A session's own answer about its slash commands, which beats the panel's
@@ -227,6 +263,9 @@ export interface Feed {
   historySeconds: number;
   /** Old session id -> the id it has now, for a session that was cleared. */
   moved?: Record<string, string>;
+  sandbox?: SandboxReport;
+  /** This browser is on this computer, so it may change what only it may. */
+  thisComputer?: boolean;
   canFocus: boolean;
   canSend: boolean;
   canPickFolder?: boolean;

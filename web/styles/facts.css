@@ -23,6 +23,13 @@
   /* At a glance first (four tiles), then the switches as cards with a round
      icon, then the facts, then the one destructive act set apart in rose. */
   .about-tab { display: flex; flex-direction: column; gap: var(--md-sys-spacing-4); container-type: inline-size; width: 100%; }
+  /* Usage lives in Details now (it was a tab): a heading, then the spend cards. */
+  .about-usage { display: flex; flex-direction: column; gap: var(--md-sys-spacing-3); }
+  .about-section-title {
+    display: flex; align-items: center; gap: 8px; margin: 8px 0 0;
+    font-size: 1.125rem; font-weight: 700; color: var(--md-sys-color-on-surface);
+  }
+  .about-section-title svg { width: 20px; height: 20px; }
 
   .about-glance { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--md-sys-spacing-3); }
   .about-glance__tile {
@@ -76,6 +83,63 @@
   .about-switch__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding-top: 4px; }
   .about-switch__text .switch__label { margin: 0; }
   .about-switch__note { font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); }
+  /* ------------------------------------------------------------ Sandbox tab */
+  /* views/sandbox.ts. Same cards as Details, with room for whole sentences:
+     body text in on-surface rather than the variant grey, so it reads. */
+  .sbx-tab .about-card__body { color: var(--md-sys-color-on-surface); }
+  .sbx-facts { display: grid; gap: 10px; margin: 0; }
+  .sbx-fact { display: grid; grid-template-columns: 7.5em 1fr; gap: 12px; align-items: baseline; }
+  .sbx-fact dt { font-weight: 650; font-size: 0.875rem; color: var(--md-sys-color-on-surface); }
+  .sbx-fact dd { margin: 0; font-size: 0.875rem; line-height: 1.45; color: var(--md-sys-color-on-surface); }
+  @media (max-width: 520px) { .sbx-fact { grid-template-columns: 1fr; gap: 2px; } }
+  .sbx-lan__list { display: flex; flex-wrap: wrap; gap: 8px; }
+  .sbx-lan__item {
+    display: inline-flex; align-items: center; gap: 4px; padding: 4px 6px 4px 14px;
+    border-radius: var(--md-sys-shape-corner-full); font-size: 0.875rem;
+    background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);
+  }
+  .sbx-lan__item--missed { background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container); }
+  .sbx-lan__remove {
+    border: 0; background: none; color: inherit; cursor: pointer; font-size: 1.1rem; line-height: 1;
+    width: 24px; height: 24px; border-radius: var(--md-sys-shape-corner-full);
+  }
+  .sbx-lan__add { display: flex; gap: 8px; }
+  .sbx-lan__add input {
+    flex: 1 1 auto; min-width: 0; padding: 9px 16px; font-size: 0.875rem;
+    border: 1.5px solid var(--md-sys-color-outline-variant); border-radius: var(--md-sys-shape-corner-full);
+    background: var(--md-sys-color-surface); color: var(--md-sys-color-on-surface);
+  }
+  .sbx-lan__add input:focus { outline: none; border-color: var(--md-sys-color-on-surface); }
+  .sbx-note { font-size: 0.8125rem; }
+  .sbx-note--bad { color: var(--md-sys-color-error); }
+  /* The public key, whole, for copying onto a device. */
+  .sbx-key {
+    padding: 10px 14px; border-radius: var(--md-sys-shape-corner-medium, 12px);
+    background: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);
+    font-size: 0.75rem; line-height: 1.4; word-break: break-all; user-select: all;
+  }
+  .sbx-secret__add, .sbx-pkg__add { display: flex; gap: 8px; flex-wrap: wrap; }
+  .sbx-secret__add input, .sbx-pkg__add input, .sbx-pkg__add select {
+    flex: 1 1 140px; min-width: 0; padding: 9px 16px; font-size: 0.875rem;
+    border: 1.5px solid var(--md-sys-color-outline-variant); border-radius: var(--md-sys-shape-corner-full);
+    background: var(--md-sys-color-surface); color: var(--md-sys-color-on-surface);
+  }
+  .sbx-pkg__add select { flex: 0 0 auto; }
+  .sbx-secret__add input:focus, .sbx-pkg__add input:focus, .sbx-pkg__add select:focus {
+    outline: none; border-color: var(--md-sys-color-on-surface);
+  }
+  .sbx-pkg { display: grid; grid-template-columns: 3em 1fr; gap: 8px; align-items: center; }
+  .sbx-pkg__kind { font-size: 0.8125rem; font-weight: 650; color: var(--md-sys-color-on-surface); }
+  /* The one thing no sandbox covers, said once and plainly. */
+  .sbx-warn {
+    display: flex; gap: 12px; align-items: flex-start; padding: 14px 18px;
+    border-radius: var(--md-sys-shape-corner-large, 16px);
+    background: var(--md-extended-color-waiting-tint, var(--md-sys-color-surface-container));
+    color: var(--md-sys-color-on-surface);
+  }
+  .sbx-warn p { margin: 0; font-size: 0.875rem; line-height: 1.45; }
+  .sbx-warn__icon { flex: none; display: grid; place-items: center; }
+  .sbx-warn__icon svg { width: 20px; height: 20px; }
   .about-switch input:disabled ~ .about-switch__text { opacity: 0.6; }
 
   /* ---- facts: label over value, two to a row where there is room */
