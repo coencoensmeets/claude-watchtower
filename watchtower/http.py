@@ -2024,6 +2024,13 @@ class Handler(BaseHTTPRequestHandler):
         # A live process holds the transcript, and nothing here will take it off
         # one. The row's own End is how you free it, deliberately.
         if STORE.raw(session_id):
+            # A message is sent to it instead, down its socket or held until it
+            # listens — what /api/say does. The browser picks this route off a
+            # row that can be stale about who runs the session, and refusing
+            # outright left a typed message with nowhere to go.
+            if str(payload.get("text") or "").strip():
+                self._post_say(payload, session_id)
+                return
             self._json({"ok": False, "message": "Something is already running this session — "
                                                 "end it first, or send to it instead"}, 409)
             return
