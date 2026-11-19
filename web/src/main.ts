@@ -1902,7 +1902,7 @@ function renderDetail(force = false) {
   detailPane.querySelector("[data-act='editor']")?.addEventListener("click", (e) => run("/api/editor", session, control(e)));
   // Handing it back: /api/start lets go of the session and resumes it in a
   // terminal. The pane repaints off the next poll, by which point the row is a
-  // terminal session again and offers Make interactive instead.
+  // terminal session again and offers Continue here instead.
   detailPane.querySelector("[data-act='terminal']")?.addEventListener("click", (e) => run("/api/start", session, control(e)));
   detailPane.querySelector("#stickyToggle")?.addEventListener("change", (event) =>
     run("/api/sticky", session, control(event), null,
@@ -2782,7 +2782,7 @@ async function startOwnedSession(where, item, prefill = "", tab = "chat") {
   }
 }
 
-/* Making a live session interactive. The wording names what is lost — the
+/* Continuing a live session here. The wording names what is lost — the
    terminal — and what is not, which is the conversation: the row is kept before
    anything is signalled, so the chat is still there afterwards. */
 const adoptScrim = document.getElementById("adoptScrim");
@@ -2796,7 +2796,7 @@ function openAdoptDialog(session) {
   // a warning where nothing is at stake.
   const carried = session.spoken ? " The conversation is kept." : "";
   document.getElementById("adoptSupporting").innerHTML =
-    `${name} runs in a terminal, so making it interactive <strong>ends that session</strong>.${carried}
+    `${name} runs in a terminal, so continuing it here <strong>ends that session</strong>.${carried}
      You then type to it here, pick its mode, and answer its prompts. It stays that way:
      the panel does not hand a conversation back to a terminal.`;
   document.getElementById("adoptForce").hidden = true;

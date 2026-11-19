@@ -43,7 +43,7 @@ export function sandboxPanel(session) {
       : owned.boxed ? "Running in the sandbox now."
       : "On. It starts in the sandbox the next time it runs.")
     : !report?.available ? escapeHtml(report?.why || "Not available on this computer.")
-    : inTerminal ? "It is running in a terminal. Make it interactive here first."
+    : inTerminal ? "It is running in a terminal. Continue it here first."
     : owned.busy ? "Switch when it has finished this turn."
     : "Off. It runs like any other session.";
 

@@ -1510,7 +1510,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": True, "message": "Already so", "sandbox": on})
             return
         if STORE.raw(session_id):
-            self._json({"ok": False, "message": "It is running in a terminal. Make it interactive "
+            self._json({"ok": False, "message": "It is running in a terminal. Continue it here "
                                                 "here first — only a session the panel runs can be "
                                                 "put in the sandbox"}, 409)
             return
@@ -2058,7 +2058,7 @@ class Handler(BaseHTTPRequestHandler):
             # the gap is what made a session go strange under you: the panel
             # would hold the process and run the turn while the record still said
             # the session was nobody's, so the moment the status left `stopped`
-            # the row lost its mode chips and offered to make interactive a
+            # the row lost its mode chips and offered to continue here a
             # session it was in the middle of running.
             owned[session_id] = {"mode": mode, "here": True}
             save_owned(owned)
@@ -2081,7 +2081,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if STORE.raw(session_id):
             self._json({"ok": False, "message": "Something else is running this session — "
-                                                "make it interactive first"}, 409)
+                                                "continue it here first"}, 409)
             return
         entry = self._row_for(session_id)
         if not entry:
@@ -2162,7 +2162,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if STORE.raw(session_id):
             self._json({"ok": False, "message": "That session is in a terminal, and /clear is the "
-                                                "terminal's own — make it interactive first"}, 409)
+                                                "terminal's own — continue it here first"}, 409)
             return
         ok, message, moved = owned_clear(session_id)
         self._json({"ok": ok, "message": message, "sessionId": moved},
