@@ -37,7 +37,7 @@ from watchtower.rows import kept_rows, refresh_row
 from watchtower.artifacts import file_new as file_artifacts
 from watchtower.shells import held_outputs, running_shells
 from watchtower.input import session_alive, session_listening
-from watchtower.sessions import PEER_PROTOCOL, child_sessions, peer_protocols
+from watchtower.sessions import PEER_PROTOCOL, child_sessions, peer_protocols, stdin_is_terminal
 from watchtower.tmux import pane_of, read_mode, screen, terminal_ask
 from watchtower.transcript import (
     has_conversation, last_activity, read_ai_title, read_pending_question, read_pending_tool,
@@ -128,8 +128,19 @@ def iso_seconds(stamp: object) -> float | None:
 
 
 def is_headless(data: dict) -> bool:
-    """Is this session file a headless run rather than a session to watch."""
-    return str(data.get("entrypoint") or "").startswith("sdk-")
+    """Is this session file a headless run rather than a session to watch.
+
+    The entrypoint alone no longer says. Claude Code 2.1.325 writes `sdk-cli`
+    for a plain `claude` in a terminal too, so going by it alone dropped every
+    terminal session: its row lost *Make interactive*, and a message typed into
+    it went the panel's own way and was refused. Someone at a terminal is what
+    a headless run never has, so a session whose standard input is a pty is
+    watched whatever its entrypoint says.
+    """
+    if not str(data.get("entrypoint") or "").startswith("sdk-"):
+        return False
+    pid = data.get("pid")
+    return not (isinstance(pid, int) and stdin_is_terminal(pid))
 
 
 class SessionStore:
