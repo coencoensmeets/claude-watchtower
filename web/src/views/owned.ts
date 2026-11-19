@@ -227,7 +227,7 @@ function foldButton(folded) {
 /* Handing an interactive session back to a terminal — `claude --resume` in a
    window of your own, on the same conversation.
 
-   The other half of *Continue here*, and offered in the same place that one
+   The other half of *Hand to Watchtower*, and offered in the same place that one
    is not: a session the panel runs has no window to focus, so the actions column
    holds only the editor button, and this goes above it. A session already in a
    terminal is left alone — it is already where this would put it, and *Focus
@@ -301,7 +301,7 @@ export const ownedFor = (session) => (app.feed.owned || {})[session.sessionId] |
 /* Whether the panel runs this session's next turn — which is every session but
    one kind. A terminal holds the transcript of the session running in it, and
    nothing can take a turn on a transcript something else holds. That is the only
-   case the panel cannot run, and so the only case offered *Continue here*;
+   case the panel cannot run, and so the only case offered *Hand to Watchtower*;
    everything else is ours, whether adopted, held open, kept, closed, or simply
    not known to be alive.
 
@@ -310,7 +310,7 @@ export const ownedFor = (session) => (app.feed.owned || {})[session.sessionId] |
 
    - a turn run from a row that had never been adopted flipped its status from
      `stopped` to `idle`, so mid-turn the row stopped counting as ours: the mode
-     chips went away and *Continue here* came back for a session the panel was
+     chips went away and *Hand to Watchtower* came back for a session the panel was
      at that moment running
    - an `offline` session belonged to nobody. It was past `stopped`, so it got no
      mode and no way in — and if it was blocked when its terminal went, no
@@ -475,7 +475,7 @@ const wayIn = (session) => !runsHere(session) && app.feed.canSend
   ? `<div class="owned-bar">
       <button class="button button--tonal md-state owned-bar__adopt" type="button" data-act="adopt"
         title="Ends the session in the terminal and takes its next turn here, on the same conversation">
-        ${ICON.play} Continue here
+        ${ICON.play} Hand to Watchtower
       </button>
       <span class="owned-bar__why md-label-small">answer its prompts and pick its mode here</span>
     </div>`
@@ -547,7 +547,7 @@ function queuedStrip(session) {
    was measured rather than assumed: it does not stop the turn, it ends the
    session — working or idle, Claude Code printed its `claude --resume` farewell
    and exited. So the button is drawn for such a session and disabled, saying
-   which Ctrl+C is the one that works, with **Continue here** already on the
+   which Ctrl+C is the one that works, with **Hand to Watchtower** already on the
    bar above as the way to have the other one. */
 function stopButton(session) {
   const owned = ownedFor(session);

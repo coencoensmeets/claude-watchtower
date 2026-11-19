@@ -58,7 +58,7 @@ const stateOf = (status: string): StateLook => STATE[stateKeyOf(status)] || STAT
 /* What to draw for a session, which is not always what to reason about it with.
    An adopted session's status stays `stopped` — nothing is running, and every
    check that turns on that is still right — but calling it Stopped on screen was
-   what made "Continue here" look like it had only stopped things. */
+   what made "Hand to Watchtower" look like it had only stopped things. */
 export const drawnStateOf = (session: Session): StateLook => {
   const owned = (app.feed.owned || {})[session.sessionId] || {};
   // Before anything else, because it is the more particular thing to say: a

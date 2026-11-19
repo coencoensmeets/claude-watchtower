@@ -187,7 +187,7 @@ function check(what, ok, note = "") {
 setFeed({ live: {}, kept: { mode: "plan" } });
 const live = composer({ sessionId: "live", status: "idle", canSay: true, alive: true });
 check("a live session offers the way in", live.includes(`data-act="adopt"`));
-check("named for what it gives you", /Continue here/.test(live));
+check("named for what it gives you", /Hand to Watchtower/.test(live));
 check("and offers no mode to pick yet", !live.includes("data-mode="));
 check("and does not offer to run a turn", !live.includes(`data-act="own"`));
 
@@ -250,12 +250,12 @@ check("an adopted but idle session offers to start back up",
 
 /* Held open and running: this is the case that regressed. Its status is `idle`
    like any running session, so anything keyed on `stopped` stopped treating it
-   as ours — and the live-session bar came back with Continue here on it. */
+   as ours — and the live-session bar came back with Hand to Watchtower on it. */
 setFeed({ kept: { mode: "plan", here: true, running: true } });
 const running = composer({ sessionId: "kept", status: "idle" });
 check("a running session of ours is still ours", !running.includes(`data-act="adopt"`));
-check("it never offers to continue here what already runs here",
-  !/Continue here/.test(running));
+check("it never offers to hand to Watchtower what Watchtower already runs",
+  !/Hand to Watchtower/.test(running));
 check("its mode is set from the header", modeBar({ sessionId: "kept", status: "idle" }).includes("mode-chip"));
 check("and it just sends", running.includes(`data-act="own"`) && !running.includes(`data-act="say"`));
 
@@ -559,8 +559,8 @@ check("and Send is what brings it back, with no terminal offered",
   gone.includes(`data-act="own"`) && !gone.includes(`data-act="say"`));
 check("it has a mode to pick, like every session the panel runs",
   modeBar({ sessionId: "gone", status: "offline", alive: false }).includes("mode-chip"));
-check("and is not offered a session to continue here",
-  !/Continue here/.test(gone));
+check("and is not offered a session to hand to Watchtower",
+  !/Hand to Watchtower/.test(gone));
 
 /* How full the conversation is, and when the way to make it smaller is offered.
    Compacting needs the held pipe — a slash command over a session's messaging
