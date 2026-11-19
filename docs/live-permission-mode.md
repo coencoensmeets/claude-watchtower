@@ -297,7 +297,7 @@ turn the panel launches owns stdio by construction.
 What was backed out was a takeover that killed a session and only *cleared the
 way*. What works is the same first half with the second half actually present:
 the panel can now run the next turn itself, so ending the terminal leads
-somewhere. **Continue here** keeps the row, ends the process, waits for it to
+somewhere. **Hand to Watchtower** keeps the row, ends the process, waits for it to
 really go, and hands the conversation to a `claude --print --resume` turn.
 
 Three things had to be true, and each was a bug first:

@@ -132,7 +132,7 @@ def is_headless(data: dict) -> bool:
 
     The entrypoint alone no longer says. Claude Code 2.1.325 writes `sdk-cli`
     for a plain `claude` in a terminal too, so going by it alone dropped every
-    terminal session: its row lost *Continue here*, and a message typed into
+    terminal session: its row lost *Hand to Watchtower*, and a message typed into
     it went the panel's own way and was refused. Someone at a terminal is what
     a headless run never has, so a session whose standard input is a pty is
     watched whatever its entrypoint says.
